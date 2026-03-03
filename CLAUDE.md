@@ -8,12 +8,19 @@ A **FastAPI backend server** running on Python that takes web/PDF highlights and
 
 ```
 HTTP Request (highlight payload)
-  → FastAPI server receives POST /highlights/process
-  → VaultReader builds fresh vault index
-  → Agent sends highlight + vault context to Claude
-  → Claude uses tools to read/create/update notes
-  → Changes appear as git diffs in the vault
-  → Response returned with affected notes + reasoning
+  → FastAPI server
+
+  PATH A — Direct write (POST /highlights/process):
+    → Agent sends highlight + vault context to Claude
+    → Claude uses tools to read/create/update notes
+    → Changes written to vault filesystem immediately
+    → Response returned with affected notes + reasoning
+
+  PATH B — Preview + approval (POST /highlights/preview):
+    → Agent runs in dry-run mode, streams events via SSE
+    → Proposed changes (diffs) collected into a Changeset
+    → Client approves/rejects individual changes
+    → POST /changesets/{id}/apply writes approved changes to disk
 ```
 
 ### Key Modules
@@ -26,6 +33,9 @@ HTTP Request (highlight payload)
 - **`src/agent/agent.py`** — The core agent loop. Sends messages to Claude with tools, executes tool calls, loops until completion.
 - **`src/agent/tools.py`** — Tool definitions and handlers for `read_note`, `create_note`, `update_note`, `search_vault`.
 - **`src/agent/prompts.py`** — System prompt templates. The vault map gets interpolated into the system prompt at runtime.
+- **`src/store.py`** — In-memory `ChangesetStore`. Holds pending changesets keyed by ID. Auto-expires entries older than 1 hour on `cleanup()`.
+- **`src/agent/changeset.py`** — `apply_changeset(vault_path, changeset, approved_ids?)`. Iterates approved `ProposedChange` objects and dispatches to `create_note` / `update_note`.
+- **`src/agent/diff.py`** — `generate_diff(path, original, proposed)`. Wraps `difflib.unified_diff` to produce unified diffs for display in the UI.
 - **`src/rag/chunker.py`** — Heading-based markdown chunker. Splits notes into chunks by heading boundaries.
 - **`src/rag/embedder.py`** — Voyage AI wrapper for embedding texts and queries.
 - **`src/rag/store.py`** — LanceDB wrapper for vector storage and search.
@@ -56,7 +66,19 @@ uv run uvicorn src.server:app --reload --port 3000 # Alternative start command
 - `GET /vault/map` — Returns vault structure JSON (for debugging)
 - `POST /vault/index` — Index vault into LanceDB for semantic search (requires VOYAGE_API_KEY)
 - `GET /vault/search?q=...&n=10` — Semantic search across vault contents (requires VOYAGE_API_KEY)
-- `POST /highlights/process` — Process a highlight through the agent
+- `POST /highlights/process` — Process a highlight through the agent (direct write)
+- `POST /highlights/preview` — SSE stream of agent reasoning + proposed changes; returns Changeset (409 if preview in progress)
+- `GET /changesets` — List all changesets (triggers cleanup of expired ones)
+- `GET /changesets/{id}` — Get full changeset with all ProposedChange details
+- `PATCH /changesets/{id}/changes/{change_id}` — Set individual change status to `"approved"` | `"rejected"`
+- `POST /changesets/{id}/apply` — Apply approved changes to disk; optional body: `{ change_ids: [...] }`
+- `POST /changesets/{id}/reject` — Reject entire changeset and all its changes
+
+### Changeset lifecycle
+
+- Changesets expire and are cleaned up after **1 hour**
+- Changeset status: `pending` → `applied` | `rejected` | `partially_applied`
+- Individual change status: `pending` → `approved` | `rejected` | `applied`
 
 ### Highlight payload format
 
@@ -95,8 +117,8 @@ Three write operations: create note, append section, add tags. No modifications 
 ### Direct Anthropic SDK
 The agent loop is ~50 lines. No LangChain/LlamaIndex — a framework adds complexity without value for this use case.
 
-### Git as the safety net
-The vault is a git repo. Run on a clean working tree. After evaluating the diff, `git checkout .` resets everything.
+### Changeset approval workflow
+Highlights are previewed before being written. `POST /highlights/preview` runs the agent in dry-run mode: tool calls are intercepted, diffs computed, and a `Changeset` returned without touching the filesystem. The client approves or rejects individual changes, then calls `POST /changesets/{id}/apply` to write only approved changes. Git remains useful for reviewing what landed, but the primary safety mechanism is the approval gate.
 
 ## Obsidian Conventions
 
@@ -167,6 +189,7 @@ vault-agent/
 │   ├── server.py
 │   ├── models.py
 │   ├── config.py
+│   ├── store.py               # In-memory changeset store
 │   ├── vault/
 │   │   ├── __init__.py
 │   │   ├── reader.py
@@ -175,7 +198,9 @@ vault-agent/
 │   │   ├── __init__.py
 │   │   ├── agent.py
 │   │   ├── tools.py
-│   │   └── prompts.py
+│   │   ├── prompts.py
+│   │   ├── changeset.py       # Applies approved changes to vault
+│   │   └── diff.py            # Unified diff generation
 │   └── rag/
 │       ├── __init__.py
 │       ├── chunker.py
@@ -183,6 +208,8 @@ vault-agent/
 │       ├── store.py
 │       ├── indexer.py
 │       └── search.py
-└── test-highlights/
-    └── highlights.json
+├── test-highlights/
+│   └── highlights.json
+└── .claude/
+    └── plans/                 # Saved implementation plans
 ```
