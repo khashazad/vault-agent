@@ -1,0 +1,14 @@
+[project]
+name = "vault-agent"
+version = "0.1.0"
+description = "FastAPI server that integrates web/PDF highlights into an Obsidian vault using Claude"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "anthropic",
+    "python-frontmatter",
+    "python-dotenv",
+    "voyageai",
+    "lancedb",
+]
