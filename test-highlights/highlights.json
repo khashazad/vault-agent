@@ -1,0 +1,13 @@
+[
+  {
+    "text": "Large language models can be used as reasoning engines, not just text generators, by giving them tools to interact with external systems.",
+    "source": "https://example.com/article-about-llm-agents",
+    "annotation": "Core insight about LLM agents - relates to my research on AI tools",
+    "tags": ["ai", "agents", "llm"]
+  },
+  {
+    "text": "The key to effective note-taking is not capturing everything, but capturing what resonates and connecting it to existing knowledge.",
+    "source": "https://example.com/zettelkasten-guide",
+    "tags": ["note-taking", "pkm"]
+  }
+]
