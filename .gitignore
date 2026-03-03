@@ -1,0 +1,43 @@
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# output
+out
+dist
+
+# code coverage
+coverage
+*.lcov
+.coverage
+htmlcov/
+
+# logs
+logs
+*.log
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# caches
+.cache
+
+# IntelliJ based IDEs
+.idea
+
+# LanceDB
+.lancedb/
+
+# Finder (MacOS) folder config
+.DS_Store
