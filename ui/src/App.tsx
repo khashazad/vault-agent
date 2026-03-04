@@ -4,6 +4,7 @@ import { HighlightForm } from "./components/HighlightForm";
 import { AgentStream } from "./components/AgentStream";
 import { ChangesetReview } from "./components/ChangesetReview";
 import { ChangesetHistory } from "./components/ChangesetHistory";
+import { VaultSearch } from "./components/VaultSearch";
 import { useAgentStream } from "./hooks/useAgentStream";
 import { useChangesets } from "./hooks/useChangesets";
 import type { HighlightInput } from "./types";
@@ -67,6 +68,8 @@ export default function App() {
             )}
         </div>
       )}
+
+      {view === "search" && <VaultSearch />}
 
       {view === "history" && (
         <ChangesetHistory

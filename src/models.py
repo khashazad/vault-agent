@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+SearchType = Literal["hybrid", "vector"]
+
 
 class HighlightInput(BaseModel):
     text: str
@@ -87,6 +89,7 @@ class ChunkInfo(BaseModel):
     heading: str
     content: str
     score: float
+    search_type: SearchType = "hybrid"
 
 
 class IndexResponse(BaseModel):
@@ -104,3 +107,6 @@ class SearchResponse(BaseModel):
     query: str
     results: list[ChunkInfo]
     count: int
+    embedding_model: str
+    vector_dimensions: int
+    search_type: SearchType = "hybrid"

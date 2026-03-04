@@ -19,6 +19,12 @@ export function Layout({ activeView, onViewChange, children }: Props) {
             + New Highlight
           </button>
           <button
+            className={`nav-item ${activeView === "search" ? "active" : ""}`}
+            onClick={() => onViewChange("search")}
+          >
+            Search
+          </button>
+          <button
             className={`nav-item ${activeView === "history" ? "active" : ""}`}
             onClick={() => onViewChange("history")}
           >

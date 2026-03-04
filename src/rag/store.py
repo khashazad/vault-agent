@@ -1,5 +1,12 @@
+import logging
+
 import lancedb
 import pyarrow as pa
+from lancedb.rerankers import RRFReranker
+
+logger = logging.getLogger("vault-agent")
+
+_RRF_RERANKER = RRFReranker()
 
 VECTOR_DIM = 512
 TABLE_NAME = "vault_chunks"
@@ -39,8 +46,12 @@ def upsert_chunks(table: lancedb.table.Table, rows: list[dict]) -> None:
     if not rows:
         return
     table.merge_insert(
-        "note_path", "heading"
+        ["note_path", "heading"]
     ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
+
+
+def build_fts_index(table: lancedb.table.Table) -> None:
+    table.create_fts_index("content", replace=True)
 
 
 def delete_stale_chunks(
@@ -74,15 +85,44 @@ def delete_stale_chunks(
 def search_vectors(
     table: lancedb.table.Table, query_vector: list[float], n: int = 10
 ) -> list[dict]:
-    results = table.search(query_vector).limit(n).to_pandas()
-    rows: list[dict] = []
-    for _, row in results.iterrows():
-        rows.append(
-            {
-                "note_path": row["note_path"],
-                "heading": row["heading"],
-                "content": row["content"],
-                "score": float(row["_distance"]),
-            }
+    df = table.search(query_vector).limit(n).to_pandas()
+    return [
+        {
+            "note_path": r["note_path"],
+            "heading": r["heading"],
+            "content": r["content"],
+            "score": float(r["_distance"]),
+            "search_type": "vector",
+        }
+        for r in df.to_dict(orient="records")
+    ]
+
+
+def search_hybrid(
+    table: lancedb.table.Table,
+    query_vector: list[float],
+    query_text: str,
+    n: int = 10,
+) -> list[dict]:
+    try:
+        df = (
+            table.search(query_type="hybrid")
+            .vector(query_vector)
+            .text(query_text)
+            .rerank(_RRF_RERANKER)
+            .limit(n)
+            .to_pandas()
         )
-    return rows
+        return [
+            {
+                "note_path": r["note_path"],
+                "heading": r["heading"],
+                "content": r["content"],
+                "score": float(r["_relevance_score"]),
+                "search_type": "hybrid",
+            }
+            for r in df.to_dict(orient="records")
+        ]
+    except Exception as e:
+        logger.warning(f"Hybrid search failed, falling back to vector: {e}")
+        return search_vectors(table, query_vector, n)

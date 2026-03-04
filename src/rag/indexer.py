@@ -12,6 +12,7 @@ from src.rag.store import (
     get_or_create_table,
     get_existing_data,
     upsert_chunks,
+    build_fts_index,
     delete_stale_chunks,
 )
 
@@ -127,6 +128,7 @@ async def index_vault(
             )
 
         upsert_chunks(table, rows)
+        build_fts_index(table)
         logger.info(f"Upserted {len(rows)} chunks ({added} new, {updated} updated)")
 
     # Delete stale
