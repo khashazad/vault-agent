@@ -42,3 +42,20 @@ export interface AgentStreamEvent {
     | "error";
   data: Record<string, unknown>;
 }
+
+export interface ChunkInfo {
+  note_path: string;
+  heading: string;
+  content: string;
+  score: number;
+  search_type: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  results: ChunkInfo[];
+  count: number;
+  embedding_model: string;
+  vector_dimensions: number;
+  search_type: string;
+}

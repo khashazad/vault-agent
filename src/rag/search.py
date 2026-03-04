@@ -1,7 +1,8 @@
 from dataclasses import dataclass
+from typing import Literal
 
 from src.rag.embedder import embed_query
-from src.rag.store import get_db, get_or_create_table, search_vectors
+from src.rag.store import get_db, get_or_create_table, search_hybrid
 
 
 @dataclass
@@ -10,6 +11,7 @@ class SearchResult:
     heading: str
     content: str
     score: float
+    search_type: Literal["hybrid", "vector"] = "hybrid"
 
 
 async def search_vault(
@@ -19,7 +21,7 @@ async def search_vault(
 
     db = get_db(lancedb_path)
     table = get_or_create_table(db)
-    raw_results = search_vectors(table, query_vector, n=n)
+    raw_results = search_hybrid(table, query_vector, query, n=n)
 
     return [
         SearchResult(
@@ -27,6 +29,7 @@ async def search_vault(
             heading=r["heading"],
             content=r["content"],
             score=r["score"],
+            search_type=r["search_type"],
         )
         for r in raw_results
     ]

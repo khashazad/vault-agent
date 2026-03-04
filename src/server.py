@@ -29,6 +29,8 @@ from src.agent.changeset import apply_changeset
 from src.store import changeset_store
 from src.rag.indexer import index_vault
 from src.rag.search import search_vault
+from src.rag import embedder as rag_embedder
+from src.rag import store as rag_store
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vault-agent")
@@ -60,7 +62,8 @@ async def log_requests(request: Request, call_next):
 async def health():
     return {
         "status": "ok",
-        "vaultPath": config.vault_path,
+        "vaultPath": str(config.vault_path),
+        "ragEnabled": bool(config.voyage_api_key),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -266,6 +269,7 @@ async def vault_search(q: str, n: int = 10):
         )
     try:
         results = await search_vault(q, config.voyage_api_key, config.lancedb_path, n=n)
+        overall_search_type = results[0].search_type if results else "hybrid"
         return SearchResponse(
             query=q,
             results=[
@@ -274,10 +278,14 @@ async def vault_search(q: str, n: int = 10):
                     heading=r.heading,
                     content=r.content,
                     score=r.score,
+                    search_type=r.search_type,
                 )
                 for r in results
             ],
             count=len(results),
+            embedding_model=rag_embedder.MODEL,
+            vector_dimensions=rag_store.VECTOR_DIM,
+            search_type=overall_search_type,
         )
     except Exception as err:
         logger.exception("Error searching vault")

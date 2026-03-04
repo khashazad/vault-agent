@@ -1,4 +1,4 @@
-import type { Changeset, ChangesetSummary } from "../types";
+import type { Changeset, ChangesetSummary, SearchResponse } from "../types";
 
 const BASE = "";
 
@@ -48,4 +48,11 @@ export async function rejectChangeset(changesetId: string): Promise<void> {
     method: "POST",
   });
   if (!res.ok) throw new Error(await res.text());
+}
+
+export async function searchVault(query: string, n = 10): Promise<SearchResponse> {
+  const params = new URLSearchParams({ q: query, n: String(n) });
+  const res = await fetch(`/vault/search?${params}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }

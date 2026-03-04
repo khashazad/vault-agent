@@ -9,6 +9,7 @@ logger = logging.getLogger("vault-agent")
 MODEL = "voyage-3-lite"
 BATCH_SIZE = 128
 MAX_RETRIES = 3
+BATCH_SLEEP_S = 1.0  # stay within free-tier rate limits
 
 
 @dataclass
@@ -26,6 +27,9 @@ async def embed_texts(
     total_tokens = 0
 
     for i in range(0, len(texts), BATCH_SIZE):
+        if i > 0:
+            await asyncio.sleep(BATCH_SLEEP_S)
+
         batch = texts[i : i + BATCH_SIZE]
 
         for attempt in range(MAX_RETRIES):
@@ -35,9 +39,18 @@ async def embed_texts(
                 total_tokens += result.total_tokens
                 break
             except Exception as e:
-                if attempt < MAX_RETRIES - 1 and "429" in str(e):
+                err_str = str(e).lower()
+                if "payment method" in err_str:
+                    raise RuntimeError(
+                        "Voyage AI requires a payment method to lift rate limits. "
+                        "Add one at https://dashboard.voyageai.com/ — the first 200M tokens remain free."
+                    ) from e
+                is_rate_limit = any(
+                    kw in err_str for kw in ("429", "rate limit", "too many requests")
+                )
+                if attempt < MAX_RETRIES - 1 and is_rate_limit:
                     wait = 2 ** (attempt + 1)
-                    logger.warning(f"Rate limited, retrying in {wait}s...")
+                    logger.warning(f"Rate limited by Voyage AI, retrying in {wait}s...")
                     await asyncio.sleep(wait)
                 else:
                     raise
