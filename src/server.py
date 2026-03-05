@@ -1,36 +1,33 @@
-import asyncio
-import dataclasses
-import json
 import logging
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from typing import Literal
-
-from pydantic import BaseModel
 
 from src.config import load_config
 from src.models import (
-    HighlightInput,
-    AgentStreamEvent,
-    IndexResponse,
-    SearchResponse,
+    ApplyRequest,
+    ChangeStatusUpdate,
     ChunkInfo,
+    HighlightInput,
+    IndexResponse,
+    RegenerateRequest,
+    SearchResponse,
 )
 from src.vault.reader import build_vault_map
-from src.agent.agent import process_highlight, process_highlight_preview
+from src.agent.agent import generate_changeset
 from src.agent.changeset import apply_changeset
 from src.store import changeset_store
 from src.rag.indexer import index_vault
 from src.rag.search import search_vault
-from src.rag import embedder as rag_embedder
-from src.rag import store as rag_store
+from src.rag.embedder import MODEL as EMBEDDING_MODEL
+from src.rag.store import VECTOR_DIM
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vault-agent")
@@ -46,16 +43,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Lock to prevent concurrent preview processing
-_preview_lock = asyncio.Lock()
+
+def _handle_anthropic_error(err: Exception, context: str) -> JSONResponse:
+    """Shared error handler for endpoints that call the Anthropic API."""
+    if isinstance(err, anthropic.AuthenticationError):
+        return JSONResponse({"error": "Invalid Anthropic API key"}, status_code=401)
+    if isinstance(err, anthropic.APIError):
+        status = err.status_code or 502
+        return JSONResponse(
+            {"error": f"Anthropic API error: {err.message}"}, status_code=status
+        )
+    logger.exception(context)
+    return JSONResponse({"error": str(err)}, status_code=500)
 
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"{request.method} {request.url.path}")
-    response = await call_next(request)
-    logger.info(f"{request.method} {request.url.path} -> {response.status_code}")
-    return response
+def _get_changeset_or_404(changeset_id: str):
+    """Fetch a changeset, raising HTTP 404 if not found."""
+    cs = changeset_store.get(changeset_id)
+    if not cs:
+        raise HTTPException(status_code=404, detail="Changeset not found")
+    return cs
+
+
+def _reject_changeset(cs):
+    """Mark a changeset and all its changes as rejected."""
+    cs.status = "rejected"
+    for change in cs.changes:
+        change.status = "rejected"
+    changeset_store.set(cs)
 
 
 @app.get("/health")
@@ -77,81 +92,19 @@ async def vault_map():
         return JSONResponse({"error": str(err)}, status_code=500)
 
 
-@app.post("/highlights/process")
-async def process(highlight: HighlightInput):
-    try:
-        result = await process_highlight(config, highlight)
-        return result
-    except anthropic.AuthenticationError:
-        return JSONResponse({"error": "Invalid Anthropic API key"}, status_code=401)
-    except anthropic.APIError as err:
-        status = err.status_code or 502
-        return JSONResponse(
-            {"error": f"Anthropic API error: {err.message}"}, status_code=status
-        )
-    except Exception as err:
-        logger.exception("Error processing highlight")
-        return JSONResponse({"error": str(err)}, status_code=500)
-
-
-# --- Preview / Changeset routes ---
+# --- Highlight preview ---
 
 
 @app.post("/highlights/preview")
-async def preview(highlight: HighlightInput):
-    if _preview_lock.locked():
-        return JSONResponse(
-            {"error": "A preview is already in progress. Please wait."},
-            status_code=409,
-        )
+async def preview_highlight(highlight: HighlightInput):
+    try:
+        changeset = await generate_changeset(config, highlight)
+        return changeset.model_dump()
+    except Exception as err:
+        return _handle_anthropic_error(err, "Error previewing highlight")
 
-    async def event_stream():
-        queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-        async def on_event(event: AgentStreamEvent):
-            data = json.dumps(event.model_dump())
-            await queue.put(f"event: {event.type}\ndata: {data}\n\n")
-
-        async def run_agent():
-            async with _preview_lock:
-                try:
-                    await process_highlight_preview(config, highlight, on_event)
-                except anthropic.AuthenticationError:
-                    err = json.dumps(
-                        {
-                            "type": "error",
-                            "data": {"message": "Invalid Anthropic API key"},
-                        }
-                    )
-                    await queue.put(f"event: error\ndata: {err}\n\n")
-                except Exception as err:
-                    logger.exception("Error in preview stream")
-                    error_data = json.dumps(
-                        {"type": "error", "data": {"message": str(err)}}
-                    )
-                    await queue.put(f"event: error\ndata: {error_data}\n\n")
-                finally:
-                    await queue.put(None)  # Signal done
-
-        task = asyncio.create_task(run_agent())
-
-        while True:
-            item = await queue.get()
-            if item is None:
-                break
-            yield item
-
-        await task
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+# --- Changeset routes ---
 
 
 @app.get("/changesets")
@@ -165,6 +118,9 @@ async def list_changesets():
             "change_count": len(cs.changes),
             "status": cs.status,
             "created_at": cs.created_at,
+            "routing_action": cs.routing.action if cs.routing else None,
+            "routing_target": cs.routing.target_path if cs.routing else None,
+            "routing_confidence": cs.routing.confidence if cs.routing else None,
         }
         for cs in changesets
     ]
@@ -172,23 +128,15 @@ async def list_changesets():
 
 @app.get("/changesets/{changeset_id}")
 async def get_changeset(changeset_id: str):
-    cs = changeset_store.get(changeset_id)
-    if not cs:
-        return JSONResponse({"error": "Changeset not found"}, status_code=404)
+    cs = _get_changeset_or_404(changeset_id)
     return cs.model_dump()
-
-
-class ChangeStatusUpdate(BaseModel):
-    status: Literal["approved", "rejected"]
 
 
 @app.patch("/changesets/{changeset_id}/changes/{change_id}")
 async def update_change_status(
     changeset_id: str, change_id: str, body: ChangeStatusUpdate
 ):
-    cs = changeset_store.get(changeset_id)
-    if not cs:
-        return JSONResponse({"error": "Changeset not found"}, status_code=404)
+    cs = _get_changeset_or_404(changeset_id)
 
     for change in cs.changes:
         if change.id == change_id:
@@ -199,15 +147,9 @@ async def update_change_status(
     return JSONResponse({"error": "Change not found"}, status_code=404)
 
 
-class ApplyRequest(BaseModel):
-    change_ids: list[str] | None = None
-
-
 @app.post("/changesets/{changeset_id}/apply")
 async def apply(changeset_id: str, body: ApplyRequest | None = None):
-    cs = changeset_store.get(changeset_id)
-    if not cs:
-        return JSONResponse({"error": "Changeset not found"}, status_code=404)
+    cs = _get_changeset_or_404(changeset_id)
 
     if cs.status in ("applied", "rejected"):
         return JSONResponse(
@@ -228,16 +170,27 @@ async def apply(changeset_id: str, body: ApplyRequest | None = None):
 
 @app.post("/changesets/{changeset_id}/reject")
 async def reject(changeset_id: str):
-    cs = changeset_store.get(changeset_id)
-    if not cs:
-        return JSONResponse({"error": "Changeset not found"}, status_code=404)
-
-    cs.status = "rejected"
-    for change in cs.changes:
-        change.status = "rejected"
-    changeset_store.set(cs)
-
+    cs = _get_changeset_or_404(changeset_id)
+    _reject_changeset(cs)
     return {"id": cs.id, "status": "rejected"}
+
+
+@app.post("/changesets/{changeset_id}/regenerate")
+async def regenerate(changeset_id: str, body: RegenerateRequest):
+    cs = _get_changeset_or_404(changeset_id)
+    _reject_changeset(cs)
+
+    try:
+        new_changeset = await generate_changeset(
+            config,
+            cs.highlight,
+            feedback=body.feedback,
+            previous_reasoning=cs.reasoning,
+            parent_changeset_id=cs.id,
+        )
+        return new_changeset.model_dump()
+    except Exception as err:
+        return _handle_anthropic_error(err, "Error regenerating changeset")
 
 
 # --- RAG routes ---
@@ -254,7 +207,7 @@ async def vault_index():
         stats = await index_vault(
             config.vault_path, config.voyage_api_key, config.lancedb_path
         )
-        return IndexResponse(success=True, **dataclasses.asdict(stats))
+        return IndexResponse(success=True, **asdict(stats))
     except Exception as err:
         logger.exception("Error indexing vault")
         return JSONResponse({"error": str(err)}, status_code=500)
@@ -283,8 +236,8 @@ async def vault_search(q: str, n: int = 10):
                 for r in results
             ],
             count=len(results),
-            embedding_model=rag_embedder.MODEL,
-            vector_dimensions=rag_store.VECTOR_DIM,
+            embedding_model=EMBEDDING_MODEL,
+            vector_dimensions=VECTOR_DIM,
             search_type=overall_search_type,
         )
     except Exception as err:

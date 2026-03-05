@@ -1,16 +1,15 @@
+import logging
 import uuid
-from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 import anthropic
 
 from src.models import (
-    AgentStreamEvent,
     Changeset,
     CreateNoteInput,
     HighlightInput,
-    ProcessResult,
     ProposedChange,
+    RoutingInfo,
     UpdateNoteInput,
 )
 from src.config import AppConfig
@@ -22,30 +21,54 @@ from src.vault.reader import build_vault_map
 from src.vault.writer import compute_create, compute_update
 from src.store import changeset_store
 
-MAX_TOOL_CALLS = 10
+logger = logging.getLogger("vault-agent")
+
+MAX_TOOL_CALLS = 15
 MODEL = "claude-sonnet-4-5-20250514"
 
 
-def _init_agent(config: AppConfig, highlight: HighlightInput):
+def _init_agent(
+    config: AppConfig,
+    highlight: HighlightInput,
+    feedback: str | None = None,
+    previous_reasoning: str | None = None,
+):
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     rag_enabled = bool(config.voyage_api_key)
     vault_map = build_vault_map(config.vault_path)
     system_prompt = build_system_prompt(vault_map.as_string, rag_enabled=rag_enabled)
     tool_defs = get_tool_definitions(rag_enabled=rag_enabled)
     messages: list[dict] = [
-        {"role": "user", "content": build_user_message(highlight)},
+        {
+            "role": "user",
+            "content": build_user_message(highlight, feedback, previous_reasoning),
+        },
     ]
     return client, system_prompt, tool_defs, messages
 
 
-async def process_highlight(
-    config: AppConfig, highlight: HighlightInput
-) -> ProcessResult:
-    client, system_prompt, tool_defs, messages = _init_agent(config, highlight)
+async def generate_changeset(
+    config: AppConfig,
+    highlight: HighlightInput,
+    feedback: str | None = None,
+    previous_reasoning: str | None = None,
+    parent_changeset_id: str | None = None,
+) -> Changeset:
+    """Run the agent to search, decide placement, and generate changes.
+    Returns a Changeset with proposed changes (no writes to disk)."""
 
-    affected_notes: list[str] = []
+    client, system_prompt, tool_defs, messages = _init_agent(
+        config, highlight, feedback, previous_reasoning
+    )
+
+    proposed_changes: list[ProposedChange] = []
     reasoning_parts: list[str] = []
+    routing_info: RoutingInfo | None = None
+    search_results_count = 0
     tool_call_count = 0
+
+    # Virtual filesystem for files "created" in preview mode
+    virtual_fs: dict[str, str] = {}
 
     while tool_call_count < MAX_TOOL_CALLS:
         response = await client.messages.create(
@@ -69,93 +92,6 @@ async def process_highlight(
             tool_results = []
 
             for block in response.content:
-                if block.type == "tool_use":
-                    tool_call_count += 1
-                    is_error = False
-
-                    try:
-                        result_content = await execute_tool(
-                            config.vault_path, block.name, block.input, config=config
-                        )
-
-                        if block.name in ("create_note", "update_note"):
-                            affected_notes.append(block.input["path"])
-                    except Exception as err:
-                        is_error = True
-                        result_content = f"Error: {err}"
-
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result_content,
-                            "is_error": is_error,
-                        }
-                    )
-
-            messages.append({"role": "user", "content": tool_results})
-
-    return ProcessResult(
-        success=len(affected_notes) > 0 or len(reasoning_parts) > 0,
-        action=(
-            f"Modified {len(affected_notes)} note(s)"
-            if affected_notes
-            else "No changes made"
-        ),
-        affected_notes=affected_notes,
-        reasoning="\n\n".join(reasoning_parts),
-    )
-
-
-async def process_highlight_preview(
-    config: AppConfig,
-    highlight: HighlightInput,
-    on_event: Callable[[AgentStreamEvent], Awaitable[None]],
-) -> Changeset:
-    """Process a highlight in preview mode: stream reasoning, intercept writes,
-    return a Changeset with proposed changes instead of writing to disk."""
-
-    client, system_prompt, tool_defs, messages = _init_agent(config, highlight)
-
-    proposed_changes: list[ProposedChange] = []
-    reasoning_parts: list[str] = []
-    tool_call_count = 0
-
-    # Virtual filesystem for files "created" in preview mode
-    # so subsequent reads of those files return the proposed content
-    virtual_fs: dict[str, str] = {}
-
-    while tool_call_count < MAX_TOOL_CALLS:
-        # Use streaming to get real-time text deltas
-        async with client.messages.stream(
-            model=MODEL,
-            max_tokens=4096,
-            system=system_prompt,
-            tools=tool_defs,
-            messages=messages,
-        ) as stream:
-            async for event in stream:
-                if event.type == "content_block_delta":
-                    if event.delta.type == "text_delta":
-                        reasoning_parts.append(event.delta.text)
-                        await on_event(
-                            AgentStreamEvent(
-                                type="reasoning",
-                                data={"text": event.delta.text},
-                            )
-                        )
-
-            response = await stream.get_final_message()
-
-        if response.stop_reason == "end_turn":
-            break
-
-        if response.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": response.content})
-
-            tool_results = []
-
-            for block in response.content:
                 if block.type != "tool_use":
                     continue
 
@@ -164,22 +100,30 @@ async def process_highlight_preview(
                 tool_name = block.name
                 tool_input = block.input
 
-                await on_event(
-                    AgentStreamEvent(
-                        type="tool_call",
-                        data={"tool_name": tool_name, "input": tool_input},
-                    )
-                )
-
                 try:
-                    if tool_name == "search_vault":
+                    if tool_name == "report_routing_decision":
+                        routing_info = RoutingInfo(
+                            action=tool_input["action"],
+                            target_path=tool_input.get("target_path"),
+                            reasoning=tool_input["reasoning"],
+                            confidence=tool_input["confidence"],
+                            search_results_used=search_results_count,
+                        )
+                        result_content = (
+                            f"Routing decision recorded: {routing_info.action} "
+                            f"{'at ' + routing_info.target_path if routing_info.target_path else '(new note)'}. "
+                            f"Now proceed to make the changes."
+                        )
+
+                    elif tool_name == "search_vault":
                         result_content = await execute_tool(
                             config.vault_path, tool_name, tool_input, config=config
                         )
+                        # Count results from output
+                        search_results_count = result_content.count("### Result ")
 
                     elif tool_name == "read_note":
                         note_path = tool_input["path"]
-                        # Check virtual_fs first (for files "created" in this session)
                         if note_path in virtual_fs:
                             result_content = virtual_fs[note_path]
                         else:
@@ -189,7 +133,6 @@ async def process_highlight_preview(
 
                     elif tool_name == "create_note":
                         inp = CreateNoteInput(**tool_input)
-                        # Also check virtual_fs — if already "created" in preview, treat as exists
                         if inp.path in virtual_fs:
                             raise FileExistsError(
                                 f"Note already exists at {inp.path}. Use update_note to modify existing notes."
@@ -208,20 +151,12 @@ async def process_highlight_preview(
                         proposed_changes.append(change)
                         virtual_fs[inp.path] = proposed_content
 
-                        await on_event(
-                            AgentStreamEvent(
-                                type="proposed_change",
-                                data=change.model_dump(),
-                            )
-                        )
-
                         result_content = (
                             f"[Preview] Note would be created at {inp.path}"
                         )
 
                     elif tool_name == "update_note":
                         inp = UpdateNoteInput(**tool_input)
-                        # Read original from virtual_fs or disk
                         if inp.path in virtual_fs:
                             original = virtual_fs[inp.path]
                         else:
@@ -244,13 +179,6 @@ async def process_highlight_preview(
                         proposed_changes.append(change)
                         virtual_fs[inp.path] = result
 
-                        await on_event(
-                            AgentStreamEvent(
-                                type="proposed_change",
-                                data=change.model_dump(),
-                            )
-                        )
-
                         result_content = (
                             f"[Preview] Note would be updated at {inp.path}"
                         )
@@ -259,19 +187,9 @@ async def process_highlight_preview(
                         raise ValueError(f"Unknown tool: {tool_name}")
 
                 except Exception as err:
+                    logger.warning("Tool %s failed: %s", tool_name, err)
                     is_error = True
                     result_content = f"Error: {err}"
-
-                await on_event(
-                    AgentStreamEvent(
-                        type="tool_result",
-                        data={
-                            "tool_name": tool_name,
-                            "result": result_content,
-                            "is_error": is_error,
-                        },
-                    )
-                )
 
                 tool_results.append(
                     {
@@ -284,20 +202,27 @@ async def process_highlight_preview(
 
             messages.append({"role": "user", "content": tool_results})
 
+    # Fallback: infer routing from first proposed change if agent didn't call report_routing_decision
+    if routing_info is None and proposed_changes:
+        first = proposed_changes[0]
+        routing_info = RoutingInfo(
+            action="create" if first.tool_name == "create_note" else "update",
+            target_path=first.input.get("path"),
+            reasoning="Inferred from agent actions (no explicit routing decision reported).",
+            confidence=0.5,
+            search_results_used=search_results_count,
+        )
+
     changeset = Changeset(
         id=str(uuid.uuid4()),
         highlight=highlight,
         changes=proposed_changes,
         reasoning="".join(reasoning_parts),
         created_at=datetime.now(timezone.utc).isoformat(),
+        routing=routing_info,
+        feedback=feedback,
+        parent_changeset_id=parent_changeset_id,
     )
     changeset_store.set(changeset)
-
-    await on_event(
-        AgentStreamEvent(
-            type="complete",
-            data={"changeset_id": changeset.id, "change_count": len(proposed_changes)},
-        )
-    )
 
     return changeset

@@ -1,3 +1,4 @@
+import logging
 import re
 from pathlib import Path, PurePosixPath
 
@@ -5,6 +6,8 @@ import frontmatter
 
 from src.models import VaultNote, VaultNoteSummary, VaultMap
 from src.vault import validate_path
+
+logger = logging.getLogger("vault-agent")
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
@@ -17,7 +20,8 @@ def _parse_frontmatter(raw: str) -> tuple[dict, str]:
     try:
         post = frontmatter.loads(raw)
         return dict(post.metadata), post.content
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to parse frontmatter: %s", e)
         return {}, raw
 
 

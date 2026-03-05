@@ -65,20 +65,16 @@ def delete_stale_chunks(
     keys = df["note_path"] + "::" + df["heading"]
     stale_mask = ~keys.isin(valid_keys)
     stale_df = df[stale_mask]
-    stale_filters: list[str] = []
-    for _, row in stale_df.iterrows():
-        path_escaped = row["note_path"].replace("'", "\\'")
-        heading_escaped = row["heading"].replace("'", "\\'")
-        stale_filters.append(
-            f"(note_path = '{path_escaped}' AND heading = '{heading_escaped}')"
-        )
-
-    if not stale_filters:
+    if stale_df.empty:
         return 0
 
-    count = len(stale_filters)
-    filter_expr = " OR ".join(stale_filters)
-    table.delete(filter_expr)
+    count = 0
+    for _, row in stale_df.iterrows():
+        path = row["note_path"].replace("'", "''")
+        heading = row["heading"].replace("'", "''")
+        table.delete(f"note_path = '{path}' AND heading = '{heading}'")
+        count += 1
+
     return count
 
 

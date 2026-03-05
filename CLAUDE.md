@@ -58,6 +58,9 @@ HTTP Request (highlight payload)
 uv sync                                            # Install dependencies
 uv run python -m src.server                        # Start server with hot reload (port 3000)
 uv run uvicorn src.server:app --reload --port 3000 # Alternative start command
+cd ui && bun install                               # Install UI dependencies
+cd ui && bun run dev                               # Start UI dev server (port 5173)
+cd ui && bun run build                             # Build UI for production → ui/dist/
 ```
 
 ## API Endpoints

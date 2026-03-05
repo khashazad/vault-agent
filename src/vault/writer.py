@@ -75,10 +75,10 @@ def compute_update(raw: str, inp: UpdateNoteInput) -> str:
 
         try:
             post = frontmatter.loads(raw)
-        except Exception:
+        except Exception as e:
             raise ValueError(
                 f"Failed to parse frontmatter in {inp.path}. Cannot add tags."
-            )
+            ) from e
 
         existing_tags: list[str] = (
             list(post.metadata.get("tags", []))

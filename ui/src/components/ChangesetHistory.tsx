@@ -1,23 +1,12 @@
 import { useEffect } from "react";
 import type { ChangesetSummary } from "../types";
+import { routingActionClass } from "../utils";
+import { StatusBadge } from "./StatusBadge";
 
 interface Props {
   changesets: ChangesetSummary[];
   loading: boolean;
   onRefresh: () => void;
-}
-
-function statusColor(status: string): string {
-  switch (status) {
-    case "applied":
-      return "status-applied";
-    case "rejected":
-      return "status-rejected";
-    case "partially_applied":
-      return "status-partial";
-    default:
-      return "status-pending";
-  }
 }
 
 export function ChangesetHistory({ changesets, loading, onRefresh }: Props) {
@@ -26,30 +15,44 @@ export function ChangesetHistory({ changesets, loading, onRefresh }: Props) {
   }, [onRefresh]);
 
   return (
-    <div className="changeset-history">
-      <div className="history-header">
-        <h3>History</h3>
-        <button onClick={onRefresh} disabled={loading} className="btn-sm">
+    <div className="bg-surface border border-border rounded p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-sm">History</h3>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="bg-elevated text-text border border-border py-1 px-3 rounded text-xs"
+        >
           {loading ? "..." : "Refresh"}
         </button>
       </div>
 
       {changesets.length === 0 ? (
-        <p className="empty-state">No changesets yet.</p>
+        <p className="text-muted text-center py-8">No changesets yet.</p>
       ) : (
-        <div className="history-list">
+        <div className="flex flex-col gap-2">
           {changesets.map((cs) => (
-            <div key={cs.id} className="history-item">
-              <div className="history-meta">
-                <span className={`status-badge ${statusColor(cs.status)}`}>
-                  {cs.status}
-                </span>
-                <span className="history-changes">
+            <div key={cs.id} className="border border-border rounded p-3">
+              <div className="flex items-center gap-2 mb-1">
+                <StatusBadge status={cs.status} />
+                {cs.routing_action && (
+                  <span
+                    className={`text-[11px] font-semibold py-0.5 px-2 rounded-[3px] uppercase ${routingActionClass(cs.routing_action)}`}
+                  >
+                    {cs.routing_action}
+                  </span>
+                )}
+                <span className="text-xs text-muted">
                   {cs.change_count} change{cs.change_count !== 1 ? "s" : ""}
                 </span>
               </div>
-              <div className="history-source">{cs.source}</div>
-              <div className="history-time">
+              {cs.routing_target && (
+                <div className="font-mono text-[13px] text-accent mb-0.5">
+                  {cs.routing_target}
+                </div>
+              )}
+              <div className="text-[13px] text-text mb-0.5">{cs.source}</div>
+              <div className="text-xs text-muted">
                 {new Date(cs.created_at).toLocaleString()}
               </div>
             </div>
