@@ -241,15 +241,6 @@
     font-family: var(--font-mono);
     font-size: 12px;
   }
-  .frontmatter-tag {
-    display: inline-block;
-    background: var(--color-blue-bg);
-    color: var(--color-accent);
-    font-size: 11px;
-    padding: 1px 7px;
-    border-radius: 10px;
-    margin-right: 4px;
-  }
 }
 
 @layer base {

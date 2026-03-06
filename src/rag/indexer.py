@@ -30,10 +30,9 @@ class IndexStats:
     duration_seconds: float
 
 
-def _scan_and_chunk(vault_path: str) -> tuple[list[Chunk], dict[str, list[str]]]:
+def _scan_and_chunk(vault_path: str) -> list[Chunk]:
     vault = Path(vault_path)
     all_chunks: list[Chunk] = []
-    tags_by_path: dict[str, list[str]] = {}
 
     for md_file in vault.rglob("*.md"):
         rel = md_file.relative_to(vault)
@@ -46,9 +45,6 @@ def _scan_and_chunk(vault_path: str) -> tuple[list[Chunk], dict[str, list[str]]]
         try:
             post = frontmatter.loads(raw)
             content = post.content
-            fm_tags = post.metadata.get("tags", [])
-            if isinstance(fm_tags, list):
-                tags_by_path[file_path] = [t for t in fm_tags if isinstance(t, str)]
         except Exception as e:
             logger.debug("Failed to parse frontmatter in %s: %s", file_path, e)
             content = raw
@@ -56,14 +52,12 @@ def _scan_and_chunk(vault_path: str) -> tuple[list[Chunk], dict[str, list[str]]]
         title = PurePosixPath(file_path).stem
         all_chunks.extend(chunk_note(file_path, title, content))
 
-    return all_chunks, tags_by_path
+    return all_chunks
 
 
-def _build_embed_text(chunk: Chunk, tags_by_path: dict[str, list[str]]) -> str:
-    tags = tags_by_path.get(chunk.note_path, [])
+def _build_embed_text(chunk: Chunk) -> str:
     title = PurePosixPath(chunk.note_path).stem
-    tag_str = f" [{', '.join(tags)}]" if tags else ""
-    return f"Note: {title} > {chunk.heading}{tag_str}\n\n{chunk.content}"
+    return f"Note: {title} > {chunk.heading}\n\n{chunk.content}"
 
 
 async def index_vault(
@@ -72,7 +66,7 @@ async def index_vault(
     start = time.time()
 
     # Scan and chunk
-    all_chunks, tags_by_path = _scan_and_chunk(vault_path)
+    all_chunks = _scan_and_chunk(vault_path)
     note_paths = set(c.note_path for c in all_chunks)
     total_notes = len(note_paths)
 
@@ -107,7 +101,7 @@ async def index_vault(
     updated = 0
 
     if changed_chunks:
-        texts = [_build_embed_text(c, tags_by_path) for c in changed_chunks]
+        texts = [_build_embed_text(c) for c in changed_chunks]
         embed_result = await embed_texts(voyage_api_key, texts)
 
         rows = []

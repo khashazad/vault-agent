@@ -16,20 +16,6 @@ function FrontmatterBar({
   return (
     <div className="frontmatter-bar">
       {Object.entries(frontmatter).map(([key, value]) => {
-        if (key === "tags" && Array.isArray(value)) {
-          return (
-            <div key={key} className="flex items-center gap-1">
-              <span className="frontmatter-key">{key}:</span>
-              <span>
-                {value.map((tag) => (
-                  <span key={tag} className="frontmatter-tag">
-                    {tag}
-                  </span>
-                ))}
-              </span>
-            </div>
-          );
-        }
         const display =
           typeof value === "string"
             ? value

@@ -3,7 +3,7 @@ from src.models import HighlightInput
 BASE_TOOL_DESCRIPTIONS = [
     "- **read_note**: Read the full content of a note. Always read a note before modifying it.",
     "- **create_note**: Create a new note when the highlight covers a topic not yet in the vault.",
-    "- **update_note**: Add content to an existing note (append a section) or add tags to frontmatter.",
+    "- **update_note**: Add content to an existing note (append a section).",
 ]
 
 SEARCH_VAULT_TOOL_DESC = "- **search_vault**: Semantic search across note contents. Use this FIRST to find relevant notes before reading or creating."
@@ -29,7 +29,7 @@ BASE_RULES = [
     "ALWAYS read a note before modifying it. Never update a note you haven't read first.",
     "Before creating a new note, verify there is no existing note covering this topic. Prefer updating existing notes over creating new ones.",
     "Follow the vault's existing naming conventions and folder structure.",
-    "Include proper YAML frontmatter with tags, source URL, and created date.",
+    "Include proper YAML frontmatter with source URL and created date.",
     "Use [[wikilinks]] to connect the highlight to related notes that exist in the vault.",
     "Preserve the original highlight text faithfully — do not paraphrase the source material.",
     "Add brief contextual commentary to help the user understand relevance.",
@@ -82,16 +82,14 @@ You have access to the user's Obsidian vault structure shown below. Your job is 
 
 ## Obsidian Conventions
 
-- Frontmatter: YAML block with `---`. Always use `tags` (plural array).
+- Frontmatter: YAML block with `---`.
 - Wikilinks: `[[Note Title]]`, `[[Note Title|display]]`, `[[Note Title#Heading]]`
-- Tags: `#tag` inline or `tags: [tag1, tag2]` in frontmatter. Hierarchical: `#projects/vault-agent`
 - Never modify callouts (`> [!note]`), dataview queries, embeds (`![[Note]]`), or block references (`^block-id`).
 
 ## New Note Template
 
 ```markdown
 ---
-tags: []
 source: ""
 created: YYYY-MM-DD
 ---
@@ -119,9 +117,6 @@ def build_user_message(
     msg += f"**Source:** {highlight.source}\n"
     if highlight.annotation:
         msg += f"**My note:** {highlight.annotation}\n"
-    if highlight.tags:
-        msg += f"**Suggested tags:** {', '.join(highlight.tags)}\n"
-
     if feedback and previous_reasoning:
         msg += "\n## Previous Attempt (rejected by user)\n\n"
         msg += f"**Previous reasoning:**\n{previous_reasoning}\n\n"
@@ -165,8 +160,6 @@ def build_batch_user_message(
         msg += f"**Source:** {h.source}\n"
         if h.annotation:
             msg += f"**Note:** {h.annotation}\n"
-        if h.tags:
-            msg += f"**Suggested tags:** {', '.join(h.tags)}\n"
         msg += "\n"
 
     if feedback and previous_reasoning:

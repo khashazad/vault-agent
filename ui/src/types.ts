@@ -2,7 +2,6 @@ export interface HighlightInput {
   text: string;
   source: string;
   annotation?: string;
-  tags?: string[];
 }
 
 export interface ProposedChange {

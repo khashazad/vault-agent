@@ -12,9 +12,6 @@ logger = logging.getLogger("vault-agent")
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
-INLINE_TAG_RE = re.compile(
-    r"(?<=\s)#([a-zA-Z][\w/-]*)|^#([a-zA-Z][\w/-]*)", re.MULTILINE
-)
 
 
 def _parse_frontmatter(raw: str) -> tuple[dict, str]:
@@ -35,23 +32,6 @@ def extract_headings(content: str) -> list[str]:
     return [m.group(2) for m in HEADING_RE.finditer(content)]
 
 
-def extract_tags(fm: dict, content: str) -> list[str]:
-    tags: list[str] = []
-
-    fm_tags = fm.get("tags")
-    if isinstance(fm_tags, list):
-        for t in fm_tags:
-            if isinstance(t, str):
-                tags.append(t)
-
-    for m in INLINE_TAG_RE.finditer(content):
-        tag = m.group(1) or m.group(2)
-        if tag:
-            tags.append(tag)
-
-    return list(dict.fromkeys(tags))
-
-
 def parse_note_summary(file_path: str, raw: str) -> VaultNoteSummary:
     fm, content = _parse_frontmatter(raw)
 
@@ -62,16 +42,15 @@ def parse_note_summary(file_path: str, raw: str) -> VaultNoteSummary:
     return VaultNoteSummary(
         path=file_path,
         title=title,
-        tags=extract_tags(fm, content),
         wikilinks=extract_wikilinks(content),
         headings=extract_headings(content),
     )
 
 
 def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
-    """Produce a compact vault summary (~500-800 tokens) with folder tree,
-    top tags, and total note count. Used when RAG is enabled so the agent
-    relies on search_vault for discovery instead of a full listing."""
+    """Produce a compact vault summary (~500-800 tokens) with folder tree
+    and total note count. Used when RAG is enabled so the agent relies on
+    search_vault for discovery instead of a full listing."""
 
     total = len(summaries)
 
@@ -86,14 +65,6 @@ def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
         label = "Root" if folder == "." else folder
         folder_lines.append(f"  {label}/ ({folder_counts[folder]} notes)")
 
-    # Top 30 tags by frequency
-    tag_counter: Counter[str] = Counter()
-    for note in summaries:
-        for tag in note.tags:
-            tag_counter[tag] += 1
-
-    top_tags = [tag for tag, _ in tag_counter.most_common(30)]
-
     lines = [
         f"## Vault Summary ({total} notes)",
         "",
@@ -101,11 +72,6 @@ def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
         *folder_lines,
         "",
     ]
-
-    if top_tags:
-        lines.append("### Top Tags")
-        lines.append(", ".join(top_tags))
-        lines.append("")
 
     lines.append(
         "Use `search_vault` to find notes by content. "
@@ -149,5 +115,4 @@ def read_note(vault_path: str, note_path: str) -> VaultNote:
         frontmatter=fm,
         content=content,
         wikilinks=extract_wikilinks(content),
-        tags=extract_tags(fm, content),
     )
