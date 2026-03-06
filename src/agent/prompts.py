@@ -37,7 +37,7 @@ BASE_RULES = [
     "All operations are additive only. You cannot delete content or overwrite existing sections.",
 ]
 
-SEARCH_VAULT_RULE = "ALWAYS start by using search_vault to find notes semantically related to the highlight topic. This searches note contents, not just titles."
+SEARCH_VAULT_RULE = "ALWAYS start by using search_vault to find notes semantically related to the highlight topic. The vault context above is a summary only (folder structure and tags) — search_vault searches actual note contents and is the primary way to discover relevant notes."
 
 
 def build_system_prompt(vault_map_string: str, rag_enabled: bool = False) -> str:

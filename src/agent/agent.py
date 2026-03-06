@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ from src.store import changeset_store
 logger = logging.getLogger("vault-agent")
 
 MAX_TOOL_CALLS = 15
-MODEL = "claude-sonnet-4-5-20250514"
+MODEL = "claude-haiku-4-5-20251001"
 
 
 def _init_agent(
@@ -35,7 +36,11 @@ def _init_agent(
 ):
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     rag_enabled = bool(config.voyage_api_key)
-    vault_map = build_vault_map(config.vault_path)
+    vault_map = build_vault_map(
+        config.vault_path,
+        compact=rag_enabled,
+        max_notes=None if rag_enabled else 200,
+    )
     system_prompt = build_system_prompt(vault_map.as_string, rag_enabled=rag_enabled)
     tool_defs = get_tool_definitions(rag_enabled=rag_enabled)
     messages: list[dict] = [
@@ -45,6 +50,40 @@ def _init_agent(
         },
     ]
     return client, system_prompt, tool_defs, messages
+
+
+async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
+    """Call client.messages.create with exponential backoff on rate limit (429)
+    and overloaded (529) errors. Retries up to 3 times with 1s base delay."""
+    max_retries = 3
+    base_delay = 1.0
+
+    for attempt in range(max_retries + 1):
+        try:
+            return await client.messages.create(**kwargs)
+        except anthropic.RateLimitError:
+            if attempt == max_retries:
+                raise
+            delay = base_delay * (2**attempt)
+            logger.warning(
+                "Rate limited (429), retrying in %.1fs (attempt %d/%d)",
+                delay,
+                attempt + 1,
+                max_retries,
+            )
+            await asyncio.sleep(delay)
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529 and attempt < max_retries:
+                delay = base_delay * (2**attempt)
+                logger.warning(
+                    "API overloaded (529), retrying in %.1fs (attempt %d/%d)",
+                    delay,
+                    attempt + 1,
+                    max_retries,
+                )
+                await asyncio.sleep(delay)
+            else:
+                raise
 
 
 async def generate_changeset(
@@ -71,7 +110,8 @@ async def generate_changeset(
     virtual_fs: dict[str, str] = {}
 
     while tool_call_count < MAX_TOOL_CALLS:
-        response = await client.messages.create(
+        response = await _create_with_retry(
+            client,
             model=MODEL,
             max_tokens=4096,
             system=system_prompt,
