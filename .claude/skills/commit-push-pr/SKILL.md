@@ -50,7 +50,6 @@ Before proceeding, gather this information:
      - Description with summary and context
      - Reference any related issues
    - Add appropriate labels if applicable
-   - Always append `@claude please review this PR` at the end of the PR body to trigger automatic code review
 
 ## Arguments
 
