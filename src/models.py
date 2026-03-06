@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_serializer
 
 SearchType = Literal["hybrid", "vector"]
 
@@ -10,6 +10,10 @@ class HighlightInput(BaseModel):
     source: str
     annotation: str | None = None
     tags: list[str] | None = None
+
+
+class BatchHighlightInput(BaseModel):
+    highlights: list[HighlightInput]
 
 
 class VaultNoteSummary(BaseModel):
@@ -57,6 +61,7 @@ class RoutingInfo(BaseModel):
     reasoning: str
     confidence: float
     search_results_used: int = 0
+    additional_targets: list[str] | None = None
 
 
 class ProposedChange(BaseModel):
@@ -71,7 +76,7 @@ class ProposedChange(BaseModel):
 
 class Changeset(BaseModel):
     id: str
-    highlight: HighlightInput
+    highlights: list[HighlightInput]
     changes: list[ProposedChange]
     reasoning: str
     status: Literal["pending", "applied", "rejected", "partially_applied"] = "pending"
@@ -79,6 +84,13 @@ class Changeset(BaseModel):
     routing: RoutingInfo | None = None
     feedback: str | None = None
     parent_changeset_id: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        d = handler(self)
+        # Backward compat: include singular "highlight" pointing to first
+        d["highlight"] = d["highlights"][0] if d["highlights"] else None
+        return d
 
 
 class RegenerateRequest(BaseModel):

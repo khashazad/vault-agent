@@ -108,6 +108,7 @@ function ChangesetCard({
       <div className="flex items-center gap-2 text-[13px] text-muted mb-0.5">
         <span>{cs.source}</span>
         <span className="text-xs">
+          {cs.highlight_count > 1 && `${cs.highlight_count} highlights · `}
           {cs.change_count} change{cs.change_count !== 1 ? "s" : ""}
         </span>
       </div>
@@ -152,20 +153,24 @@ function ChangesetDetail({
 
       <div>
         <h4 className="text-[13px] text-muted uppercase tracking-wide mb-2">
-          Highlight
+          {changeset.highlights.length > 1
+            ? `Highlights (${changeset.highlights.length})`
+            : "Highlight"}
         </h4>
-        <blockquote className="bg-bg border-l-[3px] border-l-accent py-3 px-4 rounded-r text-sm leading-relaxed mb-2">
-          {changeset.highlight.text}
-        </blockquote>
-        <div className="flex flex-col gap-1 text-[13px] text-muted">
-          <span>Source: {changeset.highlight.source}</span>
-          {changeset.highlight.annotation && (
-            <span>Note: {changeset.highlight.annotation}</span>
-          )}
-          {changeset.highlight.tags && changeset.highlight.tags.length > 0 && (
-            <span>Tags: {changeset.highlight.tags.join(", ")}</span>
-          )}
-        </div>
+        {changeset.highlights.map((h, i) => (
+          <div key={i} className="mb-3">
+            <blockquote className="bg-bg border-l-[3px] border-l-accent py-3 px-4 rounded-r text-sm leading-relaxed mb-1">
+              {h.text}
+            </blockquote>
+            <div className="flex flex-col gap-0.5 text-[13px] text-muted pl-4">
+              <span>Source: {h.source}</span>
+              {h.annotation && <span>Note: {h.annotation}</span>}
+              {h.tags && h.tags.length > 0 && (
+                <span>Tags: {h.tags.join(", ")}</span>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
 
       {changeset.routing && <RoutingSection routing={changeset.routing} />}
@@ -247,7 +252,7 @@ interface Props {
   onRefresh: () => void;
   onSelect: (id: string) => void;
   onBack: () => void;
-  onPreview: (highlight: HighlightInput) => void;
+  onPreview: (highlights: HighlightInput[]) => void;
   onRegenerate: (changesetId: string, feedback: string) => void;
   onDone: () => void;
 }

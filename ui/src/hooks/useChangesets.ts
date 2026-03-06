@@ -7,6 +7,7 @@ import {
   rejectChangeset,
   updateChangeStatus,
   previewHighlight,
+  previewBatch,
   regenerateChangeset,
 } from "../api/client";
 import { formatError } from "../utils";
@@ -48,11 +49,14 @@ export function useChangesets() {
   }, []);
 
   const preview = useCallback(
-    async (highlight: HighlightInput) => {
+    async (highlights: HighlightInput[]) => {
       setPreviewLoading(true);
       setError(null);
       try {
-        const cs = await previewHighlight(highlight);
+        const cs =
+          highlights.length === 1
+            ? await previewHighlight(highlights[0])
+            : await previewBatch(highlights);
         setSelectedChangeset(cs);
         await refresh();
       } catch (err) {
