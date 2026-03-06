@@ -21,10 +21,13 @@ export interface RoutingInfo {
   reasoning: string;
   confidence: number;
   search_results_used: number;
+  additional_targets: string[] | null;
 }
 
 export interface Changeset {
   id: string;
+  highlights: HighlightInput[];
+  /** @deprecated Use highlights[0] — kept for backward compat */
   highlight: HighlightInput;
   changes: ProposedChange[];
   reasoning: string;
@@ -38,6 +41,7 @@ export interface Changeset {
 export interface ChangesetSummary {
   id: string;
   source: string;
+  highlight_count: number;
   change_count: number;
   status: string;
   created_at: string;

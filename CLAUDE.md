@@ -67,8 +67,8 @@ cd ui && bun run build                             # Build UI for production →
 
 - `GET /health` — Health check, returns vault path and status
 - `GET /vault/map` — Returns vault structure JSON (for debugging)
-- `POST /vault/index` — Index vault into LanceDB for semantic search (requires VOYAGE_API_KEY)
-- `GET /vault/search?q=...&n=10` — Semantic search across vault contents (requires VOYAGE_API_KEY)
+- `POST /vault/index` — Index vault into LanceDB for semantic search
+- `GET /vault/search?q=...&n=10` — Semantic search across vault contents
 - `POST /highlights/process` — Process a highlight through the agent (direct write)
 - `POST /highlights/preview` — SSE stream of agent reasoning + proposed changes; returns Changeset (409 if preview in progress)
 - `GET /changesets` — List all changesets (triggers cleanup of expired ones)
@@ -102,17 +102,17 @@ Required in `.env` (loaded via `python-dotenv`):
 ANTHROPIC_API_KEY=sk-ant-...
 VAULT_PATH=/absolute/path/to/obsidian/vault
 PORT=3000
-VOYAGE_API_KEY=pa-...          # Optional — enables RAG semantic search
+VOYAGE_API_KEY=pa-...          # Required — powers semantic search
 LANCEDB_PATH=.lancedb          # Optional — default ".lancedb"
 ```
 
 `VAULT_PATH` must point to the root of the Obsidian vault (the directory containing `.obsidian/`).
-`VOYAGE_API_KEY` is optional. When not set, RAG is disabled and the agent uses only vault structure (titles/tags/links) for context.
+`VOYAGE_API_KEY` is required. The agent uses semantic search (Voyage AI + LanceDB) to discover relevant notes.
 
 ## Key Design Decisions
 
-### Optional RAG with Voyage AI + LanceDB
-The full vault structure (titles, folders, tags, link graph) is always passed in the Claude context window. When `VOYAGE_API_KEY` is set, semantic search is also available: notes are chunked by heading, embedded via Voyage AI (`voyage-3-lite`), and stored in LanceDB. The agent uses `search_vault` to find relevant note sections by meaning before reading/creating. Indexing is incremental (only re-embeds changed chunks).
+### RAG with Voyage AI + LanceDB
+A compact vault summary (folder structure and top tags) is passed in the Claude context window. Semantic search powers note discovery: notes are chunked by heading, embedded via Voyage AI (`voyage-3-lite`), and stored in LanceDB. The agent uses `search_vault` to find relevant note sections by meaning before reading/creating. Indexing is incremental (only re-embeds changed chunks).
 
 ### Additive-only writes
 Three write operations: create note, append section, add tags. No modifications to existing prose, no deletions, no moves, no renames. Worst case is an unwanted new note or a bad append, both trivially reverted with `git checkout`.
@@ -172,7 +172,7 @@ Commentary about the highlight.
   - `add_tags`: Merges tags into frontmatter array (no duplicates)
 - **Constraint**: Append-only, never removes content
 
-### `search_vault` (RAG only — available when VOYAGE_API_KEY is set)
+### `search_vault`
 - **Input**: `{ query: string, n?: number }`
 - **Output**: Ranked list of note sections with path, heading, content snippet, and similarity score
 - **Usage**: Agent calls this first to find semantically relevant notes before reading/creating

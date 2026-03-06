@@ -158,11 +158,10 @@ REPORT_ROUTING_DECISION_TOOL = {
 }
 
 
-def get_tool_definitions(rag_enabled: bool = False) -> list[dict]:
+def get_tool_definitions() -> list[dict]:
     tools = list(TOOL_DEFINITIONS)
     tools.insert(0, REPORT_ROUTING_DECISION_TOOL)
-    if rag_enabled:
-        tools.insert(0, SEARCH_VAULT_TOOL)
+    tools.insert(0, SEARCH_VAULT_TOOL)
     return tools
 
 
@@ -186,10 +185,8 @@ async def execute_tool(
         return update_note(vault_path, inp)
 
     if tool_name == "search_vault":
-        if not config or not config.voyage_api_key:
-            return "Error: RAG is not configured (VOYAGE_API_KEY not set)"
         query = tool_input.get("query", "")
-        n = min(tool_input.get("n", 10), MAX_SEARCH_RESULTS)
+        n = min(tool_input.get("n", 7), MAX_SEARCH_RESULTS)
         results = await search_vault(
             query, config.voyage_api_key, config.lancedb_path, n=n
         )
@@ -199,7 +196,7 @@ async def execute_tool(
         for i, r in enumerate(results, 1):
             lines.append(f"### Result {i} (score: {r.score:.4f})")
             lines.append(f"**Note:** `{r.note_path}` > {r.heading}")
-            lines.append(r.content[:500])
+            lines.append(r.content[:200])
             lines.append("")
         return "\n".join(lines)
 

@@ -26,6 +26,16 @@ export function previewHighlight(highlight: HighlightInput): Promise<Changeset> 
   });
 }
 
+export function previewBatch(
+  highlights: HighlightInput[]
+): Promise<Changeset> {
+  return fetchJSON(`${BASE}/highlights/preview-batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ highlights }),
+  });
+}
+
 export function fetchChangesets(): Promise<ChangesetSummary[]> {
   return fetchJSON(`${BASE}/changesets`);
 }
