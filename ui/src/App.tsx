@@ -1,72 +1,35 @@
 import { useState, useCallback } from "react";
 import { Layout } from "./components/Layout";
-import { HighlightForm } from "./components/HighlightForm";
-import { AgentStream } from "./components/AgentStream";
-import { ChangesetReview } from "./components/ChangesetReview";
 import { ChangesetHistory } from "./components/ChangesetHistory";
 import { VaultSearch } from "./components/VaultSearch";
-import { useAgentStream } from "./hooks/useAgentStream";
+import { HighlightPreview } from "./components/HighlightPreview";
 import { useChangesets } from "./hooks/useChangesets";
-import type { HighlightInput } from "./types";
 
 export default function App() {
-  const [view, setView] = useState("new");
-  const agent = useAgentStream();
+  const [view, setView] = useState("preview");
   const changesets = useChangesets();
 
-  const handleSubmit = useCallback(
-    (highlight: HighlightInput) => {
-      agent.start(highlight);
-    },
-    [agent.start]
-  );
-
   const handleDone = useCallback(() => {
-    agent.reset();
+    changesets.clearSelection();
     changesets.refresh();
-  }, [agent.reset, changesets.refresh]);
+  }, [changesets.clearSelection, changesets.refresh]);
 
   return (
     <Layout activeView={view} onViewChange={setView}>
-      {view === "new" && (
-        <div className="new-highlight-view">
-          <HighlightForm
-            onSubmit={handleSubmit}
-            disabled={agent.status === "streaming"}
-          />
-
-          {agent.error && (
-            <div className="error-banner">
-              <strong>Error:</strong> {agent.error}
-            </div>
-          )}
-
-          <AgentStream
-            reasoning={agent.reasoning}
-            toolCalls={agent.toolCalls}
-            isStreaming={agent.status === "streaming"}
-          />
-
-          {agent.status === "complete" &&
-            agent.changesetId &&
-            agent.proposedChanges.length > 0 && (
-              <ChangesetReview
-                changesetId={agent.changesetId}
-                initialChanges={agent.proposedChanges}
-                onDone={handleDone}
-              />
-            )}
-
-          {agent.status === "complete" &&
-            agent.proposedChanges.length === 0 && (
-              <div className="no-changes">
-                <p>
-                  The agent completed without proposing any changes to the vault.
-                </p>
-                <button onClick={handleDone}>Start New</button>
-              </div>
-            )}
-        </div>
+      {view === "preview" && (
+        <HighlightPreview
+          changesets={changesets.changesets}
+          selectedChangeset={changesets.selectedChangeset}
+          loading={changesets.loading}
+          previewLoading={changesets.previewLoading}
+          error={changesets.error}
+          onRefresh={changesets.refresh}
+          onSelect={changesets.select}
+          onBack={changesets.clearSelection}
+          onPreview={changesets.preview}
+          onRegenerate={changesets.regenerate}
+          onDone={handleDone}
+        />
       )}
 
       {view === "search" && <VaultSearch />}

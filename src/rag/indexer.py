@@ -49,7 +49,8 @@ def _scan_and_chunk(vault_path: str) -> tuple[list[Chunk], dict[str, list[str]]]
             fm_tags = post.metadata.get("tags", [])
             if isinstance(fm_tags, list):
                 tags_by_path[file_path] = [t for t in fm_tags if isinstance(t, str)]
-        except Exception:
+        except Exception as e:
+            logger.debug("Failed to parse frontmatter in %s: %s", file_path, e)
             content = raw
 
         title = PurePosixPath(file_path).stem
@@ -86,8 +87,8 @@ async def index_vault(
     try:
         if table.count_rows() > 0:
             existing_hashes, existing_df = get_existing_data(table)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to load existing data from LanceDB: {e}")
 
     changed_chunks: list[Chunk] = []
     unchanged_count = 0
@@ -139,8 +140,8 @@ async def index_vault(
             deleted = delete_stale_chunks(table, valid_keys, existing_df=existing_df)
             if deleted:
                 logger.info(f"Deleted {deleted} stale chunks")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to delete stale chunks: {e}")
 
     duration = time.time() - start
 

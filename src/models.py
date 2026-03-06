@@ -34,13 +34,6 @@ class VaultMap(BaseModel):
     as_string: str
 
 
-class ProcessResult(BaseModel):
-    success: bool
-    action: str
-    affected_notes: list[str]
-    reasoning: str
-
-
 class ReadNoteInput(BaseModel):
     path: str
 
@@ -56,6 +49,14 @@ class UpdateNoteInput(BaseModel):
     heading: str | None = None
     content: str | None = None
     tags: list[str] | None = None
+
+
+class RoutingInfo(BaseModel):
+    action: Literal["update", "create"]
+    target_path: str | None = None
+    reasoning: str
+    confidence: float
+    search_results_used: int = 0
 
 
 class ProposedChange(BaseModel):
@@ -75,13 +76,13 @@ class Changeset(BaseModel):
     reasoning: str
     status: Literal["pending", "applied", "rejected", "partially_applied"] = "pending"
     created_at: str
+    routing: RoutingInfo | None = None
+    feedback: str | None = None
+    parent_changeset_id: str | None = None
 
 
-class AgentStreamEvent(BaseModel):
-    type: Literal[
-        "reasoning", "tool_call", "tool_result", "proposed_change", "complete", "error"
-    ]
-    data: dict[str, Any]
+class RegenerateRequest(BaseModel):
+    feedback: str
 
 
 class ChunkInfo(BaseModel):
@@ -110,3 +111,11 @@ class SearchResponse(BaseModel):
     embedding_model: str
     vector_dimensions: int
     search_type: SearchType = "hybrid"
+
+
+class ChangeStatusUpdate(BaseModel):
+    status: Literal["approved", "rejected"]
+
+
+class ApplyRequest(BaseModel):
+    change_ids: list[str] | None = None

@@ -1,9 +1,17 @@
+from __future__ import annotations
+
 import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.config import AppConfig
 
 from src.models import ReadNoteInput, CreateNoteInput, UpdateNoteInput
 from src.vault.reader import read_note
 from src.vault.writer import create_note, update_note
 from src.rag.search import search_vault
+
+MAX_SEARCH_RESULTS = 20
 
 TOOL_DEFINITIONS: list[dict] = [
     {
@@ -114,16 +122,52 @@ SEARCH_VAULT_TOOL = {
     },
 }
 
+REPORT_ROUTING_DECISION_TOOL = {
+    "name": "report_routing_decision",
+    "description": (
+        "Report your placement decision BEFORE making any changes. Call this exactly "
+        "once after searching and reading candidate notes. This declares where you will "
+        "place the highlight and why. It does not modify any notes."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["update", "create"],
+                "description": "Whether to update an existing note or create a new one",
+            },
+            "target_path": {
+                "type": "string",
+                "description": (
+                    "Path of the existing note to update (required when action='update'), "
+                    "or suggested path for a new note (optional when action='create')"
+                ),
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Brief explanation of why this placement was chosen",
+            },
+            "confidence": {
+                "type": "number",
+                "description": "Confidence score from 0.0 to 1.0",
+            },
+        },
+        "required": ["action", "reasoning", "confidence"],
+    },
+}
+
 
 def get_tool_definitions(rag_enabled: bool = False) -> list[dict]:
     tools = list(TOOL_DEFINITIONS)
+    tools.insert(0, REPORT_ROUTING_DECISION_TOOL)
     if rag_enabled:
         tools.insert(0, SEARCH_VAULT_TOOL)
     return tools
 
 
 async def execute_tool(
-    vault_path: str, tool_name: str, tool_input: dict, config=None
+    vault_path: str, tool_name: str, tool_input: dict, config: AppConfig | None = None
 ) -> str:
     if tool_name == "read_note":
         inp = ReadNoteInput(**tool_input)
@@ -145,7 +189,7 @@ async def execute_tool(
         if not config or not config.voyage_api_key:
             return "Error: RAG is not configured (VOYAGE_API_KEY not set)"
         query = tool_input.get("query", "")
-        n = min(tool_input.get("n", 10), 20)
+        n = min(tool_input.get("n", 10), MAX_SEARCH_RESULTS)
         results = await search_vault(
             query, config.voyage_api_key, config.lancedb_path, n=n
         )

@@ -15,6 +15,14 @@ export interface ProposedChange {
   status: "pending" | "approved" | "rejected";
 }
 
+export interface RoutingInfo {
+  action: "update" | "create";
+  target_path: string | null;
+  reasoning: string;
+  confidence: number;
+  search_results_used: number;
+}
+
 export interface Changeset {
   id: string;
   highlight: HighlightInput;
@@ -22,6 +30,9 @@ export interface Changeset {
   reasoning: string;
   status: "pending" | "applied" | "rejected" | "partially_applied";
   created_at: string;
+  routing: RoutingInfo | null;
+  feedback: string | null;
+  parent_changeset_id: string | null;
 }
 
 export interface ChangesetSummary {
@@ -30,17 +41,9 @@ export interface ChangesetSummary {
   change_count: number;
   status: string;
   created_at: string;
-}
-
-export interface AgentStreamEvent {
-  type:
-    | "reasoning"
-    | "tool_call"
-    | "tool_result"
-    | "proposed_change"
-    | "complete"
-    | "error";
-  data: Record<string, unknown>;
+  routing_action: "update" | "create" | null;
+  routing_target: string | null;
+  routing_confidence: number | null;
 }
 
 export interface ChunkInfo {

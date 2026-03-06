@@ -1,25 +1,45 @@
-import type { Changeset, ChangesetSummary, SearchResponse } from "../types";
+import type {
+  Changeset,
+  ChangesetSummary,
+  SearchResponse,
+  HighlightInput,
+} from "../types";
 
 const BASE = "";
 
-export async function fetchChangesets(): Promise<ChangesetSummary[]> {
-  const res = await fetch(`${BASE}/changesets`);
+async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, options);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
-export async function fetchChangeset(id: string): Promise<Changeset> {
-  const res = await fetch(`${BASE}/changesets/${id}`);
+async function fetchVoid(url: string, options?: RequestInit): Promise<void> {
+  const res = await fetch(url, options);
   if (!res.ok) throw new Error(await res.text());
-  return res.json();
 }
 
-export async function updateChangeStatus(
+export function previewHighlight(highlight: HighlightInput): Promise<Changeset> {
+  return fetchJSON(`${BASE}/highlights/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(highlight),
+  });
+}
+
+export function fetchChangesets(): Promise<ChangesetSummary[]> {
+  return fetchJSON(`${BASE}/changesets`);
+}
+
+export function fetchChangeset(id: string): Promise<Changeset> {
+  return fetchJSON(`${BASE}/changesets/${id}`);
+}
+
+export function updateChangeStatus(
   changesetId: string,
   changeId: string,
   status: "approved" | "rejected"
 ): Promise<void> {
-  const res = await fetch(
+  return fetchVoid(
     `${BASE}/changesets/${changesetId}/changes/${changeId}`,
     {
       method: "PATCH",
@@ -27,32 +47,37 @@ export async function updateChangeStatus(
       body: JSON.stringify({ status }),
     }
   );
-  if (!res.ok) throw new Error(await res.text());
 }
 
-export async function applyChangeset(
+export function applyChangeset(
   changesetId: string,
   changeIds?: string[]
 ): Promise<{ applied: string[]; failed: { id: string; error: string }[] }> {
-  const res = await fetch(`${BASE}/changesets/${changesetId}/apply`, {
+  return fetchJSON(`${BASE}/changesets/${changesetId}/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(changeIds ? { change_ids: changeIds } : {}),
   });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
 }
 
-export async function rejectChangeset(changesetId: string): Promise<void> {
-  const res = await fetch(`${BASE}/changesets/${changesetId}/reject`, {
+export function rejectChangeset(changesetId: string): Promise<void> {
+  return fetchVoid(`${BASE}/changesets/${changesetId}/reject`, {
     method: "POST",
   });
-  if (!res.ok) throw new Error(await res.text());
 }
 
-export async function searchVault(query: string, n = 10): Promise<SearchResponse> {
+export function regenerateChangeset(
+  changesetId: string,
+  feedback: string
+): Promise<Changeset> {
+  return fetchJSON(`${BASE}/changesets/${changesetId}/regenerate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ feedback }),
+  });
+}
+
+export function searchVault(query: string, n = 10): Promise<SearchResponse> {
   const params = new URLSearchParams({ q: query, n: String(n) });
-  const res = await fetch(`/vault/search?${params}`);
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  return fetchJSON(`${BASE}/vault/search?${params}`);
 }

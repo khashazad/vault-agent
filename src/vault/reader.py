@@ -1,10 +1,14 @@
+import logging
 import re
+from collections import Counter
 from pathlib import Path, PurePosixPath
 
 import frontmatter
 
 from src.models import VaultNote, VaultNoteSummary, VaultMap
 from src.vault import validate_path
+
+logger = logging.getLogger("vault-agent")
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
@@ -17,7 +21,8 @@ def _parse_frontmatter(raw: str) -> tuple[dict, str]:
     try:
         post = frontmatter.loads(raw)
         return dict(post.metadata), post.content
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to parse frontmatter: %s", e)
         return {}, raw
 
 
@@ -63,11 +68,21 @@ def parse_note_summary(file_path: str, raw: str) -> VaultNoteSummary:
     )
 
 
-def format_vault_map_string(summaries: list[VaultNoteSummary], total_notes: int) -> str:
+def format_vault_map_string(
+    summaries: list[VaultNoteSummary],
+    total_notes: int,
+    max_notes: int | None = None,
+) -> str:
+    display = summaries
+    truncated = 0
+    if max_notes is not None and len(summaries) > max_notes:
+        display = summaries[:max_notes]
+        truncated = len(summaries) - max_notes
+
     lines: list[str] = [f"## Vault Structure ({total_notes} notes)", ""]
 
     folders: dict[str, list[VaultNoteSummary]] = {}
-    for note in summaries:
+    for note in display:
         folder = str(PurePosixPath(note.path).parent)
         folders.setdefault(folder, []).append(note)
 
@@ -83,10 +98,64 @@ def format_vault_map_string(summaries: list[VaultNoteSummary], total_notes: int)
                 lines.append(f"  Links: {links_str}")
         lines.append("")
 
+    if truncated:
+        lines.append(f"*... and {truncated} more notes not shown.*\n")
+
     return "\n".join(lines)
 
 
-def build_vault_map(vault_path: str) -> VaultMap:
+def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
+    """Produce a compact vault summary (~500-800 tokens) with folder tree,
+    top tags, and total note count. Used when RAG is enabled so the agent
+    relies on search_vault for discovery instead of a full listing."""
+
+    total = len(summaries)
+
+    # Folder tree with note counts
+    folder_counts: Counter[str] = Counter()
+    for note in summaries:
+        folder = str(PurePosixPath(note.path).parent)
+        folder_counts[folder] += 1
+
+    folder_lines: list[str] = []
+    for folder in sorted(folder_counts):
+        label = "Root" if folder == "." else folder
+        folder_lines.append(f"  {label}/ ({folder_counts[folder]} notes)")
+
+    # Top 30 tags by frequency
+    tag_counter: Counter[str] = Counter()
+    for note in summaries:
+        for tag in note.tags:
+            tag_counter[tag] += 1
+
+    top_tags = [tag for tag, _ in tag_counter.most_common(30)]
+
+    lines = [
+        f"## Vault Summary ({total} notes)",
+        "",
+        "### Folder Structure",
+        *folder_lines,
+        "",
+    ]
+
+    if top_tags:
+        lines.append("### Top Tags")
+        lines.append(", ".join(top_tags))
+        lines.append("")
+
+    lines.append(
+        "Use `search_vault` to find notes by content. "
+        "Use `read_note` to inspect specific notes by path."
+    )
+
+    return "\n".join(lines)
+
+
+def build_vault_map(
+    vault_path: str,
+    compact: bool = False,
+    max_notes: int | None = None,
+) -> VaultMap:
     vault = Path(vault_path)
     summaries: list[VaultNoteSummary] = []
 
@@ -101,7 +170,11 @@ def build_vault_map(vault_path: str) -> VaultMap:
         summaries.append(parse_note_summary(file_path, raw))
 
     total_notes = len(summaries)
-    as_string = format_vault_map_string(summaries, total_notes)
+
+    if compact:
+        as_string = format_compact_vault_summary(summaries)
+    else:
+        as_string = format_vault_map_string(summaries, total_notes, max_notes=max_notes)
 
     return VaultMap(total_notes=total_notes, notes=summaries, as_string=as_string)
 
