@@ -10,27 +10,20 @@ export function HighlightForm({ onSubmit, disabled }: Props) {
   const [text, setText] = useState("");
   const [source, setSource] = useState("");
   const [annotation, setAnnotation] = useState("");
-  const [tags, setTags] = useState("");
   const [batch, setBatch] = useState<HighlightInput[]>([]);
 
   const buildHighlight = (): HighlightInput | null => {
     if (!text.trim() || !source.trim()) return null;
-    const parsedTags = tags
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
     return {
       text: text.trim(),
       source: source.trim(),
       annotation: annotation.trim() || undefined,
-      tags: parsedTags.length > 0 ? parsedTags : undefined,
     };
   };
 
   const clearForm = () => {
     setText("");
     setAnnotation("");
-    setTags("");
     // Keep source — likely the same for batch items
   };
 
@@ -126,18 +119,6 @@ export function HighlightForm({ onSubmit, disabled }: Props) {
           onChange={(e) => setAnnotation(e.target.value)}
           placeholder="Optional annotation..."
           rows={2}
-          disabled={disabled}
-          className="w-full bg-bg border border-border rounded text-text py-2 px-3 text-sm font-sans resize-y focus:outline-none focus:border-accent"
-        />
-      </label>
-
-      <label className="block mb-3">
-        <span className="block text-[13px] text-muted mb-1">Tags</span>
-        <input
-          type="text"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-          placeholder="tag1, tag2, tag3"
           disabled={disabled}
           className="w-full bg-bg border border-border rounded text-text py-2 px-3 text-sm font-sans resize-y focus:outline-none focus:border-accent"
         />

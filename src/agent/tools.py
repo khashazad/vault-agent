@@ -61,7 +61,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "name": "update_note",
         "description": (
             "Update an existing note. 'append_section' adds content under a heading "
-            "(or at end if heading not found). 'add_tags' merges tags into frontmatter. "
+            "(or at end if heading not found). "
             "You must read the note first."
         ),
         "input_schema": {
@@ -73,7 +73,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 },
                 "operation": {
                     "type": "string",
-                    "enum": ["append_section", "add_tags"],
+                    "enum": ["append_section"],
                     "description": "The type of update to perform",
                 },
                 "heading": {
@@ -86,11 +86,6 @@ TOOL_DEFINITIONS: list[dict] = [
                 "content": {
                     "type": "string",
                     "description": "For append_section: the markdown content to append",
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "For add_tags: tag strings to add to frontmatter",
                 },
             },
             "required": ["path", "operation"],

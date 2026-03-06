@@ -165,9 +165,6 @@ function ChangesetDetail({
             <div className="flex flex-col gap-0.5 text-[13px] text-muted pl-4">
               <span>Source: {h.source}</span>
               {h.annotation && <span>Note: {h.annotation}</span>}
-              {h.tags && h.tags.length > 0 && (
-                <span>Tags: {h.tags.join(", ")}</span>
-              )}
             </div>
           </div>
         ))}

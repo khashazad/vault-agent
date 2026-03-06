@@ -9,7 +9,6 @@ class HighlightInput(BaseModel):
     text: str
     source: str
     annotation: str | None = None
-    tags: list[str] | None = None
 
 
 class BatchHighlightInput(BaseModel):
@@ -19,7 +18,6 @@ class BatchHighlightInput(BaseModel):
 class VaultNoteSummary(BaseModel):
     path: str
     title: str
-    tags: list[str]
     wikilinks: list[str]
     headings: list[str]
 
@@ -29,7 +27,6 @@ class VaultNote(BaseModel):
     frontmatter: dict
     content: str
     wikilinks: list[str]
-    tags: list[str]
 
 
 class VaultMap(BaseModel):
@@ -49,10 +46,9 @@ class CreateNoteInput(BaseModel):
 
 class UpdateNoteInput(BaseModel):
     path: str
-    operation: Literal["append_section", "add_tags"]
+    operation: Literal["append_section"]
     heading: str | None = None
     content: str | None = None
-    tags: list[str] | None = None
 
 
 class RoutingInfo(BaseModel):
