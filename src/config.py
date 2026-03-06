@@ -12,7 +12,7 @@ class AppConfig:
     anthropic_api_key: str
     vault_path: str
     port: int
-    voyage_api_key: str | None = None
+    voyage_api_key: str
     lancedb_path: str = ".lancedb"
 
 
@@ -34,6 +34,9 @@ def load_config() -> AppConfig:
     port = int(os.environ.get("PORT", "3000"))
 
     voyage_api_key = os.environ.get("VOYAGE_API_KEY")
+    if not voyage_api_key:
+        raise RuntimeError("VOYAGE_API_KEY environment variable is required")
+
     lancedb_path = os.environ.get("LANCEDB_PATH", ".lancedb")
 
     return AppConfig(

@@ -68,42 +68,6 @@ def parse_note_summary(file_path: str, raw: str) -> VaultNoteSummary:
     )
 
 
-def format_vault_map_string(
-    summaries: list[VaultNoteSummary],
-    total_notes: int,
-    max_notes: int | None = None,
-) -> str:
-    display = summaries
-    truncated = 0
-    if max_notes is not None and len(summaries) > max_notes:
-        display = summaries[:max_notes]
-        truncated = len(summaries) - max_notes
-
-    lines: list[str] = [f"## Vault Structure ({total_notes} notes)", ""]
-
-    folders: dict[str, list[VaultNoteSummary]] = {}
-    for note in display:
-        folder = str(PurePosixPath(note.path).parent)
-        folders.setdefault(folder, []).append(note)
-
-    for folder in sorted(folders):
-        label = "Root" if folder == "." else folder
-        lines.append(f"### {label}/")
-        for note in folders[folder]:
-            lines.append(f"- **{note.title}** (`{note.path}`)")
-            if note.tags:
-                lines.append(f"  Tags: {', '.join(note.tags)}")
-            if note.wikilinks:
-                links_str = ", ".join(f"[[{link}]]" for link in note.wikilinks)
-                lines.append(f"  Links: {links_str}")
-        lines.append("")
-
-    if truncated:
-        lines.append(f"*... and {truncated} more notes not shown.*\n")
-
-    return "\n".join(lines)
-
-
 def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
     """Produce a compact vault summary (~500-800 tokens) with folder tree,
     top tags, and total note count. Used when RAG is enabled so the agent
@@ -151,11 +115,7 @@ def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
     return "\n".join(lines)
 
 
-def build_vault_map(
-    vault_path: str,
-    compact: bool = False,
-    max_notes: int | None = None,
-) -> VaultMap:
+def build_vault_map(vault_path: str) -> VaultMap:
     vault = Path(vault_path)
     summaries: list[VaultNoteSummary] = []
 
@@ -170,11 +130,7 @@ def build_vault_map(
         summaries.append(parse_note_summary(file_path, raw))
 
     total_notes = len(summaries)
-
-    if compact:
-        as_string = format_compact_vault_summary(summaries)
-    else:
-        as_string = format_vault_map_string(summaries, total_notes, max_notes=max_notes)
+    as_string = format_compact_vault_summary(summaries)
 
     return VaultMap(total_notes=total_notes, notes=summaries, as_string=as_string)
 

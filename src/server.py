@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from src.config import load_config
 from src.models import (
     ApplyRequest,
+    BatchHighlightInput,
     ChangeStatusUpdate,
     ChunkInfo,
     HighlightInput,
@@ -78,7 +79,6 @@ async def health():
     return {
         "status": "ok",
         "vaultPath": str(config.vault_path),
-        "ragEnabled": bool(config.voyage_api_key),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -98,10 +98,25 @@ async def vault_map():
 @app.post("/highlights/preview")
 async def preview_highlight(highlight: HighlightInput):
     try:
-        changeset = await generate_changeset(config, highlight)
+        changeset = await generate_changeset(config, highlight=highlight)
         return changeset.model_dump()
     except Exception as err:
         return _handle_anthropic_error(err, "Error previewing highlight")
+
+
+@app.post("/highlights/preview-batch")
+async def preview_batch(body: BatchHighlightInput):
+    if not body.highlights:
+        return JSONResponse({"error": "No highlights provided"}, status_code=400)
+    if len(body.highlights) > 50:
+        return JSONResponse(
+            {"error": "Maximum 50 highlights per batch"}, status_code=400
+        )
+    try:
+        changeset = await generate_changeset(config, highlights=body.highlights)
+        return changeset.model_dump()
+    except Exception as err:
+        return _handle_anthropic_error(err, "Error previewing batch")
 
 
 # --- Changeset routes ---
@@ -113,7 +128,8 @@ async def list_changesets():
     return [
         {
             "id": cs.id,
-            "source": cs.highlight.source,
+            "source": cs.highlights[0].source if cs.highlights else "",
+            "highlight_count": len(cs.highlights),
             "change_count": len(cs.changes),
             "status": cs.status,
             "created_at": cs.created_at,
@@ -182,7 +198,7 @@ async def regenerate(changeset_id: str, body: RegenerateRequest):
     try:
         new_changeset = await generate_changeset(
             config,
-            cs.highlight,
+            highlights=cs.highlights,
             feedback=body.feedback,
             previous_reasoning=cs.reasoning,
             parent_changeset_id=cs.id,
@@ -197,11 +213,6 @@ async def regenerate(changeset_id: str, body: RegenerateRequest):
 
 @app.post("/vault/index", response_model=IndexResponse)
 async def vault_index():
-    if not config.voyage_api_key:
-        return JSONResponse(
-            {"error": "VOYAGE_API_KEY not configured. RAG is disabled."},
-            status_code=501,
-        )
     try:
         stats = await index_vault(
             config.vault_path, config.voyage_api_key, config.lancedb_path
@@ -214,11 +225,6 @@ async def vault_index():
 
 @app.get("/vault/search", response_model=SearchResponse)
 async def vault_search(q: str, n: int = 10):
-    if not config.voyage_api_key:
-        return JSONResponse(
-            {"error": "VOYAGE_API_KEY not configured. RAG is disabled."},
-            status_code=501,
-        )
     try:
         results = await search_vault(q, config.voyage_api_key, config.lancedb_path, n=n)
         overall_search_type = results[0].search_type if results else "hybrid"

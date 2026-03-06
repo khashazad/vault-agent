@@ -14,7 +14,7 @@ ROUTING_GUIDANCE = """## Routing Instructions
 
 Before making any changes, you MUST decide where this highlight belongs:
 
-1. **Search first** (if search_vault is available): Search for notes semantically related to the highlight topic.
+1. **Review search results**: Review the search results provided below. If they are insufficient, use `search_vault` for additional searches.
 2. **Read candidates**: Read 1-3 of the most promising notes to inspect their content and structure.
 3. **Report your decision**: Call `report_routing_decision` with your placement choice:
    - **action**: "update" if the highlight fits an existing note, "create" if it needs a new one.
@@ -39,30 +39,44 @@ BASE_RULES = [
 
 SEARCH_VAULT_RULE = "ALWAYS start by using search_vault to find notes semantically related to the highlight topic. The vault context above is a summary only (folder structure and tags) — search_vault searches actual note contents and is the primary way to discover relevant notes."
 
+BATCH_ROUTING_GUIDANCE = """## Batch Processing Instructions
 
-def build_system_prompt(vault_map_string: str, rag_enabled: bool = False) -> str:
+You are receiving multiple highlights at once. Your job is to integrate them coherently:
+
+1. **Review search results**: Review the search results provided below. If they are insufficient, use `search_vault` for additional searches.
+2. **Read candidates**: Read promising notes to understand existing coverage.
+3. **Report routing**: Call `report_routing_decision` with your overall placement strategy.
+4. **Execute coherently**: Create or update notes that weave the highlights together logically.
+   - Prefer creating one well-structured note over many fragmented updates.
+   - Group highlights by subtopic under appropriate headings.
+   - Preserve each highlight's original text faithfully as blockquotes.
+   - Add connective commentary between highlights where helpful.
+   - Use the highlight ordering as a guide — they often follow the source document's structure."""
+
+
+def build_system_prompt(vault_map_string: str, is_batch: bool = False) -> str:
     tools = list(BASE_TOOL_DESCRIPTIONS)
     tools.insert(0, REPORT_ROUTING_TOOL_DESC)
+    tools.insert(0, SEARCH_VAULT_TOOL_DESC)
     rules = list(BASE_RULES)
-
-    if rag_enabled:
-        tools.insert(0, SEARCH_VAULT_TOOL_DESC)
-        rules.insert(0, SEARCH_VAULT_RULE)
+    rules.insert(0, SEARCH_VAULT_RULE)
 
     tools_section = "## Your Tools\n\n" + "\n".join(tools)
     rules_section = "## Rules\n\n" + "\n".join(
         f"{i}. {rule}" for i, rule in enumerate(rules, 1)
     )
 
+    batch_section = f"\n\n{BATCH_ROUTING_GUIDANCE}" if is_batch else ""
+
     return f"""You are Vault Agent, an AI assistant that integrates web highlights into an Obsidian vault.
 
-You have access to the user's Obsidian vault structure shown below. Your job is to decide where a highlight belongs and integrate it intelligently.
+You have access to the user's Obsidian vault structure shown below. Your job is to decide where {"these highlights belong" if is_batch else "a highlight belongs"} and integrate {"them" if is_batch else "it"} intelligently.
 
 {vault_map_string}
 
 {tools_section}
 
-{ROUTING_GUIDANCE}
+{ROUTING_GUIDANCE}{batch_section}
 
 {rules_section}
 
@@ -98,6 +112,7 @@ def build_user_message(
     highlight: HighlightInput,
     feedback: str | None = None,
     previous_reasoning: str | None = None,
+    search_context: str | None = None,
 ) -> str:
     msg = "Please integrate this highlight into my vault:\n\n"
     msg += f"**Highlighted text:**\n> {highlight.text}\n\n"
@@ -113,5 +128,57 @@ def build_user_message(
         msg += f"**User feedback:** {feedback}\n\n"
         msg += "Please reconsider your approach based on the user's feedback. "
         msg += "Search again if needed, then make a new routing decision and generate changes.\n"
+
+    if search_context:
+        msg += "\n## Vault Search Results\n\n"
+        msg += "The following notes are semantically related to this highlight:\n\n"
+        msg += search_context
+        msg += "\n\nUse `read_note` to inspect any of these before making changes.\n"
+
+    return msg
+
+
+def build_batch_user_message(
+    highlights: list[HighlightInput],
+    feedback: str | None = None,
+    previous_reasoning: str | None = None,
+    search_context: str | None = None,
+) -> str:
+    if len(highlights) == 1:
+        return build_user_message(
+            highlights[0], feedback, previous_reasoning, search_context
+        )
+
+    sources = list(dict.fromkeys(h.source for h in highlights))
+    source_str = ", ".join(sources) if len(sources) <= 3 else f"{len(sources)} sources"
+
+    msg = f"Please integrate these {len(highlights)} highlights into my vault.\n"
+    msg += f"Sources: {source_str}\n\n"
+    msg += (
+        "Integrate them coherently — create well-structured notes rather than "
+        "treating each highlight independently. Group related content together.\n\n"
+    )
+
+    for i, h in enumerate(highlights, 1):
+        msg += f"### Highlight {i}\n"
+        msg += f"**Text:**\n> {h.text}\n\n"
+        msg += f"**Source:** {h.source}\n"
+        if h.annotation:
+            msg += f"**Note:** {h.annotation}\n"
+        if h.tags:
+            msg += f"**Suggested tags:** {', '.join(h.tags)}\n"
+        msg += "\n"
+
+    if feedback and previous_reasoning:
+        msg += "## Previous Attempt (rejected by user)\n\n"
+        msg += f"**Previous reasoning:**\n{previous_reasoning}\n\n"
+        msg += f"**User feedback:** {feedback}\n\n"
+        msg += "Please reconsider your approach based on the user's feedback.\n"
+
+    if search_context:
+        msg += "## Vault Search Results\n\n"
+        msg += "The following notes are semantically related to these highlights:\n\n"
+        msg += search_context
+        msg += "\n\nUse `read_note` to inspect any of these before making changes.\n"
 
     return msg
