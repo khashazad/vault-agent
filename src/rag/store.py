@@ -68,14 +68,12 @@ def delete_stale_chunks(
     if stale_df.empty:
         return 0
 
-    count = 0
     for _, row in stale_df.iterrows():
         path = row["note_path"].replace("'", "''")
         heading = row["heading"].replace("'", "''")
         table.delete(f"note_path = '{path}' AND heading = '{heading}'")
-        count += 1
 
-    return count
+    return len(stale_df)
 
 
 def search_vectors(

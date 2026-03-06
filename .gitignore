@@ -40,5 +40,8 @@ logs
 # LanceDB
 .lancedb/
 
+# Changeset database
+.changesets.db
+
 # Finder (MacOS) folder config
 .DS_Store

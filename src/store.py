@@ -1,35 +1,75 @@
-from datetime import datetime, timezone, timedelta
+import os
+import sqlite3
 
 from src.models import Changeset
 
-MAX_AGE = timedelta(hours=1)
+DEFAULT_DB_PATH = os.environ.get("CHANGESET_DB_PATH", ".changesets.db")
 
 
 class ChangesetStore:
-    def __init__(self):
-        self._store: dict[str, Changeset] = {}
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._create_table()
+
+    def _create_table(self) -> None:
+        self._conn.executescript("""
+            CREATE TABLE IF NOT EXISTS changesets (
+                id         TEXT PRIMARY KEY,
+                status     TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                data       TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_changesets_status
+                ON changesets(status);
+            CREATE INDEX IF NOT EXISTS idx_changesets_created_at
+                ON changesets(created_at);
+        """)
+        self._conn.commit()
 
     def set(self, changeset: Changeset) -> None:
-        self._store[changeset.id] = changeset
+        self._conn.execute(
+            """
+            INSERT INTO changesets (id, status, created_at, data)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                status = excluded.status,
+                data   = excluded.data
+            """,
+            (
+                changeset.id,
+                changeset.status,
+                changeset.created_at,
+                changeset.model_dump_json(),
+            ),
+        )
+        self._conn.commit()
 
     def get(self, changeset_id: str) -> Changeset | None:
-        return self._store.get(changeset_id)
+        row = self._conn.execute(
+            "SELECT data FROM changesets WHERE id = ?",
+            (changeset_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Changeset.model_validate_json(row["data"])
 
     def get_all(self) -> list[Changeset]:
-        return list(self._store.values())
+        rows = self._conn.execute(
+            "SELECT data FROM changesets ORDER BY created_at DESC"
+        ).fetchall()
+        return [Changeset.model_validate_json(row["data"]) for row in rows]
 
     def delete(self, changeset_id: str) -> None:
-        self._store.pop(changeset_id, None)
+        self._conn.execute(
+            "DELETE FROM changesets WHERE id = ?",
+            (changeset_id,),
+        )
+        self._conn.commit()
 
-    def cleanup(self) -> None:
-        now = datetime.now(timezone.utc)
-        expired = [
-            cid
-            for cid, cs in self._store.items()
-            if (now - datetime.fromisoformat(cs.created_at)) > MAX_AGE
-        ]
-        for cid in expired:
-            del self._store[cid]
+    def close(self) -> None:
+        self._conn.close()
 
 
 changeset_store = ChangesetStore()
