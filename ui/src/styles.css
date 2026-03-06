@@ -32,6 +32,226 @@
   }
 }
 
+@layer components {
+  /* Obsidian wikilinks */
+  .wikilink {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+
+  /* Obsidian tags */
+  .obsidian-tag {
+    display: inline-block;
+    background: var(--color-blue-bg);
+    color: var(--color-accent);
+    font-size: 12px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-family: var(--font-mono);
+  }
+
+  /* Obsidian embeds */
+  .embed-link {
+    display: inline-block;
+    color: var(--color-accent);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    &::before {
+      content: "! ";
+      opacity: 0.5;
+    }
+  }
+
+  /* Callout boxes */
+  .callout {
+    border-left: 3px solid var(--color-border);
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin: 8px 0;
+    background: var(--color-elevated);
+  }
+  .callout-title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 4px;
+    text-transform: capitalize;
+  }
+  .callout-note,
+  .callout-info {
+    border-left-color: var(--color-accent);
+  }
+  .callout-note .callout-title,
+  .callout-info .callout-title {
+    color: var(--color-accent);
+  }
+  .callout-warning {
+    border-left-color: var(--color-yellow);
+  }
+  .callout-warning .callout-title {
+    color: var(--color-yellow);
+  }
+  .callout-tip {
+    border-left-color: var(--color-green);
+  }
+  .callout-tip .callout-title {
+    color: var(--color-green);
+  }
+  .callout-danger,
+  .callout-error {
+    border-left-color: var(--color-red);
+  }
+  .callout-danger .callout-title,
+  .callout-error .callout-title {
+    color: var(--color-red);
+  }
+  .callout-example {
+    border-left-color: #a371f7;
+  }
+  .callout-example .callout-title {
+    color: #a371f7;
+  }
+
+  /* Markdown preview container */
+  .markdown-preview {
+    line-height: 1.6;
+    font-size: 14px;
+    color: var(--color-text);
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      margin-top: 16px;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: var(--color-text);
+    }
+    h1 {
+      font-size: 1.5em;
+    }
+    h2 {
+      font-size: 1.3em;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    h3 {
+      font-size: 1.1em;
+    }
+
+    p {
+      margin: 6px 0;
+    }
+
+    a {
+      color: var(--color-accent);
+      text-decoration: none;
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+
+    ul,
+    ol {
+      padding-left: 20px;
+      margin: 6px 0;
+    }
+    li {
+      margin: 2px 0;
+    }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.9em;
+      background: var(--color-elevated);
+      padding: 2px 5px;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      padding: 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+    }
+
+    blockquote {
+      border-left: 3px solid var(--color-border);
+      padding: 4px 14px;
+      margin: 8px 0;
+      color: var(--color-muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+    }
+    th,
+    td {
+      border: 1px solid var(--color-border);
+      padding: 6px 10px;
+      text-align: left;
+    }
+    th {
+      background: var(--color-elevated);
+      font-weight: 600;
+    }
+
+    hr {
+      border: none;
+      border-top: 1px solid var(--color-border);
+      margin: 16px 0;
+    }
+
+    img {
+      max-width: 100%;
+      border-radius: 6px;
+    }
+  }
+
+  /* Frontmatter metadata bar */
+  .frontmatter-bar {
+    background: var(--color-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .frontmatter-key {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .frontmatter-value {
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .frontmatter-tag {
+    display: inline-block;
+    background: var(--color-blue-bg);
+    color: var(--color-accent);
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-right: 4px;
+  }
+}
+
 @layer base {
   * {
     margin: 0;
