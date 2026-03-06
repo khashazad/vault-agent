@@ -7,6 +7,7 @@ import {
   rejectChangeset,
 } from "../api/client";
 import { DiffViewer } from "./DiffViewer";
+import { MarkdownPreview } from "./MarkdownPreview";
 
 interface Props {
   changesetId: string;
@@ -22,6 +23,7 @@ export function ChangesetReview({
   const [changes, setChanges] = useState<ProposedChange[]>(
     initialChanges.map((c) => ({ ...c, status: "approved" }))
   );
+  const [viewModes, setViewModes] = useState<Record<string, "diff" | "preview">>({});
   const [applying, setApplying] = useState(false);
   const [loadingChangeset, setLoadingChangeset] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -199,32 +201,55 @@ export function ChangesetReview({
       </div>
 
       <div className="flex flex-col gap-3 mb-4">
-        {changes.map((change) => (
-          <div key={change.id} className="relative">
-            <div className="flex items-center gap-2 mb-1">
-              <button
-                onClick={() => toggleChange(change.id)}
-                className={`w-7 h-7 rounded-full border-2 bg-bg text-muted flex items-center justify-center text-sm ${
-                  change.status === "approved"
-                    ? "border-green text-green bg-green-bg"
-                    : change.status === "rejected"
-                      ? "border-red text-red bg-red-bg"
-                      : "border-border"
-                }`}
-              >
-                {change.status === "approved" ? "\u2713" : "\u2717"}
-              </button>
-              <span className="text-xs text-muted uppercase">
-                {change.status}
-              </span>
+        {changes.map((change) => {
+          const mode = viewModes[change.id] ?? "diff";
+          return (
+            <div key={change.id} className="relative">
+              <div className="flex items-center gap-2 mb-1">
+                <button
+                  onClick={() => toggleChange(change.id)}
+                  className={`w-7 h-7 rounded-full border-2 bg-bg text-muted flex items-center justify-center text-sm ${
+                    change.status === "approved"
+                      ? "border-green text-green bg-green-bg"
+                      : change.status === "rejected"
+                        ? "border-red text-red bg-red-bg"
+                        : "border-border"
+                  }`}
+                >
+                  {change.status === "approved" ? "\u2713" : "\u2717"}
+                </button>
+                <span className="text-xs text-muted uppercase">
+                  {change.status}
+                </span>
+                <div className="ml-auto flex border border-border rounded overflow-hidden">
+                  <button
+                    onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))}
+                    className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "diff" ? "bg-accent text-white" : "bg-elevated text-muted"}`}
+                  >
+                    Diff
+                  </button>
+                  <button
+                    onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "preview" }))}
+                    className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "preview" ? "bg-accent text-white" : "bg-elevated text-muted"}`}
+                  >
+                    Preview
+                  </button>
+                </div>
+              </div>
+              {mode === "diff" ? (
+                <DiffViewer
+                  diff={change.diff}
+                  filePath={change.input.path as string}
+                  isNew={change.tool_name === "create_note"}
+                  originalContent={change.original_content}
+                  proposedContent={change.proposed_content}
+                />
+              ) : (
+                <MarkdownPreview content={change.proposed_content} />
+              )}
             </div>
-            <DiffViewer
-              diff={change.diff}
-              filePath={change.input.path as string}
-              isNew={change.tool_name === "create_note"}
-            />
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="flex gap-3 pt-4 border-t border-border">
