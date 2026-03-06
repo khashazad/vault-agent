@@ -109,7 +109,6 @@ async def preview_highlight(highlight: HighlightInput):
 
 @app.get("/changesets")
 async def list_changesets():
-    changeset_store.cleanup()
     changesets = changeset_store.get_all()
     return [
         {
