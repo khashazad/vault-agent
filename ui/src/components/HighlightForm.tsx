@@ -55,9 +55,9 @@ export function HighlightForm({ onSubmit, disabled }: Props) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="bg-surface border border-border rounded p-5 mb-5"
+      className="bg-surface border border-border rounded p-5"
     >
-      <h2 className="text-base mb-4">New Highlight</h2>
+      <h2 className="text-base mb-4">New Snippet</h2>
 
       {batch.length > 0 && (
         <div className="mb-4">
@@ -86,12 +86,12 @@ export function HighlightForm({ onSubmit, disabled }: Props) {
 
       <label className="block mb-3">
         <span className="block text-[13px] text-muted mb-1">
-          Highlighted Text *
+          Snippet *
         </span>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Paste the highlighted text..."
+          placeholder="Paste the snippet..."
           rows={4}
           required={batch.length === 0}
           disabled={disabled}
@@ -141,7 +141,7 @@ export function HighlightForm({ onSubmit, disabled }: Props) {
           {disabled
             ? "Generating preview..."
             : batch.length > 0
-              ? `Preview ${batch.length + (canAdd ? 1 : 0)} Highlights`
+              ? `Preview ${batch.length + (canAdd ? 1 : 0)} Snippets`
               : "Preview Changes"}
         </button>
       </div>
