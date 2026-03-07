@@ -65,6 +65,7 @@ async def _init_agent(
     highlights: list[HighlightInput],
     feedback: str | None = None,
     previous_reasoning: str | None = None,
+    paper_metadata: dict | None = None,
 ):
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     is_batch = len(highlights) > 1
@@ -89,7 +90,11 @@ async def _init_agent(
         {
             "role": "user",
             "content": build_batch_user_message(
-                highlights, feedback, previous_reasoning, search_context
+                highlights,
+                feedback,
+                previous_reasoning,
+                search_context,
+                paper_metadata=paper_metadata,
             ),
         },
     ]
@@ -137,6 +142,7 @@ async def generate_changeset(
     feedback: str | None = None,
     previous_reasoning: str | None = None,
     parent_changeset_id: str | None = None,
+    paper_metadata: dict | None = None,
 ) -> Changeset:
     """Run the agent to search, decide placement, and generate changes.
     Accepts a single highlight or a list. Returns a Changeset with proposed changes (no writes to disk)."""
@@ -150,7 +156,11 @@ async def generate_changeset(
     max_calls = _max_tool_calls(len(highlights))
 
     client, system_prompt, tool_defs, messages = await _init_agent(
-        config, highlights, feedback, previous_reasoning
+        config,
+        highlights,
+        feedback,
+        previous_reasoning,
+        paper_metadata=paper_metadata,
     )
 
     proposed_changes: list[ProposedChange] = []

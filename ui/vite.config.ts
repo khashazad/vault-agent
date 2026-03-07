@@ -12,6 +12,7 @@ export default defineConfig({
       "/highlights": "http://localhost:3000",
       "/changesets": "http://localhost:3000",
       "/routing": "http://localhost:3000",
+      "/zotero": "http://localhost:3000",
     },
   },
 });

@@ -133,13 +133,42 @@ def build_user_message(
     return msg
 
 
+def _format_paper_context(metadata: dict) -> str:
+    """Format paper metadata into a markdown block for agent context."""
+    lines = ["## Paper Context\n"]
+    if metadata.get("title"):
+        lines.append(f"**Title:** {metadata['title']}")
+    if metadata.get("authors"):
+        authors = metadata["authors"]
+        if isinstance(authors, list):
+            lines.append(f"**Authors:** {'; '.join(authors)}")
+        else:
+            lines.append(f"**Authors:** {authors}")
+    if metadata.get("year"):
+        lines.append(f"**Year:** {metadata['year']}")
+    if metadata.get("publication_title"):
+        lines.append(f"**Journal/Publication:** {metadata['publication_title']}")
+    if metadata.get("doi"):
+        lines.append(f"**DOI:** {metadata['doi']}")
+    if metadata.get("url"):
+        lines.append(f"**URL:** {metadata['url']}")
+    if metadata.get("abstract"):
+        lines.append(f"\n**Abstract:**\n> {metadata['abstract']}")
+    lines.append(
+        "\nUse this paper metadata for citations, frontmatter fields, "
+        "and to contextualize the annotations below."
+    )
+    return "\n".join(lines)
+
+
 def build_batch_user_message(
     highlights: list[HighlightInput],
     feedback: str | None = None,
     previous_reasoning: str | None = None,
     search_context: str | None = None,
+    paper_metadata: dict | None = None,
 ) -> str:
-    if len(highlights) == 1:
+    if len(highlights) == 1 and paper_metadata is None:
         return build_user_message(
             highlights[0], feedback, previous_reasoning, search_context
         )
@@ -147,12 +176,22 @@ def build_batch_user_message(
     sources = list(dict.fromkeys(h.source for h in highlights))
     source_str = ", ".join(sources) if len(sources) <= 3 else f"{len(sources)} sources"
 
-    msg = f"Please integrate these {len(highlights)} highlights into my vault.\n"
-    msg += f"Sources: {source_str}\n\n"
-    msg += (
-        "Integrate them coherently — create well-structured notes rather than "
-        "treating each highlight independently. Group related content together.\n\n"
-    )
+    if paper_metadata:
+        msg = f"Please integrate these {len(highlights)} annotations from a research paper into my vault.\n"
+        msg += f"Sources: {source_str}\n\n"
+        msg += _format_paper_context(paper_metadata) + "\n\n"
+        msg += (
+            "Integrate these annotations coherently — create a well-structured note "
+            "for this paper rather than treating each annotation independently. "
+            "Group related content together.\n\n"
+        )
+    else:
+        msg = f"Please integrate these {len(highlights)} highlights into my vault.\n"
+        msg += f"Sources: {source_str}\n\n"
+        msg += (
+            "Integrate them coherently — create well-structured notes rather than "
+            "treating each highlight independently. Group related content together.\n\n"
+        )
 
     for i, h in enumerate(highlights, 1):
         msg += f"### Highlight {i}\n"

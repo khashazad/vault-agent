@@ -65,3 +65,75 @@ export interface SearchResponse {
   vector_dimensions: number;
   search_type: string;
 }
+
+export interface ZoteroSyncRequest {
+  collection_key?: string;
+  paper_keys?: string[];
+  full_sync?: boolean;
+}
+
+export interface ZoteroSyncResponse {
+  papers_found: number;
+  papers_processed: number;
+  changeset_ids: string[];
+  skipped_papers: string[];
+  library_version: number;
+}
+
+export interface ZoteroStatus {
+  configured: boolean;
+  last_version: number | null;
+  last_synced: string | null;
+}
+
+export interface ZoteroPaperSummary {
+  key: string;
+  title: string;
+  authors: string[];
+  year: string;
+  item_type: string;
+  last_synced: string | null;
+  changeset_id: string | null;
+}
+
+export interface ZoteroPapersResponse {
+  papers: ZoteroPaperSummary[];
+  total: number;
+  cache_updated_at: string | null;
+}
+
+export interface ZoteroPapersCacheStatus {
+  cached_count: number;
+  cache_updated_at: string | null;
+  sync_in_progress: boolean;
+}
+
+export interface ZoteroAnnotationItem {
+  key: string;
+  text: string;
+  comment: string;
+  color: string;
+  page_label: string;
+  annotation_type: string;
+  date_added: string;
+}
+
+export interface ZoteroPaperAnnotationsResponse {
+  paper_key: string;
+  paper_title: string;
+  annotations: ZoteroAnnotationItem[];
+  total: number;
+}
+
+export interface ZoteroCollection {
+  key: string;
+  name: string;
+  parent_collection: string | null;
+  num_items: number;
+  num_collections: number;
+}
+
+export interface ZoteroCollectionsResponse {
+  collections: ZoteroCollection[];
+  total: number;
+}
