@@ -12,4 +12,5 @@ dependencies = [
     "voyageai",
     "lancedb",
     "pandas",
+    "pyzotero",
 ]

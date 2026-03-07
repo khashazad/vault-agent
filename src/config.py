@@ -14,6 +14,9 @@ class AppConfig:
     port: int
     voyage_api_key: str
     lancedb_path: str = ".lancedb"
+    zotero_api_key: str | None = None
+    zotero_library_id: str | None = None
+    zotero_library_type: str = "user"
 
 
 def load_config() -> AppConfig:
@@ -39,10 +42,17 @@ def load_config() -> AppConfig:
 
     lancedb_path = os.environ.get("LANCEDB_PATH", ".lancedb")
 
+    zotero_api_key = os.environ.get("ZOTERO_API_KEY")
+    zotero_library_id = os.environ.get("ZOTERO_LIBRARY_ID")
+    zotero_library_type = os.environ.get("ZOTERO_LIBRARY_TYPE", "user")
+
     return AppConfig(
         anthropic_api_key=anthropic_api_key,
         vault_path=vault_path,
         port=port,
         voyage_api_key=voyage_api_key,
         lancedb_path=lancedb_path,
+        zotero_api_key=zotero_api_key,
+        zotero_library_id=zotero_library_id,
+        zotero_library_type=zotero_library_type,
     )

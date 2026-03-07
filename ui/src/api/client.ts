@@ -3,6 +3,13 @@ import type {
   ChangesetSummary,
   SearchResponse,
   HighlightInput,
+  ZoteroSyncRequest,
+  ZoteroSyncResponse,
+  ZoteroStatus,
+  ZoteroPapersResponse,
+  ZoteroPaperAnnotationsResponse,
+  ZoteroPapersCacheStatus,
+  ZoteroCollectionsResponse,
 } from "../types";
 
 const BASE = "";
@@ -90,4 +97,57 @@ export function regenerateChangeset(
 export function searchVault(query: string, n = 10): Promise<SearchResponse> {
   const params = new URLSearchParams({ q: query, n: String(n) });
   return fetchJSON(`${BASE}/vault/search?${params}`);
+}
+
+export function syncZotero(request?: ZoteroSyncRequest): Promise<ZoteroSyncResponse> {
+  return fetchJSON(`${BASE}/zotero/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request ?? {}),
+  });
+}
+
+export function fetchZoteroStatus(): Promise<ZoteroStatus> {
+  return fetchJSON(`${BASE}/zotero/status`);
+}
+
+export function fetchZoteroPapers(
+  collectionKey?: string
+): Promise<ZoteroPapersResponse> {
+  const params = collectionKey
+    ? `?collection_key=${encodeURIComponent(collectionKey)}`
+    : "";
+  return fetchJSON(`${BASE}/zotero/papers${params}`);
+}
+
+export function fetchZoteroPapersCacheStatus(): Promise<ZoteroPapersCacheStatus> {
+  return fetchJSON(`${BASE}/zotero/papers/cache-status`);
+}
+
+export function triggerZoteroPapersRefresh(): Promise<void> {
+  return fetchVoid(`${BASE}/zotero/papers/refresh`, { method: "POST" });
+}
+
+export function fetchZoteroCollections(): Promise<ZoteroCollectionsResponse> {
+  return fetchJSON(`${BASE}/zotero/collections`);
+}
+
+export function fetchZoteroPaperAnnotations(
+  paperKey: string
+): Promise<ZoteroPaperAnnotationsResponse> {
+  return fetchJSON(`${BASE}/zotero/papers/${paperKey}/annotations`);
+}
+
+export function syncZoteroPaper(
+  paperKey: string,
+  excludedAnnotationKeys?: string[]
+): Promise<Changeset> {
+  return fetchJSON(`${BASE}/zotero/papers/${paperKey}/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      paper_key: paperKey,
+      excluded_annotation_keys: excludedAnnotationKeys ?? null,
+    }),
+  });
 }
