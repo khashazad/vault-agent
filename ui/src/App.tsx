@@ -3,6 +3,7 @@ import { Layout } from "./components/Layout";
 import { ChangesetHistory } from "./components/ChangesetHistory";
 import { VaultSearch } from "./components/VaultSearch";
 import { HighlightPreview } from "./components/HighlightPreview";
+import { ZoteroSync } from "./components/ZoteroSync";
 import { useChangesets } from "./hooks/useChangesets";
 
 export default function App() {
@@ -41,6 +42,8 @@ export default function App() {
           onRefresh={changesets.refresh}
         />
       )}
+
+      {view === "zotero" && <ZoteroSync onViewChange={setView} />}
     </Layout>
   );
 }

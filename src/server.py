@@ -1,4 +1,6 @@
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +22,15 @@ from src.models import (
     IndexResponse,
     RegenerateRequest,
     SearchResponse,
+    ZoteroAnnotationItem,
+    ZoteroPaperAnnotationsResponse,
+    ZoteroPapersResponse,
+    ZoteroPaperSummary,
+    ZoteroPaperSyncRequest,
+    ZoteroSyncRequest,
+    ZoteroSyncResponse,
+    ZoteroCollection,
+    ZoteroCollectionsResponse,
 )
 from src.vault.reader import build_vault_map
 from src.agent.agent import generate_changeset
@@ -29,13 +40,28 @@ from src.rag.indexer import index_vault
 from src.rag.search import search_vault
 from src.rag.embedder import MODEL as EMBEDDING_MODEL
 from src.rag.store import VECTOR_DIM
+from src.zotero.background import ZoteroPaperCacheSyncer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vault-agent")
 
 config = load_config()
 
-app = FastAPI(title="Vault Agent")
+paper_cache_syncer: ZoteroPaperCacheSyncer | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    global paper_cache_syncer
+    if config.zotero_api_key and config.zotero_library_id:
+        paper_cache_syncer = ZoteroPaperCacheSyncer(config)
+        paper_cache_syncer.start()
+    yield
+    if paper_cache_syncer is not None:
+        paper_cache_syncer.stop()
+
+
+app = FastAPI(title="Vault Agent", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -248,6 +274,267 @@ async def vault_search(q: str, n: int = 10):
     except Exception as err:
         logger.exception("Error searching vault")
         return JSONResponse({"error": str(err)}, status_code=500)
+
+
+# --- Zotero routes ---
+
+
+@app.post("/zotero/sync", response_model=ZoteroSyncResponse)
+async def zotero_sync(body: ZoteroSyncRequest | None = None):
+    if not config.zotero_api_key or not config.zotero_library_id:
+        return JSONResponse(
+            {
+                "error": "Zotero is not configured. Set ZOTERO_API_KEY and ZOTERO_LIBRARY_ID."
+            },
+            status_code=400,
+        )
+    try:
+        from src.zotero.orchestrator import sync_zotero
+
+        result = await sync_zotero(config, body)
+        return result
+    except Exception as err:
+        logger.exception("Error during Zotero sync")
+        return JSONResponse({"error": str(err)}, status_code=500)
+
+
+@app.get("/zotero/collections", response_model=ZoteroCollectionsResponse)
+async def zotero_collections():
+    if not config.zotero_api_key or not config.zotero_library_id:
+        return JSONResponse(
+            {"error": "Zotero is not configured."},
+            status_code=400,
+        )
+    try:
+        from src.zotero.client import ZoteroClient
+
+        client = ZoteroClient(
+            library_id=config.zotero_library_id,
+            library_type=config.zotero_library_type,
+            api_key=config.zotero_api_key,
+        )
+        collections = client.fetch_collections()
+        items = [ZoteroCollection(**asdict(c)) for c in collections]
+        return ZoteroCollectionsResponse(collections=items, total=len(items))
+    except Exception as err:
+        logger.exception("Error fetching Zotero collections")
+        return JSONResponse({"error": str(err)}, status_code=500)
+
+
+@app.get("/zotero/papers/cache-status")
+async def zotero_papers_cache_status():
+    if not config.zotero_api_key or not config.zotero_library_id:
+        return JSONResponse(
+            {"error": "Zotero is not configured."},
+            status_code=400,
+        )
+    try:
+        from src.zotero.sync import ZoteroSyncState
+
+        sync_state = ZoteroSyncState()
+        return {
+            "cached_count": sync_state.get_cached_paper_count(),
+            "cache_updated_at": sync_state.get_papers_cache_updated_at(),
+            "sync_in_progress": paper_cache_syncer.sync_in_progress
+            if paper_cache_syncer
+            else False,
+        }
+    except Exception as err:
+        logger.exception("Error fetching paper cache status")
+        return JSONResponse({"error": str(err)}, status_code=500)
+
+
+@app.post("/zotero/papers/refresh")
+async def zotero_papers_refresh():
+    if not config.zotero_api_key or not config.zotero_library_id:
+        return JSONResponse(
+            {"error": "Zotero is not configured."},
+            status_code=400,
+        )
+    if paper_cache_syncer is None:
+        return JSONResponse(
+            {"error": "Paper cache syncer is not running."},
+            status_code=500,
+        )
+    paper_cache_syncer.trigger_sync()
+    return {"status": "sync_triggered"}
+
+
+@app.get("/zotero/papers", response_model=ZoteroPapersResponse)
+async def zotero_papers(collection_key: str | None = None):
+    if not config.zotero_api_key or not config.zotero_library_id:
+        return JSONResponse(
+            {"error": "Zotero is not configured."},
+            status_code=400,
+        )
+    try:
+        from src.zotero.sync import ZoteroSyncState
+
+        sync_state = ZoteroSyncState()
+        syncs = sync_state.get_all_paper_syncs()
+
+        if collection_key:
+            # Fetch directly from Zotero API for collection filtering
+            from src.zotero.client import ZoteroClient
+
+            client = ZoteroClient(
+                library_id=config.zotero_library_id,
+                library_type=config.zotero_library_type,
+                api_key=config.zotero_api_key,
+            )
+            papers = client.fetch_papers(collection_key)
+            summaries = [
+                ZoteroPaperSummary(
+                    key=p.key,
+                    title=p.title,
+                    authors=p.authors,
+                    year=p.year,
+                    item_type=p.item_type,
+                    last_synced=syncs.get(p.key, {}).get("last_synced"),
+                    changeset_id=syncs.get(p.key, {}).get("changeset_id"),
+                )
+                for p in papers
+            ]
+        else:
+            # Use cached papers for "My Library" (all papers)
+            cached = sync_state.get_all_cached_papers()
+            summaries = [
+                ZoteroPaperSummary(
+                    key=p["key"],
+                    title=p["title"],
+                    authors=p["authors"],
+                    year=p["year"],
+                    item_type=p["item_type"],
+                    last_synced=syncs.get(p["key"], {}).get("last_synced"),
+                    changeset_id=syncs.get(p["key"], {}).get("changeset_id"),
+                )
+                for p in cached
+            ]
+
+        return ZoteroPapersResponse(
+            papers=summaries,
+            total=len(summaries),
+            cache_updated_at=sync_state.get_papers_cache_updated_at(),
+        )
+    except Exception as err:
+        logger.exception("Error fetching Zotero papers")
+        return JSONResponse({"error": str(err)}, status_code=500)
+
+
+@app.get(
+    "/zotero/papers/{paper_key}/annotations",
+    response_model=ZoteroPaperAnnotationsResponse,
+)
+async def zotero_paper_annotations(paper_key: str):
+    if not config.zotero_api_key or not config.zotero_library_id:
+        return JSONResponse(
+            {"error": "Zotero is not configured."},
+            status_code=400,
+        )
+    try:
+        from src.zotero.client import ZoteroClient, _extract_paper_metadata
+
+        client = ZoteroClient(
+            library_id=config.zotero_library_id,
+            library_type=config.zotero_library_type,
+            api_key=config.zotero_api_key,
+        )
+        paper_item = client.fetch_item(paper_key)
+        metadata = _extract_paper_metadata(paper_item, paper_key)
+        annotations = client.fetch_paper_annotations(paper_key)
+
+        return ZoteroPaperAnnotationsResponse(
+            paper_key=paper_key,
+            paper_title=metadata.title,
+            annotations=[
+                ZoteroAnnotationItem(
+                    key=a.key,
+                    text=a.text,
+                    comment=a.comment,
+                    color=a.color,
+                    page_label=a.page_label,
+                    annotation_type=a.annotation_type,
+                    date_added=a.date_added,
+                )
+                for a in annotations
+            ],
+            total=len(annotations),
+        )
+    except Exception as err:
+        logger.exception("Error fetching paper annotations")
+        return JSONResponse({"error": str(err)}, status_code=500)
+
+
+@app.post("/zotero/papers/{paper_key}/sync")
+async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
+    if not config.zotero_api_key or not config.zotero_library_id:
+        return JSONResponse(
+            {"error": "Zotero is not configured."},
+            status_code=400,
+        )
+    try:
+        from dataclasses import asdict
+        from src.zotero.client import ZoteroClient, _extract_paper_metadata
+        from src.zotero.sync import ZoteroSyncState
+        from src.zotero.orchestrator import _paper_to_highlights
+        from src.zotero.client import ZoteroPaper
+
+        client = ZoteroClient(
+            library_id=config.zotero_library_id,
+            library_type=config.zotero_library_type,
+            api_key=config.zotero_api_key,
+        )
+        paper_item = client.fetch_item(paper_key)
+        metadata = _extract_paper_metadata(paper_item, paper_key)
+        annotations = client.fetch_paper_annotations(paper_key)
+
+        # Filter out excluded annotations
+        if body.excluded_annotation_keys:
+            excluded = set(body.excluded_annotation_keys)
+            annotations = [a for a in annotations if a.key not in excluded]
+
+        paper = ZoteroPaper(metadata=metadata, annotations=annotations)
+        highlights = _paper_to_highlights(paper)
+
+        if not highlights:
+            return JSONResponse(
+                {"error": "No processable annotations found for this paper."},
+                status_code=400,
+            )
+
+        changeset = await generate_changeset(
+            config,
+            highlights=highlights,
+            paper_metadata=asdict(metadata),
+        )
+
+        sync_state = ZoteroSyncState()
+        sync_state.set_paper_sync(paper_key, metadata.title, changeset.id)
+
+        return changeset.model_dump()
+    except Exception as err:
+        return _handle_anthropic_error(err, "Error syncing Zotero paper")
+
+
+@app.get("/zotero/status")
+async def zotero_status():
+    configured = bool(config.zotero_api_key and config.zotero_library_id)
+    last_version = None
+    last_synced = None
+    if configured:
+        try:
+            from src.zotero.sync import ZoteroSyncState
+
+            state = ZoteroSyncState()
+            last_version = state.get_last_version()
+            last_synced = state.get_last_synced()
+        except Exception:
+            pass
+    return {
+        "configured": configured,
+        "last_version": last_version,
+        "last_synced": last_synced,
+    }
 
 
 # Mount static files for the UI (must be last to not shadow API routes)
