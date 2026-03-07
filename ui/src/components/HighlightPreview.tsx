@@ -108,7 +108,7 @@ function ChangesetCard({
       <div className="flex items-center gap-2 text-[13px] text-muted mb-0.5">
         <span>{cs.source}</span>
         <span className="text-xs">
-          {cs.highlight_count > 1 && `${cs.highlight_count} highlights · `}
+          {cs.highlight_count > 1 && `${cs.highlight_count} snippets · `}
           {cs.change_count} change{cs.change_count !== 1 ? "s" : ""}
         </span>
       </div>
@@ -154,8 +154,8 @@ function ChangesetDetail({
       <div>
         <h4 className="text-[13px] text-muted uppercase tracking-wide mb-2">
           {changeset.highlights.length > 1
-            ? `Highlights (${changeset.highlights.length})`
-            : "Highlight"}
+            ? `Snippets (${changeset.highlights.length})`
+            : "Snippet"}
         </h4>
         {changeset.highlights.map((h, i) => (
           <div key={i} className="mb-3">
@@ -273,7 +273,7 @@ export function HighlightPreview({
 
   if (selectedChangeset) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 max-w-[960px]">
         {error && <ErrorAlert message={error} />}
         <ChangesetDetail
           changeset={selectedChangeset}
@@ -290,61 +290,60 @@ export function HighlightPreview({
   const otherChangesets = changesets.filter((cs) => cs.status !== "pending");
 
   return (
-    <div className="flex flex-col gap-4">
-      <HighlightForm onSubmit={onPreview} disabled={previewLoading} />
-
-      <div className="flex justify-between items-center">
-        <h3 className="text-sm flex items-center gap-2">
-          Changesets
-          {pendingChangesets.length > 0 && (
-            <span className="text-xs font-normal text-yellow bg-yellow-bg py-0.5 px-2 rounded-[10px]">
-              {pendingChangesets.length} pending
-            </span>
-          )}
-        </h3>
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="bg-elevated text-text border border-border py-1 px-3 rounded text-xs"
-        >
-          {loading ? "..." : "Refresh"}
-        </button>
+    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(360px,1fr)_minmax(400px,2fr)] lg:gap-6 lg:items-start">
+      <div className="lg:sticky lg:top-0">
+        <HighlightForm onSubmit={onPreview} disabled={previewLoading} />
       </div>
 
-      {error && <ErrorAlert message={error} />}
+      <div className="flex flex-col gap-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-sm flex items-center gap-2">
+            Pending Review
+            {pendingChangesets.length > 0 && (
+              <span className="text-xs font-normal text-yellow bg-yellow-bg py-0.5 px-2 rounded-[10px]">
+                {pendingChangesets.length} pending
+              </span>
+            )}
+          </h3>
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="bg-elevated text-text border border-border py-1 px-3 rounded text-xs"
+          >
+            {loading ? "..." : "Refresh"}
+          </button>
+        </div>
 
-      {changesets.length === 0 ? (
-        <p className="text-muted text-center py-8">
-          No changesets yet. Submit a highlight to get started.
-        </p>
-      ) : (
-        <>
-          {pendingChangesets.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <h4 className="text-xs text-muted uppercase tracking-wide">
-                Pending Review
-              </h4>
+        {error && <ErrorAlert message={error} />}
+
+        {changesets.length === 0 ? (
+          <p className="text-muted text-center py-8">
+            No pending reviews yet. Submit a snippet to get started.
+          </p>
+        ) : (
+          <>
+            {pendingChangesets.length > 0 && (
               <div className="flex flex-col gap-2">
                 {pendingChangesets.map((cs) => (
                   <ChangesetCard key={cs.id} cs={cs} onSelect={onSelect} />
                 ))}
               </div>
-            </div>
-          )}
-          {otherChangesets.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <h4 className="text-xs text-muted uppercase tracking-wide">
-                Resolved
-              </h4>
+            )}
+            {otherChangesets.length > 0 && (
               <div className="flex flex-col gap-2">
-                {otherChangesets.map((cs) => (
-                  <ChangesetCard key={cs.id} cs={cs} onSelect={onSelect} />
-                ))}
+                <h4 className="text-xs text-muted uppercase tracking-wide">
+                  Resolved
+                </h4>
+                <div className="flex flex-col gap-2">
+                  {otherChangesets.map((cs) => (
+                    <ChangesetCard key={cs.id} cs={cs} onSelect={onSelect} />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </>
-      )}
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

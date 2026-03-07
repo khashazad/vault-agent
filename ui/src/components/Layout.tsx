@@ -36,12 +36,13 @@ export function Layout({ activeView, onViewChange, children }: Props) {
           Vault Agent
         </div>
         <div className="flex flex-col gap-0.5 px-2">
-          <NavButton label="Preview" view="preview" activeView={activeView} onViewChange={onViewChange} />
+          <NavButton label="Review" view="preview" activeView={activeView} onViewChange={onViewChange} />
           <NavButton label="Search" view="search" activeView={activeView} onViewChange={onViewChange} />
           <NavButton label="History" view="history" activeView={activeView} onViewChange={onViewChange} />
+          <NavButton label="Zotero" view="zotero" activeView={activeView} onViewChange={onViewChange} />
         </div>
       </nav>
-      <main className="flex-1 overflow-y-auto py-6 px-8 max-w-[900px]">
+      <main className="flex-1 overflow-y-auto py-6 px-8">
         {children}
       </main>
     </div>

@@ -15,7 +15,7 @@ export function ChangesetHistory({ changesets, loading, onRefresh }: Props) {
   }, [onRefresh]);
 
   return (
-    <div className="bg-surface border border-border rounded p-4">
+    <div className="bg-surface border border-border rounded p-4 max-w-[900px]">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-sm">History</h3>
         <button
@@ -28,7 +28,7 @@ export function ChangesetHistory({ changesets, loading, onRefresh }: Props) {
       </div>
 
       {changesets.length === 0 ? (
-        <p className="text-muted text-center py-8">No changesets yet.</p>
+        <p className="text-muted text-center py-8">No history yet.</p>
       ) : (
         <div className="flex flex-col gap-2">
           {changesets.map((cs) => (
@@ -44,7 +44,7 @@ export function ChangesetHistory({ changesets, loading, onRefresh }: Props) {
                 )}
                 <span className="text-xs text-muted">
                   {cs.highlight_count > 1 &&
-                    `${cs.highlight_count} highlights · `}
+                    `${cs.highlight_count} snippets · `}
                   {cs.change_count} change{cs.change_count !== 1 ? "s" : ""}
                 </span>
               </div>

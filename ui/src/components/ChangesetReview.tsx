@@ -114,7 +114,7 @@ export function ChangesetReview({
   if (loadingChangeset) {
     return (
       <div className="bg-surface border border-border rounded p-5 text-center">
-        <p className="text-muted">Loading changeset...</p>
+        <p className="text-muted">Loading...</p>
       </div>
     );
   }
