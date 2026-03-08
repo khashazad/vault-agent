@@ -15,7 +15,7 @@ export function ChangesetHistory({ changesets, loading, onRefresh }: Props) {
   }, [onRefresh]);
 
   return (
-    <div className="bg-surface border border-border rounded p-4 max-w-[900px]">
+    <div className="bg-surface border border-border rounded p-4 max-w-[960px] mx-auto">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-sm">History</h3>
         <button

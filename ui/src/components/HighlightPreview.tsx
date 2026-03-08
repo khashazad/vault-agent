@@ -367,7 +367,7 @@ export function HighlightPreview({
 
   if (selectedChangeset) {
     return (
-      <div className="flex flex-col gap-4 max-w-[960px]">
+      <div className="flex flex-col gap-4 max-w-[1080px]">
         {error && <ErrorAlert message={error} />}
         <ChangesetDetail
           changeset={selectedChangeset}
