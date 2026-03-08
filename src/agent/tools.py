@@ -129,8 +129,13 @@ REPORT_ROUTING_DECISION_TOOL = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["update", "create"],
-                "description": "Whether to update an existing note or create a new one",
+                "enum": ["update", "create", "skip"],
+                "description": "Whether to update an existing note, create a new one, or skip (info already in vault)",
+            },
+            "duplicate_notes": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "When action='skip': paths of existing notes that already contain this information.",
             },
             "target_path": {
                 "type": "string",
