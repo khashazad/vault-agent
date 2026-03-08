@@ -192,7 +192,7 @@ async def update_change_status(
 async def apply(changeset_id: str, body: ApplyRequest | None = None):
     cs = _get_changeset_or_404(changeset_id)
 
-    if cs.status in ("applied", "rejected"):
+    if cs.status in ("applied", "rejected", "skipped"):
         return JSONResponse(
             {"error": f"Changeset already {cs.status}"}, status_code=400
         )

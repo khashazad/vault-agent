@@ -15,12 +15,13 @@ export interface ProposedChange {
 }
 
 export interface RoutingInfo {
-  action: "update" | "create";
+  action: "update" | "create" | "skip";
   target_path: string | null;
   reasoning: string;
   confidence: number;
   search_results_used: number;
   additional_targets: string[] | null;
+  duplicate_notes: string[] | null;
 }
 
 export interface Changeset {
@@ -30,7 +31,7 @@ export interface Changeset {
   highlight: HighlightInput;
   changes: ProposedChange[];
   reasoning: string;
-  status: "pending" | "applied" | "rejected" | "partially_applied";
+  status: "pending" | "applied" | "rejected" | "partially_applied" | "skipped";
   created_at: string;
   routing: RoutingInfo | null;
   feedback: string | null;
@@ -44,7 +45,7 @@ export interface ChangesetSummary {
   change_count: number;
   status: string;
   created_at: string;
-  routing_action: "update" | "create" | null;
+  routing_action: "update" | "create" | "skip" | null;
   routing_target: string | null;
   routing_confidence: number | null;
 }
