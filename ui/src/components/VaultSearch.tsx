@@ -52,7 +52,7 @@ export function VaultSearch() {
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-[900px]">
+    <div className="flex flex-col gap-4 max-w-[960px] mx-auto">
       <form
         className="bg-surface border border-border rounded p-5 flex flex-col gap-3"
         onSubmit={handleSearch}

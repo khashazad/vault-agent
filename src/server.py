@@ -100,6 +100,26 @@ def _reject_changeset(cs):
     changeset_store.set(cs)
 
 
+def _require_zotero():
+    """Raise 400 if Zotero is not configured."""
+    if not config.zotero_api_key or not config.zotero_library_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Zotero is not configured. Set ZOTERO_API_KEY and ZOTERO_LIBRARY_ID.",
+        )
+
+
+def _create_zotero_client():
+    """Create a ZoteroClient from app config (lazy import to avoid hard dep on pyzotero)."""
+    from src.zotero.client import ZoteroClient
+
+    return ZoteroClient(
+        library_id=config.zotero_library_id,
+        library_type=config.zotero_library_type,
+        api_key=config.zotero_api_key,
+    )
+
+
 @app.get("/health")
 async def health():
     return {
@@ -281,13 +301,7 @@ async def vault_search(q: str, n: int = 10):
 
 @app.post("/zotero/sync", response_model=ZoteroSyncResponse)
 async def zotero_sync(body: ZoteroSyncRequest | None = None):
-    if not config.zotero_api_key or not config.zotero_library_id:
-        return JSONResponse(
-            {
-                "error": "Zotero is not configured. Set ZOTERO_API_KEY and ZOTERO_LIBRARY_ID."
-            },
-            status_code=400,
-        )
+    _require_zotero()
     try:
         from src.zotero.orchestrator import sync_zotero
 
@@ -300,19 +314,9 @@ async def zotero_sync(body: ZoteroSyncRequest | None = None):
 
 @app.get("/zotero/collections", response_model=ZoteroCollectionsResponse)
 async def zotero_collections():
-    if not config.zotero_api_key or not config.zotero_library_id:
-        return JSONResponse(
-            {"error": "Zotero is not configured."},
-            status_code=400,
-        )
+    _require_zotero()
     try:
-        from src.zotero.client import ZoteroClient
-
-        client = ZoteroClient(
-            library_id=config.zotero_library_id,
-            library_type=config.zotero_library_type,
-            api_key=config.zotero_api_key,
-        )
+        client = _create_zotero_client()
         collections = client.fetch_collections()
         items = [ZoteroCollection(**asdict(c)) for c in collections]
         return ZoteroCollectionsResponse(collections=items, total=len(items))
@@ -323,11 +327,7 @@ async def zotero_collections():
 
 @app.get("/zotero/papers/cache-status")
 async def zotero_papers_cache_status():
-    if not config.zotero_api_key or not config.zotero_library_id:
-        return JSONResponse(
-            {"error": "Zotero is not configured."},
-            status_code=400,
-        )
+    _require_zotero()
     try:
         from src.zotero.sync import ZoteroSyncState
 
@@ -346,11 +346,7 @@ async def zotero_papers_cache_status():
 
 @app.post("/zotero/papers/refresh")
 async def zotero_papers_refresh():
-    if not config.zotero_api_key or not config.zotero_library_id:
-        return JSONResponse(
-            {"error": "Zotero is not configured."},
-            status_code=400,
-        )
+    _require_zotero()
     if paper_cache_syncer is None:
         return JSONResponse(
             {"error": "Paper cache syncer is not running."},
@@ -362,11 +358,7 @@ async def zotero_papers_refresh():
 
 @app.get("/zotero/papers", response_model=ZoteroPapersResponse)
 async def zotero_papers(collection_key: str | None = None):
-    if not config.zotero_api_key or not config.zotero_library_id:
-        return JSONResponse(
-            {"error": "Zotero is not configured."},
-            status_code=400,
-        )
+    _require_zotero()
     try:
         from src.zotero.sync import ZoteroSyncState
 
@@ -374,14 +366,7 @@ async def zotero_papers(collection_key: str | None = None):
         syncs = sync_state.get_all_paper_syncs()
 
         if collection_key:
-            # Fetch directly from Zotero API for collection filtering
-            from src.zotero.client import ZoteroClient
-
-            client = ZoteroClient(
-                library_id=config.zotero_library_id,
-                library_type=config.zotero_library_type,
-                api_key=config.zotero_api_key,
-            )
+            client = _create_zotero_client()
             papers = client.fetch_papers(collection_key)
             summaries = [
                 ZoteroPaperSummary(
@@ -426,19 +411,11 @@ async def zotero_papers(collection_key: str | None = None):
     response_model=ZoteroPaperAnnotationsResponse,
 )
 async def zotero_paper_annotations(paper_key: str):
-    if not config.zotero_api_key or not config.zotero_library_id:
-        return JSONResponse(
-            {"error": "Zotero is not configured."},
-            status_code=400,
-        )
+    _require_zotero()
     try:
-        from src.zotero.client import ZoteroClient, _extract_paper_metadata
+        from src.zotero.client import _extract_paper_metadata
 
-        client = ZoteroClient(
-            library_id=config.zotero_library_id,
-            library_type=config.zotero_library_type,
-            api_key=config.zotero_api_key,
-        )
+        client = _create_zotero_client()
         paper_item = client.fetch_item(paper_key)
         metadata = _extract_paper_metadata(paper_item, paper_key)
         annotations = client.fetch_paper_annotations(paper_key)
@@ -467,23 +444,13 @@ async def zotero_paper_annotations(paper_key: str):
 
 @app.post("/zotero/papers/{paper_key}/sync")
 async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
-    if not config.zotero_api_key or not config.zotero_library_id:
-        return JSONResponse(
-            {"error": "Zotero is not configured."},
-            status_code=400,
-        )
+    _require_zotero()
     try:
-        from dataclasses import asdict
-        from src.zotero.client import ZoteroClient, _extract_paper_metadata
-        from src.zotero.sync import ZoteroSyncState
+        from src.zotero.client import ZoteroPaper, _extract_paper_metadata
         from src.zotero.orchestrator import _paper_to_highlights
-        from src.zotero.client import ZoteroPaper
+        from src.zotero.sync import ZoteroSyncState
 
-        client = ZoteroClient(
-            library_id=config.zotero_library_id,
-            library_type=config.zotero_library_type,
-            api_key=config.zotero_api_key,
-        )
+        client = _create_zotero_client()
         paper_item = client.fetch_item(paper_key)
         metadata = _extract_paper_metadata(paper_item, paper_key)
         annotations = client.fetch_paper_annotations(paper_key)
