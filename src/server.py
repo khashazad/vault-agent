@@ -212,7 +212,7 @@ async def update_change_status(
 async def apply(changeset_id: str, body: ApplyRequest | None = None):
     cs = _get_changeset_or_404(changeset_id)
 
-    if cs.status in ("applied", "rejected", "skipped"):
+    if cs.status in ("applied", "rejected"):
         return JSONResponse(
             {"error": f"Changeset already {cs.status}"}, status_code=400
         )
@@ -316,16 +316,6 @@ async def zotero_sync(body: ZoteroSyncRequest | None = None):
 async def zotero_collections():
     _require_zotero()
     try:
-        from src.zotero.sync import ZoteroSyncState
-
-        sync_state = ZoteroSyncState()
-        cached = sync_state.get_all_cached_collections()
-
-        if cached:
-            items = [ZoteroCollection(**c) for c in cached]
-            return ZoteroCollectionsResponse(collections=items, total=len(items))
-
-        # Cache empty (first startup before background sync completes) — fall back to live API
         client = _create_zotero_client()
         collections = client.fetch_collections()
         items = [ZoteroCollection(**asdict(c)) for c in collections]

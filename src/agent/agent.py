@@ -232,20 +232,12 @@ async def generate_changeset(
                             reasoning=tool_input["reasoning"],
                             confidence=tool_input["confidence"],
                             search_results_used=search_results_count,
-                            duplicate_notes=tool_input.get("duplicate_notes"),
                         )
-                        if routing_info.action == "skip":
-                            result_content = (
-                                "Routing decision recorded: skip. No changes needed — "
-                                "this information is already in the vault. "
-                                "Summarize your reasoning and finish."
-                            )
-                        else:
-                            result_content = (
-                                f"Routing decision recorded: {routing_info.action} "
-                                f"{'at ' + routing_info.target_path if routing_info.target_path else '(new note)'}. "
-                                f"Now proceed to make the changes."
-                            )
+                        result_content = (
+                            f"Routing decision recorded: {routing_info.action} "
+                            f"{'at ' + routing_info.target_path if routing_info.target_path else '(new note)'}. "
+                            f"Now proceed to make the changes."
+                        )
 
                     elif tool_name == "search_vault":
                         result_content = await execute_tool(
@@ -383,16 +375,11 @@ async def generate_changeset(
             search_results_used=search_results_count,
         )
 
-    changeset_status = "pending"
-    if routing_info and routing_info.action == "skip":
-        changeset_status = "skipped"
-
     changeset = Changeset(
         id=str(uuid.uuid4()),
         highlights=highlights,
         changes=proposed_changes,
         reasoning="".join(reasoning_parts),
-        status=changeset_status,
         created_at=datetime.now(timezone.utc).isoformat(),
         routing=routing_info,
         feedback=feedback,

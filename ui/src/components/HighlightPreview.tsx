@@ -38,25 +38,6 @@ function RoutingSection({ routing }: { routing: RoutingInfo }) {
             </span>
           </div>
         )}
-        {routing.action === "skip" &&
-          routing.duplicate_notes &&
-          routing.duplicate_notes.length > 0 && (
-            <div className="flex items-start gap-3">
-              <span className="text-xs text-muted min-w-[120px] shrink-0">
-                Already In
-              </span>
-              <div className="flex flex-col gap-1">
-                {routing.duplicate_notes.map((path) => (
-                  <span
-                    key={path}
-                    className="font-mono text-[13px] text-accent"
-                  >
-                    {path}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
         <div className="flex items-start gap-3">
           <span className="text-xs text-muted min-w-[120px] shrink-0">
             Confidence
@@ -128,9 +109,7 @@ function ChangesetCard({
         <span>{cs.source}</span>
         <span className="text-xs">
           {cs.highlight_count > 1 && `${cs.highlight_count} snippets · `}
-          {cs.routing_action === "skip"
-            ? "skipped (duplicate)"
-            : `${cs.change_count} change${cs.change_count !== 1 ? "s" : ""}`}
+          {cs.change_count} change{cs.change_count !== 1 ? "s" : ""}
         </span>
       </div>
       <div className="text-xs text-muted">
@@ -202,79 +181,6 @@ function ChangesetDetail({
         </div>
       )}
 
-      {changeset.status === "skipped" && (
-        <div className="bg-bg rounded p-4 flex flex-col gap-3">
-          <p className="text-sm text-muted">
-            This snippet was skipped — the information is already in the vault.
-          </p>
-          {changeset.routing?.duplicate_notes &&
-            changeset.routing.duplicate_notes.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted uppercase tracking-wide">
-                  Duplicate Notes
-                </span>
-                {changeset.routing.duplicate_notes.map((path) => (
-                  <span
-                    key={path}
-                    className="font-mono text-[13px] text-accent"
-                  >
-                    {path}
-                  </span>
-                ))}
-              </div>
-            )}
-          {changeset.routing?.reasoning && (
-            <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted uppercase tracking-wide">
-                Reasoning
-              </span>
-              <span className="text-[13px] leading-normal">
-                {changeset.routing.reasoning}
-              </span>
-            </div>
-          )}
-          {showRegenerate ? (
-            <div className="bg-surface rounded p-3">
-              <h4 className="text-[13px] text-muted uppercase tracking-wide mb-2">
-                Regenerate with Feedback
-              </h4>
-              <textarea
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                placeholder='e.g. "This is not a duplicate — please add it to..."'
-                rows={3}
-                className="w-full bg-bg border border-border rounded text-text py-2 px-3 text-sm font-sans resize-y mb-2 focus:outline-none focus:border-accent"
-              />
-              <div className="flex gap-2">
-                <button
-                  className="bg-accent text-white border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={handleRegenerate}
-                  disabled={!feedback.trim() || previewLoading}
-                >
-                  {previewLoading ? "Regenerating..." : "Regenerate"}
-                </button>
-                <button
-                  className="bg-elevated text-text border border-border py-1 px-3 rounded text-xs"
-                  onClick={() => {
-                    setShowRegenerate(false);
-                    setFeedback("");
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              className="bg-transparent text-accent border border-accent py-2 px-5 rounded text-sm self-start"
-              onClick={() => setShowRegenerate(true)}
-            >
-              Regenerate with Feedback
-            </button>
-          )}
-        </div>
-      )}
-
       {changeset.status === "pending" && (
         <>
           <ChangesetReview
@@ -325,7 +231,7 @@ function ChangesetDetail({
         </>
       )}
 
-      {changeset.status !== "pending" && changeset.status !== "skipped" && (
+      {changeset.status !== "pending" && (
         <div className="text-center py-4">
           <StatusBadge status={changeset.status} />
         </div>

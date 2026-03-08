@@ -8,7 +8,7 @@ BASE_TOOL_DESCRIPTIONS = [
 
 SEARCH_VAULT_TOOL_DESC = "- **search_vault**: Semantic search across note contents. Use this FIRST to find relevant notes before reading or creating."
 
-REPORT_ROUTING_TOOL_DESC = "- **report_routing_decision**: Declare your placement decision (update, create, or skip if already in vault). Call this exactly ONCE before making changes."
+REPORT_ROUTING_TOOL_DESC = "- **report_routing_decision**: Declare your placement decision (update vs create, target path, reasoning, confidence). Call this exactly ONCE before making changes."
 
 ROUTING_GUIDANCE = """## Routing Instructions
 
@@ -17,12 +17,11 @@ Before making any changes, you MUST decide where this highlight belongs:
 1. **Review search results**: Review the search results provided below. If they are insufficient, use `search_vault` for additional searches.
 2. **Read candidates**: Read 1-3 of the most promising notes to inspect their content and structure.
 3. **Report your decision**: Call `report_routing_decision` with your placement choice:
-   - **action**: "update" if the highlight fits an existing note, "create" if it needs a new one, "skip" if the information is already adequately covered in the vault.
-   - **target_path**: The path of the note to update, or the suggested path for a new note. Not needed for skip.
-   - **reasoning**: Brief explanation of why this placement was chosen (1-2 sentences). For skip, explain what existing content already covers this highlight.
+   - **action**: "update" if the highlight fits an existing note, "create" if it needs a new one.
+   - **target_path**: The path of the note to update, or the suggested path for a new note.
+   - **reasoning**: Brief explanation of why this placement was chosen (1-2 sentences).
    - **confidence**: 0.8+ for strong matches, 0.5-0.8 for reasonable, below 0.5 for uncertain.
-   - **duplicate_notes**: When action="skip", list the paths of notes that already contain this information.
-4. **Execute changes**: After reporting your decision, use create_note or update_note to integrate the highlight. If you chose skip, do NOT call create_note or update_note — summarize your reasoning and finish.
+4. **Execute changes**: After reporting your decision, use create_note or update_note to integrate the highlight.
 
 You MUST call report_routing_decision before any create_note or update_note calls."""
 
@@ -46,8 +45,8 @@ You are receiving multiple highlights at once. Your job is to integrate them coh
 
 1. **Review search results**: Review the search results provided below. If they are insufficient, use `search_vault` for additional searches.
 2. **Read candidates**: Read promising notes to understand existing coverage.
-3. **Report routing**: Call `report_routing_decision` with your overall placement strategy. Use "skip" if all highlights are already adequately covered in the vault.
-4. **Execute coherently**: Create or update notes that weave the highlights together logically. If you chose skip, do NOT make any changes — summarize and finish.
+3. **Report routing**: Call `report_routing_decision` with your overall placement strategy.
+4. **Execute coherently**: Create or update notes that weave the highlights together logically.
    - Prefer creating one well-structured note over many fragmented updates.
    - Group highlights by subtopic under appropriate headings.
    - Preserve each highlight's original text faithfully as blockquotes.

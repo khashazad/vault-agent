@@ -8,8 +8,6 @@ export function confidenceClass(confidence: number): string {
   return "text-red";
 }
 
-export function routingActionClass(action: "update" | "create" | "skip"): string {
-  if (action === "update") return "bg-blue-bg text-blue";
-  if (action === "skip") return "bg-yellow-bg text-yellow";
-  return "bg-green-bg text-green";
+export function routingActionClass(action: "update" | "create"): string {
+  return action === "update" ? "bg-blue-bg text-blue" : "bg-green-bg text-green";
 }

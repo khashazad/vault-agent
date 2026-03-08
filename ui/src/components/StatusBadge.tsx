@@ -2,7 +2,6 @@ const STATUS_COLORS: Record<string, string> = {
   applied: "bg-green-bg text-green",
   rejected: "bg-red-bg text-red",
   partially_applied: "bg-yellow-bg text-yellow",
-  skipped: "bg-yellow-bg text-yellow",
 };
 
 const DEFAULT_COLOR = "bg-yellow-bg text-yellow";

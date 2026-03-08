@@ -52,13 +52,12 @@ class UpdateNoteInput(BaseModel):
 
 
 class RoutingInfo(BaseModel):
-    action: Literal["update", "create", "skip"]
+    action: Literal["update", "create"]
     target_path: str | None = None
     reasoning: str
     confidence: float
     search_results_used: int = 0
     additional_targets: list[str] | None = None
-    duplicate_notes: list[str] | None = None
 
 
 class ProposedChange(BaseModel):
@@ -68,7 +67,7 @@ class ProposedChange(BaseModel):
     original_content: str | None = None
     proposed_content: str
     diff: str
-    status: Literal["pending", "approved", "rejected", "applied"] = "pending"
+    status: Literal["pending", "approved", "rejected"] = "pending"
 
 
 class Changeset(BaseModel):
@@ -76,9 +75,7 @@ class Changeset(BaseModel):
     highlights: list[HighlightInput]
     changes: list[ProposedChange]
     reasoning: str
-    status: Literal[
-        "pending", "applied", "rejected", "partially_applied", "skipped"
-    ] = "pending"
+    status: Literal["pending", "applied", "rejected", "partially_applied"] = "pending"
     created_at: str
     routing: RoutingInfo | None = None
     feedback: str | None = None
