@@ -154,10 +154,12 @@ function TreeNodeItem({
 
         <span className="truncate">{collection.name}</span>
 
-        {/* Item count */}
-        <span className="ml-auto text-[10px] text-muted flex-shrink-0">
-          {collection.num_items}
-        </span>
+        {/* Item count — only for leaf collections */}
+        {!hasChildren && (
+          <span className="ml-auto text-[10px] text-muted flex-shrink-0">
+            {collection.num_items}
+          </span>
+        )}
       </button>
 
       {/* Recursive children */}
