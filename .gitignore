@@ -45,3 +45,7 @@ logs
 
 # Finder (MacOS) folder config
 .DS_Store
+
+.ruff_cache/
+*.db*
+.python-version
