@@ -158,6 +158,17 @@ REPORT_ROUTING_DECISION_TOOL = {
 }
 
 
+def format_search_results(results) -> str:
+    """Format search results into a readable string for the LLM context."""
+    lines = []
+    for i, r in enumerate(results, 1):
+        lines.append(f"### Result {i} (score: {r.score:.4f})")
+        lines.append(f"**Note:** `{r.note_path}` > {r.heading}")
+        lines.append(r.content[:200])
+        lines.append("")
+    return "\n".join(lines)
+
+
 def get_tool_definitions() -> list[dict]:
     tools = list(TOOL_DEFINITIONS)
     tools.insert(0, REPORT_ROUTING_DECISION_TOOL)
@@ -192,12 +203,6 @@ async def execute_tool(
         )
         if not results:
             return "No results found."
-        lines = []
-        for i, r in enumerate(results, 1):
-            lines.append(f"### Result {i} (score: {r.score:.4f})")
-            lines.append(f"**Note:** `{r.note_path}` > {r.heading}")
-            lines.append(r.content[:200])
-            lines.append("")
-        return "\n".join(lines)
+        return format_search_results(results)
 
     raise ValueError(f"Unknown tool: {tool_name}")
