@@ -43,8 +43,8 @@ export function ChangesetHistory({ changesets, loading, onRefresh }: Props) {
                   </span>
                 )}
                 <span className="text-xs text-muted">
-                  {cs.highlight_count > 1 &&
-                    `${cs.highlight_count} snippets · `}
+                  {cs.item_count > 1 &&
+                    `${cs.item_count} snippets · `}
                   {cs.change_count} change{cs.change_count !== 1 ? "s" : ""}
                 </span>
               </div>

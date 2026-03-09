@@ -7,15 +7,19 @@ import anthropic
 
 from src.models import (
     Changeset,
+    ContentItem,
     CreateNoteInput,
-    HighlightInput,
     ProposedChange,
     RoutingInfo,
     UpdateNoteInput,
 )
 from src.config import AppConfig
 from src.agent.tools import get_tool_definitions, execute_tool, format_search_results
-from src.agent.prompts import build_system_prompt, build_batch_user_message
+from src.agent.prompts import (
+    build_system_prompt,
+    build_batch_user_message,
+    SOURCE_CONFIGS,
+)
 from src.rag.search import search_vault
 from src.agent.diff import generate_diff
 from src.vault import validate_path
@@ -35,37 +39,69 @@ _CACHE_WRITE_COST_PER_MTOK = 1.25
 _CACHE_READ_COST_PER_MTOK = 0.10
 
 
-def _max_tool_calls(highlight_count: int) -> int:
+def _log_token_usage(
+    item_count: int,
+    api_calls: int,
+    tool_call_count: int,
+    input_tokens: int,
+    output_tokens: int,
+    cache_write_tokens: int,
+    cache_read_tokens: int,
+) -> None:
+    """Log cache-aware token usage and estimated cost."""
+    input_cost = input_tokens * _INPUT_COST_PER_MTOK / 1_000_000
+    output_cost = output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
+    cache_write_cost = cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
+    cache_read_cost = cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
+    total_cost = input_cost + output_cost + cache_write_cost + cache_read_cost
+
+    parts = [f"input={input_tokens} (${input_cost:.4f})"]
+    if cache_write_tokens or cache_read_tokens:
+        parts.append(f"cache_write={cache_write_tokens} (${cache_write_cost:.4f})")
+        parts.append(f"cache_read={cache_read_tokens} (${cache_read_cost:.4f})")
+    parts.append(f"output={output_tokens} (${output_cost:.4f})")
+
+    logger.info(
+        "LLM usage: %d item(s), %d API call(s), %d tool call(s) | %s | total=$%.4f",
+        item_count,
+        api_calls,
+        tool_call_count,
+        ", ".join(parts),
+        total_cost,
+    )
+
+
+def _max_tool_calls(item_count: int) -> int:
     """Scale tool call limit with batch size."""
-    return min(40, max(MAX_TOOL_CALLS, 5 + 3 * highlight_count))
+    return min(40, max(MAX_TOOL_CALLS, 5 + 3 * item_count))
 
 
-def _build_search_query(highlights: list[HighlightInput]) -> str:
-    """Build a search query from highlight texts for pre-fetching."""
-    if len(highlights) == 1:
-        return highlights[0].text[:300]
-    parts = [h.text[:100] for h in highlights]
-    combined = " ".join(parts)
-    return combined[:500]
+def _build_search_query(items: list[ContentItem]) -> str:
+    """Build a search query from item texts for pre-fetching."""
+    if len(items) == 1:
+        return items[0].text[:300]
+    return " ".join(item.text[:100] for item in items)[:500]
 
 
 async def _init_agent(
     config: AppConfig,
-    highlights: list[HighlightInput],
+    items: list[ContentItem],
     feedback: str | None = None,
     previous_reasoning: str | None = None,
-    paper_metadata: dict | None = None,
 ):
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
-    is_batch = len(highlights) > 1
+    is_batch = len(items) > 1
+    source_config = SOURCE_CONFIGS.get(items[0].source_type, SOURCE_CONFIGS["web"])
     vault_map = build_vault_map(config.vault_path)
-    system_prompt = build_system_prompt(vault_map.as_string, is_batch=is_batch)
+    system_prompt = build_system_prompt(
+        vault_map.as_string, source_config, is_batch=is_batch
+    )
     tool_defs = get_tool_definitions()
 
     # Pre-fetch search results
     search_context = None
     try:
-        query = _build_search_query(highlights)
+        query = _build_search_query(items)
         results = await search_vault(
             query, config.voyage_api_key, config.lancedb_path, n=7
         )
@@ -79,11 +115,11 @@ async def _init_agent(
         {
             "role": "user",
             "content": build_batch_user_message(
-                highlights,
+                items,
+                source_config,
                 feedback,
                 previous_reasoning,
                 search_context,
-                paper_metadata=paper_metadata,
             ),
         },
     ]
@@ -126,30 +162,21 @@ async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
 
 async def generate_changeset(
     config: AppConfig,
-    highlight: HighlightInput | None = None,
-    highlights: list[HighlightInput] | None = None,
+    items: list[ContentItem],
     feedback: str | None = None,
     previous_reasoning: str | None = None,
     parent_changeset_id: str | None = None,
-    paper_metadata: dict | None = None,
 ) -> Changeset:
     """Run the agent to search, decide placement, and generate changes.
-    Accepts a single highlight or a list. Returns a Changeset with proposed changes (no writes to disk)."""
+    Returns a Changeset with proposed changes (no writes to disk)."""
 
-    # Normalize to list
-    if highlights is None:
-        if highlight is None:
-            raise ValueError("Either highlight or highlights must be provided")
-        highlights = [highlight]
-
-    max_calls = _max_tool_calls(len(highlights))
+    max_calls = _max_tool_calls(len(items))
 
     client, system_prompt, tool_defs, messages = await _init_agent(
         config,
-        highlights,
+        items,
         feedback,
         previous_reasoning,
-        paper_metadata=paper_metadata,
     )
 
     proposed_changes: list[ProposedChange] = []
@@ -323,27 +350,14 @@ async def generate_changeset(
 
             messages.append({"role": "user", "content": tool_results})
 
-    # Log token usage and cost (cache-aware)
-    input_cost = total_input_tokens * _INPUT_COST_PER_MTOK / 1_000_000
-    output_cost = total_output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
-    cache_write_cost = total_cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
-    cache_read_cost = total_cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
-    total_cost = input_cost + output_cost + cache_write_cost + cache_read_cost
-    parts = [f"input={total_input_tokens} (${input_cost:.4f})"]
-    if total_cache_write_tokens or total_cache_read_tokens:
-        parts.append(
-            f"cache_write={total_cache_write_tokens} (${cache_write_cost:.4f})"
-        )
-        parts.append(f"cache_read={total_cache_read_tokens} (${cache_read_cost:.4f})")
-    parts.append(f"output={total_output_tokens} (${output_cost:.4f})")
-
-    logger.info(
-        "LLM usage: %d highlight(s), %d API call(s), %d tool call(s) | %s | total=$%.4f",
-        len(highlights),
+    _log_token_usage(
+        len(items),
         api_calls,
         tool_call_count,
-        ", ".join(parts),
-        total_cost,
+        total_input_tokens,
+        total_output_tokens,
+        total_cache_write_tokens,
+        total_cache_read_tokens,
     )
 
     # Fallback: infer routing from first proposed change if agent didn't call report_routing_decision
@@ -363,11 +377,12 @@ async def generate_changeset(
 
     changeset = Changeset(
         id=str(uuid.uuid4()),
-        highlights=highlights,
+        items=items,
         changes=proposed_changes,
         reasoning="".join(reasoning_parts),
         status=changeset_status,
         created_at=datetime.now(timezone.utc).isoformat(),
+        source_type=items[0].source_type,
         routing=routing_info,
         feedback=feedback,
         parent_changeset_id=parent_changeset_id,

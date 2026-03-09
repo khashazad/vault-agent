@@ -1,18 +1,18 @@
 import { useState } from "react";
-import type { HighlightInput } from "../types";
+import type { ContentItem } from "../types";
 
 interface Props {
-  onSubmit: (highlights: HighlightInput[]) => void;
+  onSubmit: (items: ContentItem[]) => void;
   disabled: boolean;
 }
 
-export function HighlightForm({ onSubmit, disabled }: Props) {
+export function ContentForm({ onSubmit, disabled }: Props) {
   const [text, setText] = useState("");
   const [source, setSource] = useState("");
   const [annotation, setAnnotation] = useState("");
-  const [batch, setBatch] = useState<HighlightInput[]>([]);
+  const [batch, setBatch] = useState<ContentItem[]>([]);
 
-  const buildHighlight = (): HighlightInput | null => {
+  const buildItem = (): ContentItem | null => {
     if (!text.trim() || !source.trim()) return null;
     return {
       text: text.trim(),
@@ -28,9 +28,9 @@ export function HighlightForm({ onSubmit, disabled }: Props) {
   };
 
   const handleAddToBatch = () => {
-    const h = buildHighlight();
-    if (!h) return;
-    setBatch((prev) => [...prev, h]);
+    const item = buildItem();
+    if (!item) return;
+    setBatch((prev) => [...prev, item]);
     clearForm();
   };
 
@@ -40,10 +40,10 @@ export function HighlightForm({ onSubmit, disabled }: Props) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const current = buildHighlight();
-    const highlights = current ? [...batch, current] : [...batch];
-    if (highlights.length === 0) return;
-    onSubmit(highlights);
+    const current = buildItem();
+    const items = current ? [...batch, current] : [...batch];
+    if (items.length === 0) return;
+    onSubmit(items);
     setBatch([]);
     clearForm();
     setSource("");

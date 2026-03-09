@@ -2,7 +2,7 @@ import type {
   Changeset,
   ChangesetSummary,
   SearchResponse,
-  HighlightInput,
+  ContentItem,
   ZoteroSyncRequest,
   ZoteroSyncResponse,
   ZoteroStatus,
@@ -25,21 +25,21 @@ async function fetchVoid(url: string, options?: RequestInit): Promise<void> {
   if (!res.ok) throw new Error(await res.text());
 }
 
-export function previewHighlight(highlight: HighlightInput): Promise<Changeset> {
-  return fetchJSON(`${BASE}/highlights/preview`, {
+export function previewContent(item: ContentItem): Promise<Changeset> {
+  return fetchJSON(`${BASE}/content/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(highlight),
+    body: JSON.stringify(item),
   });
 }
 
-export function previewBatch(
-  highlights: HighlightInput[]
+export function previewContentBatch(
+  items: ContentItem[]
 ): Promise<Changeset> {
-  return fetchJSON(`${BASE}/highlights/preview-batch`, {
+  return fetchJSON(`${BASE}/content/preview-batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ highlights }),
+    body: JSON.stringify({ items }),
   });
 }
 

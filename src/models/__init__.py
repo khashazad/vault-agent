@@ -6,7 +6,7 @@ from .changesets import (
     RegenerateRequest,
     RoutingInfo,
 )
-from .highlights import BatchHighlightInput, HighlightInput
+from .content import BatchContentInput, ContentItem, SourceMetadata, SourceType
 from .search import ChunkInfo, IndexResponse, SearchResponse, SearchType
 from .tools import CreateNoteInput, ReadNoteInput, UpdateNoteInput
 from .vault import VaultMap, VaultNote, VaultNoteSummary
@@ -23,9 +23,11 @@ from .zotero import (
 )
 
 __all__ = [
-    # highlights
-    "HighlightInput",
-    "BatchHighlightInput",
+    # content
+    "ContentItem",
+    "BatchContentInput",
+    "SourceType",
+    "SourceMetadata",
     # vault
     "VaultNoteSummary",
     "VaultNote",

@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import type {
   ChangesetSummary,
   Changeset,
-  HighlightInput,
+  ContentItem,
   RoutingInfo,
 } from "../types";
 import { confidenceClass, routingActionClass } from "../utils";
-import { HighlightForm } from "./HighlightForm";
+import { ContentForm } from "./ContentForm";
 import { ChangesetReview } from "./ChangesetReview";
 import { StatusBadge } from "./StatusBadge";
 import { ErrorAlert } from "./ErrorAlert";
@@ -127,7 +127,7 @@ function ChangesetCard({
       <div className="flex items-center gap-2 text-[13px] text-muted mb-0.5">
         <span>{cs.source}</span>
         <span className="text-xs">
-          {cs.highlight_count > 1 && `${cs.highlight_count} snippets · `}
+          {cs.item_count > 1 && `${cs.item_count} snippets · `}
           {cs.routing_action === "skip"
             ? "skipped (duplicate)"
             : `${cs.change_count} change${cs.change_count !== 1 ? "s" : ""}`}
@@ -174,11 +174,11 @@ function ChangesetDetail({
 
       <div>
         <h4 className="text-[13px] text-muted uppercase tracking-wide mb-2">
-          {changeset.highlights.length > 1
-            ? `Snippets (${changeset.highlights.length})`
+          {changeset.items.length > 1
+            ? `Snippets (${changeset.items.length})`
             : "Snippet"}
         </h4>
-        {changeset.highlights.map((h, i) => (
+        {changeset.items.map((h, i) => (
           <div key={i} className="mb-3">
             <blockquote className="bg-bg border-l-[3px] border-l-accent py-3 px-4 rounded-r text-sm leading-relaxed mb-1">
               {h.text}
@@ -343,12 +343,12 @@ interface Props {
   onRefresh: () => void;
   onSelect: (id: string) => void;
   onBack: () => void;
-  onPreview: (highlights: HighlightInput[]) => void;
+  onPreview: (items: ContentItem[]) => void;
   onRegenerate: (changesetId: string, feedback: string) => void;
   onDone: () => void;
 }
 
-export function HighlightPreview({
+export function ContentPreview({
   changesets,
   selectedChangeset,
   loading,
@@ -386,7 +386,7 @@ export function HighlightPreview({
   return (
     <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(360px,1fr)_minmax(400px,2fr)] lg:gap-6 lg:items-start">
       <div className="lg:sticky lg:top-0">
-        <HighlightForm onSubmit={onPreview} disabled={previewLoading} />
+        <ContentForm onSubmit={onPreview} disabled={previewLoading} />
       </div>
 
       <div className="flex flex-col gap-4">

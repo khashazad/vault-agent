@@ -1,13 +1,13 @@
 import { useState, useCallback } from "react";
-import type { ChangesetSummary, Changeset, HighlightInput } from "../types";
+import type { ChangesetSummary, Changeset, ContentItem } from "../types";
 import {
   fetchChangesets,
   fetchChangeset,
   applyChangeset,
   rejectChangeset,
   updateChangeStatus,
-  previewHighlight,
-  previewBatch,
+  previewContent,
+  previewContentBatch,
   regenerateChangeset,
 } from "../api/client";
 import { formatError } from "../utils";
@@ -49,14 +49,14 @@ export function useChangesets() {
   }, []);
 
   const preview = useCallback(
-    async (highlights: HighlightInput[]) => {
+    async (items: ContentItem[]) => {
       setPreviewLoading(true);
       setError(null);
       try {
         const cs =
-          highlights.length === 1
-            ? await previewHighlight(highlights[0])
-            : await previewBatch(highlights);
+          items.length === 1
+            ? await previewContent(items[0])
+            : await previewContentBatch(items);
         setSelectedChangeset(cs);
         await refresh();
       } catch (err) {
