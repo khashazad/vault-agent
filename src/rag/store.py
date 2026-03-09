@@ -55,7 +55,10 @@ def build_fts_index(table: lancedb.table.Table) -> None:
 
 
 def delete_stale_chunks(
-    table: lancedb.table.Table, valid_keys: set[str], existing_df=None
+    table: lancedb.table.Table,
+    valid_keys: set[str],
+    db: lancedb.DBConnection,
+    existing_df=None,
 ) -> int:
     df = (
         existing_df
@@ -64,16 +67,19 @@ def delete_stale_chunks(
     )
     keys = df["note_path"] + "::" + df["heading"]
     stale_mask = ~keys.isin(valid_keys)
-    stale_df = df[stale_mask]
-    if stale_df.empty:
+    stale_count = int(stale_mask.sum())
+    if stale_count == 0:
         return 0
 
-    for _, row in stale_df.iterrows():
-        path = row["note_path"].replace("'", "''")
-        heading = row["heading"].replace("'", "''")
-        table.delete(f"note_path = '{path}' AND heading = '{heading}'")
+    # Safe deletion: overwrite table with valid-only rows to avoid SQL filter injection
+    full_df = table.to_pandas()
+    full_keys = full_df["note_path"] + "::" + full_df["heading"]
+    valid_df = full_df[full_keys.isin(valid_keys)]
 
-    return len(stale_df)
+    db.drop_table(TABLE_NAME)
+    db.create_table(TABLE_NAME, data=valid_df, schema=SCHEMA)
+
+    return stale_count
 
 
 def search_vectors(

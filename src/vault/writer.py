@@ -67,10 +67,11 @@ def compute_update(raw: str, inp: UpdateNoteInput) -> str:
 
 
 def create_note(vault_path: str, inp: CreateNoteInput) -> str:
-    compute_create(vault_path, inp)
     full_path = validate_path(vault_path, inp.path)
     full_path.parent.mkdir(parents=True, exist_ok=True)
-    full_path.write_text(inp.content, encoding="utf-8")
+    # Exclusive creation ('x' mode) atomically prevents TOCTOU race
+    with open(full_path, "x", encoding="utf-8") as f:
+        f.write(inp.content)
 
     return f"Created note at {inp.path}"
 
