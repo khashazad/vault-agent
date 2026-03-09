@@ -14,7 +14,7 @@ from src.models import (
     UpdateNoteInput,
 )
 from src.config import AppConfig
-from src.agent.tools import get_tool_definitions, execute_tool
+from src.agent.tools import get_tool_definitions, execute_tool, format_search_results
 from src.agent.prompts import build_system_prompt, build_batch_user_message
 from src.rag.search import search_vault
 from src.agent.diff import generate_diff
@@ -49,17 +49,6 @@ def _build_search_query(highlights: list[HighlightInput]) -> str:
     return combined[:500]
 
 
-def _format_search_results(results) -> str:
-    """Format search results for injection into user message."""
-    lines = []
-    for i, r in enumerate(results, 1):
-        lines.append(f"### Result {i} (score: {r.score:.4f})")
-        lines.append(f"**Note:** `{r.note_path}` > {r.heading}")
-        lines.append(r.content[:200])
-        lines.append("")
-    return "\n".join(lines)
-
-
 async def _init_agent(
     config: AppConfig,
     highlights: list[HighlightInput],
@@ -81,7 +70,7 @@ async def _init_agent(
             query, config.voyage_api_key, config.lancedb_path, n=7
         )
         if results:
-            search_context = _format_search_results(results)
+            search_context = format_search_results(results)
             logger.info("Pre-fetched %d search results for agent", len(results))
     except Exception as e:
         logger.warning("Pre-fetch search failed, agent will search manually: %s", e)
@@ -340,37 +329,22 @@ async def generate_changeset(
     cache_write_cost = total_cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
     cache_read_cost = total_cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
     total_cost = input_cost + output_cost + cache_write_cost + cache_read_cost
+    parts = [f"input={total_input_tokens} (${input_cost:.4f})"]
     if total_cache_write_tokens or total_cache_read_tokens:
-        logger.info(
-            "LLM usage: %d highlight(s), %d API call(s), %d tool call(s) | "
-            "input=%d ($%.4f), cache_write=%d ($%.4f), cache_read=%d ($%.4f), "
-            "output=%d ($%.4f) | total=$%.4f",
-            len(highlights),
-            api_calls,
-            tool_call_count,
-            total_input_tokens,
-            input_cost,
-            total_cache_write_tokens,
-            cache_write_cost,
-            total_cache_read_tokens,
-            cache_read_cost,
-            total_output_tokens,
-            output_cost,
-            total_cost,
+        parts.append(
+            f"cache_write={total_cache_write_tokens} (${cache_write_cost:.4f})"
         )
-    else:
-        logger.info(
-            "LLM usage: %d highlight(s), %d API call(s), %d tool call(s) | "
-            "input=%d tokens ($%.4f), output=%d tokens ($%.4f) | total=$%.4f",
-            len(highlights),
-            api_calls,
-            tool_call_count,
-            total_input_tokens,
-            input_cost,
-            total_output_tokens,
-            output_cost,
-            total_cost,
-        )
+        parts.append(f"cache_read={total_cache_read_tokens} (${cache_read_cost:.4f})")
+    parts.append(f"output={total_output_tokens} (${output_cost:.4f})")
+
+    logger.info(
+        "LLM usage: %d highlight(s), %d API call(s), %d tool call(s) | %s | total=$%.4f",
+        len(highlights),
+        api_calls,
+        tool_call_count,
+        ", ".join(parts),
+        total_cost,
+    )
 
     # Fallback: infer routing from first proposed change if agent didn't call report_routing_decision
     if routing_info is None and proposed_changes:

@@ -356,6 +356,20 @@ async def zotero_papers_refresh():
     return {"status": "sync_triggered"}
 
 
+def _to_paper_summary(p: dict, syncs: dict) -> ZoteroPaperSummary:
+    """Build a ZoteroPaperSummary from a dict and sync state lookup."""
+    sync = syncs.get(p["key"], {})
+    return ZoteroPaperSummary(
+        key=p["key"],
+        title=p["title"],
+        authors=p["authors"],
+        year=p["year"],
+        item_type=p["item_type"],
+        last_synced=sync.get("last_synced"),
+        changeset_id=sync.get("changeset_id"),
+    )
+
+
 @app.get("/zotero/papers", response_model=ZoteroPapersResponse)
 async def zotero_papers(collection_key: str | None = None):
     _require_zotero()
@@ -368,33 +382,11 @@ async def zotero_papers(collection_key: str | None = None):
         if collection_key:
             client = _create_zotero_client()
             papers = client.fetch_papers(collection_key)
-            summaries = [
-                ZoteroPaperSummary(
-                    key=p.key,
-                    title=p.title,
-                    authors=p.authors,
-                    year=p.year,
-                    item_type=p.item_type,
-                    last_synced=syncs.get(p.key, {}).get("last_synced"),
-                    changeset_id=syncs.get(p.key, {}).get("changeset_id"),
-                )
-                for p in papers
-            ]
+            summaries = [_to_paper_summary(asdict(p), syncs) for p in papers]
         else:
             # Use cached papers for "My Library" (all papers)
             cached = sync_state.get_all_cached_papers()
-            summaries = [
-                ZoteroPaperSummary(
-                    key=p["key"],
-                    title=p["title"],
-                    authors=p["authors"],
-                    year=p["year"],
-                    item_type=p["item_type"],
-                    last_synced=syncs.get(p["key"], {}).get("last_synced"),
-                    changeset_id=syncs.get(p["key"], {}).get("changeset_id"),
-                )
-                for p in cached
-            ]
+            summaries = [_to_paper_summary(p, syncs) for p in cached]
 
         return ZoteroPapersResponse(
             papers=summaries,
