@@ -71,25 +71,44 @@ class ZoteroPaperCacheSyncer:
                 library_type=self._config.zotero_library_type,
                 api_key=self._config.zotero_api_key,
             )
-
-            papers = await asyncio.to_thread(client.fetch_papers, None)
-            paper_dicts = [asdict(p) for p in papers]
-
             sync_state = ZoteroSyncState()
-            await asyncio.to_thread(sync_state.upsert_papers, paper_dicts)
 
-            # Remove papers that were deleted from Zotero
-            current_keys = {p.key for p in papers}
-            deleted = await asyncio.to_thread(
-                sync_state.delete_papers_not_in, current_keys
-            )
+            try:
+                papers = await asyncio.to_thread(client.fetch_papers, None)
+                paper_dicts = [asdict(p) for p in papers]
+                await asyncio.to_thread(sync_state.upsert_papers, paper_dicts)
 
-            logger.info(
-                "Zotero paper cache synced: %d papers cached, %d removed",
-                len(papers),
-                deleted,
-            )
+                current_keys = {p.key for p in papers}
+                deleted = await asyncio.to_thread(
+                    sync_state.delete_papers_not_in, current_keys
+                )
+
+                logger.info(
+                    "Zotero paper cache synced: %d papers cached, %d removed",
+                    len(papers),
+                    deleted,
+                )
+            except Exception:
+                logger.exception("Failed to sync Zotero paper cache")
+
+            try:
+                collections = await asyncio.to_thread(client.fetch_collections)
+                collection_dicts = [asdict(c) for c in collections]
+                await asyncio.to_thread(
+                    sync_state.upsert_collections, collection_dicts
+                )
+                current_collection_keys = {c.key for c in collections}
+                deleted_cols = await asyncio.to_thread(
+                    sync_state.delete_collections_not_in, current_collection_keys
+                )
+                logger.info(
+                    "Zotero collection cache synced: %d collections cached, %d removed",
+                    len(collections),
+                    deleted_cols,
+                )
+            except Exception:
+                logger.exception("Failed to sync Zotero collection cache")
         except Exception:
-            logger.exception("Failed to sync Zotero paper cache")
+            logger.exception("Failed to initialize Zotero sync")
         finally:
             self._sync_in_progress = False

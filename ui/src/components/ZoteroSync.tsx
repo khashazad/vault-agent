@@ -427,7 +427,7 @@ export function ZoteroSync({ onViewChange }: Props) {
             <button
               onClick={handleProcess}
               disabled={checkedCount === 0}
-              className="bg-accent text-white border-none py-2.5 px-5 rounded text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-accent text-crust border-none py-2.5 px-5 rounded text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Process {checkedCount} annotation{checkedCount !== 1 ? "s" : ""}
             </button>
@@ -503,7 +503,7 @@ export function ZoteroSync({ onViewChange }: Props) {
           <div className="flex gap-3">
             <button
               onClick={() => onViewChange("preview")}
-              className="bg-accent text-white border-none py-2 px-4 rounded text-sm font-medium cursor-pointer"
+              className="bg-accent text-crust border-none py-2 px-4 rounded text-sm font-medium cursor-pointer"
             >
               View in Preview
             </button>

@@ -38,6 +38,14 @@ class ZoteroSyncState:
                 url               TEXT NOT NULL DEFAULT '',
                 cached_at         TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS zotero_collections (
+                key               TEXT PRIMARY KEY,
+                name              TEXT NOT NULL DEFAULT '',
+                parent_collection TEXT,
+                num_items         INTEGER NOT NULL DEFAULT 0,
+                num_collections   INTEGER NOT NULL DEFAULT 0,
+                cached_at         TEXT NOT NULL
+            );
         """)
 
     def get_last_version(self) -> int | None:
@@ -193,6 +201,64 @@ class ZoteroSyncState:
         placeholders = ",".join("?" for _ in keys)
         cursor = self._conn.execute(
             f"DELETE FROM zotero_papers WHERE key NOT IN ({placeholders})",
+            list(keys),
+        )
+        self._conn.commit()
+        return cursor.rowcount
+
+    # --- Collection cache (zotero_collections table) ---
+
+    def upsert_collections(self, collections: list[dict]) -> None:
+        """Bulk upsert collection metadata into the cache."""
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.executemany(
+            """
+            INSERT INTO zotero_collections (key, name, parent_collection, num_items, num_collections, cached_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                name              = excluded.name,
+                parent_collection = excluded.parent_collection,
+                num_items         = excluded.num_items,
+                num_collections   = excluded.num_collections,
+                cached_at         = excluded.cached_at
+            """,
+            [
+                (
+                    c["key"],
+                    c.get("name", ""),
+                    c.get("parent_collection"),
+                    c.get("num_items", 0),
+                    c.get("num_collections", 0),
+                    now,
+                )
+                for c in collections
+            ],
+        )
+        self._conn.commit()
+
+    def get_all_cached_collections(self) -> list[dict]:
+        """Return all cached collections ordered by name ASC."""
+        rows = self._conn.execute(
+            "SELECT * FROM zotero_collections ORDER BY name ASC"
+        ).fetchall()
+        return [
+            {
+                "key": row["key"],
+                "name": row["name"],
+                "parent_collection": row["parent_collection"],
+                "num_items": row["num_items"],
+                "num_collections": row["num_collections"],
+            }
+            for row in rows
+        ]
+
+    def delete_collections_not_in(self, keys: set[str]) -> int:
+        """Remove collections from cache that are no longer in Zotero. Returns count deleted."""
+        if not keys:
+            return 0
+        placeholders = ",".join("?" for _ in keys)
+        cursor = self._conn.execute(
+            f"DELETE FROM zotero_collections WHERE key NOT IN ({placeholders})",
             list(keys),
         )
         self._conn.commit()
