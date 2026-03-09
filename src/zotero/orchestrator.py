@@ -1,8 +1,12 @@
 import logging
-from dataclasses import asdict
 
 from src.config import AppConfig
-from src.models import HighlightInput, ZoteroSyncRequest, ZoteroSyncResponse
+from src.models import (
+    ContentItem,
+    SourceMetadata,
+    ZoteroSyncRequest,
+    ZoteroSyncResponse,
+)
 from src.zotero.client import ZoteroClient, ZoteroPaper
 from src.zotero.sync import ZoteroSyncState
 from src.agent.agent import generate_changeset
@@ -26,10 +30,26 @@ def _format_source(paper: ZoteroPaper) -> str:
     return f"{author_str} - {title} ({year})"
 
 
-def _paper_to_highlights(paper: ZoteroPaper) -> list[HighlightInput]:
-    """Convert a ZoteroPaper's annotations into HighlightInput objects."""
+def _build_source_metadata(paper: ZoteroPaper) -> SourceMetadata:
+    """Build SourceMetadata from a ZoteroPaper's metadata."""
+    meta = paper.metadata
+    return SourceMetadata(
+        title=meta.title,
+        doi=getattr(meta, "doi", None),
+        authors=meta.authors,
+        year=meta.year,
+        publication_title=getattr(meta, "publication_title", None),
+        abstract=getattr(meta, "abstract", None),
+        paper_key=meta.key,
+        url=getattr(meta, "url", None),
+    )
+
+
+def _paper_to_content_items(paper: ZoteroPaper) -> list[ContentItem]:
+    """Convert a ZoteroPaper's annotations into ContentItem objects."""
     source = _format_source(paper)
-    highlights = []
+    source_meta = _build_source_metadata(paper)
+    items = []
     for ann in paper.annotations:
         text = ann.text or ""
         if not text and not ann.comment:
@@ -43,14 +63,16 @@ def _paper_to_highlights(paper: ZoteroPaper) -> list[HighlightInput]:
             parts.append(f"[p. {ann.page_label}]")
         annotation = " ".join(parts) if parts else None
 
-        highlights.append(
-            HighlightInput(
+        items.append(
+            ContentItem(
                 text=text or ann.comment,
                 source=source,
                 annotation=annotation if text else None,
+                source_type="zotero",
+                source_metadata=source_meta,
             )
         )
-    return highlights
+    return items
 
 
 async def sync_zotero(
@@ -96,26 +118,24 @@ async def sync_zotero(
     skipped_papers: list[str] = []
 
     for paper in papers:
-        highlights = _paper_to_highlights(paper)
-        if not highlights:
+        items = _paper_to_content_items(paper)
+        if not items:
             skipped_papers.append(
-                f"{paper.metadata.title or paper.metadata.key} (no highlights)"
+                f"{paper.metadata.title or paper.metadata.key} (no annotations)"
             )
             continue
 
         try:
-            metadata = asdict(paper.metadata)
             changeset = await generate_changeset(
                 config,
-                highlights=highlights,
-                paper_metadata=metadata,
+                items=items,
             )
             changeset_ids.append(changeset.id)
             logger.info(
-                "Generated changeset %s for paper '%s' (%d highlights)",
+                "Generated changeset %s for paper '%s' (%d items)",
                 changeset.id,
                 paper.metadata.title,
-                len(highlights),
+                len(items),
             )
         except Exception as e:
             logger.error("Failed to process paper '%s': %s", paper.metadata.title, e)

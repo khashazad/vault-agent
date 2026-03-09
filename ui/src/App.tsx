@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { Layout } from "./components/Layout";
 import { ChangesetHistory } from "./components/ChangesetHistory";
 import { VaultSearch } from "./components/VaultSearch";
-import { HighlightPreview } from "./components/HighlightPreview";
+import { ContentPreview } from "./components/ContentPreview";
 import { ZoteroSync } from "./components/ZoteroSync";
 import { useChangesets } from "./hooks/useChangesets";
 
@@ -18,7 +18,7 @@ export default function App() {
   return (
     <Layout activeView={view} onViewChange={setView}>
       {view === "preview" && (
-        <HighlightPreview
+        <ContentPreview
           changesets={changesets.changesets}
           selectedChangeset={changesets.selectedChangeset}
           loading={changesets.loading}

@@ -1,7 +1,29 @@
-export interface HighlightInput {
+export type SourceType = "web" | "zotero" | "book";
+
+export interface SourceMetadata {
+  title?: string;
+  // zotero
+  doi?: string;
+  authors?: string[];
+  year?: string;
+  publication_title?: string;
+  abstract?: string;
+  paper_key?: string;
+  // book
+  isbn?: string;
+  chapter?: string;
+  page_range?: string;
+  // web
+  url?: string;
+  site_name?: string;
+}
+
+export interface ContentItem {
   text: string;
   source: string;
   annotation?: string;
+  source_type?: SourceType;
+  source_metadata?: SourceMetadata;
 }
 
 export interface ProposedChange {
@@ -26,13 +48,12 @@ export interface RoutingInfo {
 
 export interface Changeset {
   id: string;
-  highlights: HighlightInput[];
-  /** @deprecated Use highlights[0] — kept for backward compat */
-  highlight: HighlightInput;
+  items: ContentItem[];
   changes: ProposedChange[];
   reasoning: string;
   status: "pending" | "applied" | "rejected" | "partially_applied" | "skipped";
   created_at: string;
+  source_type: SourceType;
   routing: RoutingInfo | null;
   feedback: string | null;
   parent_changeset_id: string | null;
@@ -41,10 +62,11 @@ export interface Changeset {
 export interface ChangesetSummary {
   id: string;
   source: string;
-  highlight_count: number;
+  item_count: number;
   change_count: number;
   status: string;
   created_at: string;
+  source_type: SourceType;
   routing_action: "update" | "create" | "skip" | null;
   routing_target: string | null;
   routing_confidence: number | null;

@@ -1,8 +1,8 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_serializer
+from pydantic import BaseModel, Field, model_validator
 
-from .highlights import HighlightInput
+from .content import ContentItem, SourceType
 
 
 class RoutingInfo(BaseModel):
@@ -27,23 +27,28 @@ class ProposedChange(BaseModel):
 
 class Changeset(BaseModel):
     id: str
-    highlights: list[HighlightInput]
+    items: list[ContentItem]
     changes: list[ProposedChange]
     reasoning: str
     status: Literal[
         "pending", "applied", "rejected", "partially_applied", "skipped"
     ] = "pending"
     created_at: str
+    source_type: SourceType = "web"
     routing: RoutingInfo | None = None
     feedback: str | None = None
     parent_changeset_id: str | None = None
 
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler):
-        d = handler(self)
-        # Backward compat: include singular "highlight" pointing to first
-        d["highlight"] = d["highlights"][0] if d["highlights"] else None
-        return d
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_highlights(cls, data):
+        """Migrate old persisted changesets: highlights → items."""
+        if not isinstance(data, dict):
+            return data
+        if "highlights" in data and "items" not in data:
+            data["items"] = data.pop("highlights")
+        data.setdefault("source_type", "web")
+        return data
 
 
 class RegenerateRequest(BaseModel):

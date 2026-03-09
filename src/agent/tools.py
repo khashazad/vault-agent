@@ -98,7 +98,7 @@ SEARCH_VAULT_TOOL = {
     "description": (
         "Semantic search across the vault's note contents. Returns the most relevant "
         "note sections ranked by similarity to the query. Use this BEFORE reading notes "
-        "to find which notes are most relevant to the highlight topic."
+        "to find which notes are most relevant to the content topic."
     ),
     "input_schema": {
         "type": "object",
@@ -122,7 +122,7 @@ REPORT_ROUTING_DECISION_TOOL = {
     "description": (
         "Report your placement decision BEFORE making any changes. Call this exactly "
         "once after searching and reading candidate notes. This declares where you will "
-        "place the highlight and why. It does not modify any notes."
+        "place the content and why. It does not modify any notes."
     ),
     "input_schema": {
         "type": "object",

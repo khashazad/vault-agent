@@ -15,10 +15,10 @@ from fastapi.staticfiles import StaticFiles
 from src.config import load_config
 from src.models import (
     ApplyRequest,
-    BatchHighlightInput,
+    BatchContentInput,
     ChangeStatusUpdate,
     ChunkInfo,
-    HighlightInput,
+    ContentItem,
     IndexResponse,
     RegenerateRequest,
     SearchResponse,
@@ -137,24 +137,24 @@ async def vault_map():
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
-# --- Highlight preview ---
+# --- Content preview ---
 
 
-@app.post("/highlights/preview")
-async def preview_highlight(highlight: HighlightInput):
+@app.post("/content/preview")
+async def preview_content(item: ContentItem):
     try:
-        changeset = await generate_changeset(config, highlight=highlight)
+        changeset = await generate_changeset(config, items=[item])
         return changeset.model_dump()
     except Exception as err:
-        return _handle_anthropic_error(err, "Error previewing highlight")
+        return _handle_anthropic_error(err, "Error previewing content")
 
 
-@app.post("/highlights/preview-batch")
-async def preview_batch(body: BatchHighlightInput):
-    if not body.highlights:
-        return JSONResponse({"error": "No highlights provided"}, status_code=400)
+@app.post("/content/preview-batch")
+async def preview_content_batch(body: BatchContentInput):
+    if not body.items:
+        return JSONResponse({"error": "No items provided"}, status_code=400)
     try:
-        changeset = await generate_changeset(config, highlights=body.highlights)
+        changeset = await generate_changeset(config, items=body.items)
         return changeset.model_dump()
     except Exception as err:
         return _handle_anthropic_error(err, "Error previewing batch")
@@ -169,8 +169,9 @@ async def list_changesets():
     return [
         {
             "id": cs.id,
-            "source": cs.highlights[0].source if cs.highlights else "",
-            "highlight_count": len(cs.highlights),
+            "source": cs.items[0].source if cs.items else "",
+            "item_count": len(cs.items),
+            "source_type": cs.source_type,
             "change_count": len(cs.changes),
             "status": cs.status,
             "created_at": cs.created_at,
@@ -239,7 +240,7 @@ async def regenerate(changeset_id: str, body: RegenerateRequest):
     try:
         new_changeset = await generate_changeset(
             config,
-            highlights=cs.highlights,
+            items=cs.items,
             feedback=body.feedback,
             previous_reasoning=cs.reasoning,
             parent_changeset_id=cs.id,
@@ -435,7 +436,7 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
     _require_zotero()
     try:
         from src.zotero.client import ZoteroPaper, _extract_paper_metadata
-        from src.zotero.orchestrator import _paper_to_highlights
+        from src.zotero.orchestrator import _paper_to_content_items
         from src.zotero.sync import ZoteroSyncState
 
         client = _create_zotero_client()
@@ -449,9 +450,9 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
             annotations = [a for a in annotations if a.key not in excluded]
 
         paper = ZoteroPaper(metadata=metadata, annotations=annotations)
-        highlights = _paper_to_highlights(paper)
+        items = _paper_to_content_items(paper)
 
-        if not highlights:
+        if not items:
             return JSONResponse(
                 {"error": "No processable annotations found for this paper."},
                 status_code=400,
@@ -459,8 +460,7 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
 
         changeset = await generate_changeset(
             config,
-            highlights=highlights,
-            paper_metadata=asdict(metadata),
+            items=items,
         )
 
         sync_state = ZoteroSyncState()
