@@ -313,6 +313,14 @@ async def zotero_sync(body: ZoteroSyncRequest | None = None):
 async def zotero_collections():
     _require_zotero()
     try:
+        from src.zotero.sync import ZoteroSyncState
+
+        sync_state = ZoteroSyncState()
+        cached = sync_state.get_all_cached_collections()
+        if cached:
+            items = [ZoteroCollection(**c) for c in cached]
+            return ZoteroCollectionsResponse(collections=items, total=len(items))
+        # Cache empty — fetch live
         client = _create_zotero_client()
         collections = client.fetch_collections()
         items = [ZoteroCollection(**asdict(c)) for c in collections]

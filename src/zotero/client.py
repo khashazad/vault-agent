@@ -49,13 +49,14 @@ class ZoteroPaper:
 def _extract_collection(item: dict) -> ZoteroCollectionInfo:
     """Extract collection info from a Zotero collection item."""
     data = item.get("data", item)
+    meta = item.get("meta", {})
     parent = data.get("parentCollection", False)
     return ZoteroCollectionInfo(
         key=data.get("key", item.get("key", "")),
         name=data.get("name", ""),
         parent_collection=parent or None,
-        num_items=data.get("numItems", 0),
-        num_collections=data.get("numCollections", 0),
+        num_items=meta.get("numItems", 0),
+        num_collections=meta.get("numCollections", 0),
     )
 
 
