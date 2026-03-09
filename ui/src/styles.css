@@ -1,21 +1,22 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0d1117;
-  --color-surface: #161b22;
-  --color-elevated: #1c2128;
-  --color-border: #30363d;
-  --color-text: #e6edf3;
-  --color-muted: #8b949e;
-  --color-accent: #58a6ff;
-  --color-green: #3fb950;
-  --color-green-bg: rgba(63, 185, 80, 0.1);
-  --color-red: #f85149;
-  --color-red-bg: rgba(248, 81, 73, 0.1);
-  --color-yellow: #d29922;
-  --color-yellow-bg: rgba(210, 153, 34, 0.1);
-  --color-blue: #58a6ff;
-  --color-blue-bg: rgba(88, 166, 255, 0.1);
+  --color-bg: #1e1e2e;
+  --color-surface: #181825;
+  --color-elevated: #313244;
+  --color-border: #45475a;
+  --color-text: #cdd6f4;
+  --color-muted: #a6adc8;
+  --color-accent: #89b4fa;
+  --color-green: #a6e3a1;
+  --color-green-bg: rgba(166, 227, 161, 0.15);
+  --color-red: #f38ba8;
+  --color-red-bg: rgba(243, 139, 168, 0.15);
+  --color-yellow: #f9e2af;
+  --color-yellow-bg: rgba(249, 226, 175, 0.15);
+  --color-blue: #89b4fa;
+  --color-blue-bg: rgba(137, 180, 250, 0.15);
+  --color-crust: #11111b;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
     sans-serif;
   --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
@@ -108,10 +109,10 @@
     color: var(--color-red);
   }
   .callout-example {
-    border-left-color: #a371f7;
+    border-left-color: #cba6f7;
   }
   .callout-example .callout-title {
-    color: #a371f7;
+    color: #cba6f7;
   }
 
   /* Markdown preview container */

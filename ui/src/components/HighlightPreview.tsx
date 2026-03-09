@@ -247,7 +247,7 @@ function ChangesetDetail({
               />
               <div className="flex gap-2">
                 <button
-                  className="bg-accent text-white border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={handleRegenerate}
                   disabled={!feedback.trim() || previewLoading}
                 >
@@ -297,7 +297,7 @@ function ChangesetDetail({
               />
               <div className="flex gap-2">
                 <button
-                  className="bg-accent text-white border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={handleRegenerate}
                   disabled={!feedback.trim() || previewLoading}
                 >

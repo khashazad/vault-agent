@@ -125,7 +125,7 @@ export function ChangesetReview({
         <p className="text-red mb-3">Failed to load changeset: {fetchError}</p>
         <button
           onClick={onDone}
-          className="bg-accent text-white border-none py-2 px-5 rounded text-sm"
+          className="bg-accent text-crust border-none py-2 px-5 rounded text-sm"
         >
           Back
         </button>
@@ -141,7 +141,7 @@ export function ChangesetReview({
         </p>
         <button
           onClick={onDone}
-          className="bg-accent text-white border-none py-2 px-5 rounded text-sm"
+          className="bg-accent text-crust border-none py-2 px-5 rounded text-sm"
         >
           Done
         </button>
@@ -172,7 +172,7 @@ export function ChangesetReview({
         )}
         <button
           onClick={onDone}
-          className="mt-4 bg-accent text-white border-none py-2 px-5 rounded text-sm"
+          className="mt-4 bg-accent text-crust border-none py-2 px-5 rounded text-sm"
         >
           Start New
         </button>
@@ -224,13 +224,13 @@ export function ChangesetReview({
                 <div className="ml-auto flex border border-border rounded overflow-hidden">
                   <button
                     onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))}
-                    className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "diff" ? "bg-accent text-white" : "bg-elevated text-muted"}`}
+                    className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Diff
                   </button>
                   <button
                     onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "preview" }))}
-                    className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "preview" ? "bg-accent text-white" : "bg-elevated text-muted"}`}
+                    className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Preview
                   </button>
@@ -256,7 +256,7 @@ export function ChangesetReview({
         <button
           onClick={handleApply}
           disabled={applying || approvedCount === 0}
-          className="bg-green text-white border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-green text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {applying
             ? "Applying..."

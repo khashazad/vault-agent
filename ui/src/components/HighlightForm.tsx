@@ -136,7 +136,7 @@ export function HighlightForm({ onSubmit, disabled }: Props) {
         <button
           type="submit"
           disabled={disabled || !canSubmit}
-          className="bg-accent text-white border-none py-2 px-5 rounded text-sm cursor-pointer font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-accent text-crust border-none py-2 px-5 rounded text-sm cursor-pointer font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {disabled
             ? "Generating preview..."
