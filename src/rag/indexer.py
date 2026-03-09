@@ -35,6 +35,8 @@ def _scan_and_chunk(vault_path: str) -> list[Chunk]:
     all_chunks: list[Chunk] = []
 
     for md_file in vault.rglob("*.md"):
+        if md_file.is_symlink():
+            continue
         rel = md_file.relative_to(vault)
         if any(part.startswith(".") for part in rel.parts):
             continue
@@ -131,8 +133,13 @@ async def index_vault(
     deleted = 0
     try:
         if table.count_rows() > 0:
-            deleted = delete_stale_chunks(table, valid_keys, existing_df=existing_df)
+            deleted = delete_stale_chunks(
+                table, valid_keys, db=db, existing_df=existing_df
+            )
             if deleted:
+                # Table was recreated; re-open and rebuild FTS index
+                table = get_or_create_table(db)
+                build_fts_index(table)
                 logger.info(f"Deleted {deleted} stale chunks")
     except Exception as e:
         logger.warning(f"Failed to delete stale chunks: {e}")

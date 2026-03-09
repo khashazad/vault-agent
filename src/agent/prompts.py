@@ -134,27 +134,38 @@ def build_user_message(
     return msg
 
 
+def _sanitize_metadata(value: str, max_length: int = 500) -> str:
+    """Sanitize a metadata string for safe prompt interpolation."""
+    sanitized = value.replace("\n", " ").replace("\r", " ")
+    return sanitized[:max_length].strip()
+
+
 def _format_paper_context(metadata: dict) -> str:
     """Format paper metadata into a markdown block for agent context."""
     lines = ["## Paper Context\n"]
     if metadata.get("title"):
-        lines.append(f"**Title:** {metadata['title']}")
+        lines.append(f"**Title:** {_sanitize_metadata(metadata['title'], 300)}")
     if metadata.get("authors"):
         authors = metadata["authors"]
         if isinstance(authors, list):
-            lines.append(f"**Authors:** {'; '.join(authors)}")
+            safe = [_sanitize_metadata(a, 100) for a in authors[:20]]
+            lines.append(f"**Authors:** {'; '.join(safe)}")
         else:
-            lines.append(f"**Authors:** {authors}")
+            lines.append(f"**Authors:** {_sanitize_metadata(str(authors), 500)}")
     if metadata.get("year"):
-        lines.append(f"**Year:** {metadata['year']}")
+        lines.append(f"**Year:** {_sanitize_metadata(str(metadata['year']), 10)}")
     if metadata.get("publication_title"):
-        lines.append(f"**Journal/Publication:** {metadata['publication_title']}")
+        lines.append(
+            f"**Journal/Publication:** {_sanitize_metadata(metadata['publication_title'], 200)}"
+        )
     if metadata.get("doi"):
-        lines.append(f"**DOI:** {metadata['doi']}")
+        lines.append(f"**DOI:** {_sanitize_metadata(metadata['doi'], 100)}")
     if metadata.get("url"):
-        lines.append(f"**URL:** {metadata['url']}")
+        lines.append(f"**URL:** {_sanitize_metadata(metadata['url'], 500)}")
     if metadata.get("abstract"):
-        lines.append(f"\n**Abstract:**\n> {metadata['abstract']}")
+        lines.append(
+            f"\n**Abstract:**\n> {_sanitize_metadata(metadata['abstract'], 2000)}"
+        )
     lines.append(
         "\nUse this paper metadata for citations, frontmatter fields, "
         "and to contextualize the annotations below."

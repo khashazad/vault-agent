@@ -65,9 +65,9 @@ app = FastAPI(title="Vault Agent", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["GET", "POST", "PATCH"],
+    allow_headers=["Content-Type"],
 )
 
 
@@ -77,11 +77,9 @@ def _handle_anthropic_error(err: Exception, context: str) -> JSONResponse:
         return JSONResponse({"error": "Invalid Anthropic API key"}, status_code=401)
     if isinstance(err, anthropic.APIError):
         status = err.status_code or 502
-        return JSONResponse(
-            {"error": f"Anthropic API error: {err.message}"}, status_code=status
-        )
+        return JSONResponse({"error": "Upstream API error"}, status_code=status)
     logger.exception(context)
-    return JSONResponse({"error": str(err)}, status_code=500)
+    return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 def _get_changeset_or_404(changeset_id: str):
@@ -124,7 +122,7 @@ def _create_zotero_client():
 async def health():
     return {
         "status": "ok",
-        "vaultPath": str(config.vault_path),
+        "vaultConfigured": bool(config.vault_path),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -134,8 +132,9 @@ async def vault_map():
     try:
         vm = build_vault_map(config.vault_path)
         return {"totalNotes": vm.total_notes, "notes": vm.notes}
-    except Exception as err:
-        return JSONResponse({"error": str(err)}, status_code=500)
+    except Exception:
+        logger.exception("Error building vault map")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 # --- Highlight preview ---
@@ -154,10 +153,6 @@ async def preview_highlight(highlight: HighlightInput):
 async def preview_batch(body: BatchHighlightInput):
     if not body.highlights:
         return JSONResponse({"error": "No highlights provided"}, status_code=400)
-    if len(body.highlights) > 50:
-        return JSONResponse(
-            {"error": "Maximum 50 highlights per batch"}, status_code=400
-        )
     try:
         changeset = await generate_changeset(config, highlights=body.highlights)
         return changeset.model_dump()
@@ -264,13 +259,14 @@ async def vault_index():
             config.vault_path, config.voyage_api_key, config.lancedb_path
         )
         return IndexResponse(success=True, **asdict(stats))
-    except Exception as err:
+    except Exception:
         logger.exception("Error indexing vault")
-        return JSONResponse({"error": str(err)}, status_code=500)
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 @app.get("/vault/search", response_model=SearchResponse)
 async def vault_search(q: str, n: int = 10):
+    n = min(n, 100)
     try:
         results = await search_vault(q, config.voyage_api_key, config.lancedb_path, n=n)
         overall_search_type = results[0].search_type if results else "hybrid"
@@ -291,9 +287,9 @@ async def vault_search(q: str, n: int = 10):
             vector_dimensions=VECTOR_DIM,
             search_type=overall_search_type,
         )
-    except Exception as err:
+    except Exception:
         logger.exception("Error searching vault")
-        return JSONResponse({"error": str(err)}, status_code=500)
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 # --- Zotero routes ---
@@ -307,9 +303,9 @@ async def zotero_sync(body: ZoteroSyncRequest | None = None):
 
         result = await sync_zotero(config, body)
         return result
-    except Exception as err:
+    except Exception:
         logger.exception("Error during Zotero sync")
-        return JSONResponse({"error": str(err)}, status_code=500)
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 @app.get("/zotero/collections", response_model=ZoteroCollectionsResponse)
@@ -320,9 +316,9 @@ async def zotero_collections():
         collections = client.fetch_collections()
         items = [ZoteroCollection(**asdict(c)) for c in collections]
         return ZoteroCollectionsResponse(collections=items, total=len(items))
-    except Exception as err:
+    except Exception:
         logger.exception("Error fetching Zotero collections")
-        return JSONResponse({"error": str(err)}, status_code=500)
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 @app.get("/zotero/papers/cache-status")
@@ -339,9 +335,9 @@ async def zotero_papers_cache_status():
             if paper_cache_syncer
             else False,
         }
-    except Exception as err:
+    except Exception:
         logger.exception("Error fetching paper cache status")
-        return JSONResponse({"error": str(err)}, status_code=500)
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 @app.post("/zotero/papers/refresh")
@@ -393,9 +389,9 @@ async def zotero_papers(collection_key: str | None = None):
             total=len(summaries),
             cache_updated_at=sync_state.get_papers_cache_updated_at(),
         )
-    except Exception as err:
+    except Exception:
         logger.exception("Error fetching Zotero papers")
-        return JSONResponse({"error": str(err)}, status_code=500)
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 @app.get(
@@ -429,9 +425,9 @@ async def zotero_paper_annotations(paper_key: str):
             ],
             total=len(annotations),
         )
-    except Exception as err:
+    except Exception:
         logger.exception("Error fetching paper annotations")
-        return JSONResponse({"error": str(err)}, status_code=500)
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 @app.post("/zotero/papers/{paper_key}/sync")
@@ -505,7 +501,7 @@ if ui_dist.exists():
 if __name__ == "__main__":
     uvicorn.run(
         "src.server:app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=config.port,
         reload=True,
     )

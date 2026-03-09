@@ -86,6 +86,8 @@ def build_vault_map(vault_path: str) -> VaultMap:
     summaries: list[VaultNoteSummary] = []
 
     for md_file in vault.rglob("*.md"):
+        if md_file.is_symlink():
+            continue
         rel = md_file.relative_to(vault)
         # Skip hidden directories/files (e.g. .obsidian/)
         if any(part.startswith(".") for part in rel.parts):
