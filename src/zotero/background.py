@@ -94,9 +94,7 @@ class ZoteroPaperCacheSyncer:
             try:
                 collections = await asyncio.to_thread(client.fetch_collections)
                 collection_dicts = [asdict(c) for c in collections]
-                await asyncio.to_thread(
-                    sync_state.upsert_collections, collection_dicts
-                )
+                await asyncio.to_thread(sync_state.upsert_collections, collection_dicts)
                 current_collection_keys = {c.key for c in collections}
                 deleted_cols = await asyncio.to_thread(
                     sync_state.delete_collections_not_in, current_collection_keys
