@@ -49,3 +49,5 @@ logs
 .ruff_cache/
 *.db*
 .python-version
+
+tsconfig.tsbuildinfo

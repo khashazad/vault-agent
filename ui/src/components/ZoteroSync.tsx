@@ -97,10 +97,11 @@ export function ZoteroSync({ onViewChange }: Props) {
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [totalPapers, setTotalPapers] = useState(0);
 
-  // Search + pagination
+  // Search + pagination + filters
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [syncStatus, setSyncStatus] = useState<"all" | "synced" | "unsynced">("unsynced");
 
   // Collections
   const [collections, setCollections] = useState<ZoteroCollection[]>([]);
@@ -138,6 +139,7 @@ export function ZoteroSync({ onViewChange }: Props) {
       collectionKey?: string;
       offset?: number;
       search?: string;
+      syncStatus?: string;
     }) => {
       setPapersLoading(true);
       setError(null);
@@ -147,6 +149,7 @@ export function ZoteroSync({ onViewChange }: Props) {
           offset: opts?.offset ?? 0,
           limit: PAGE_SIZE,
           search: opts?.search,
+          syncStatus: opts?.syncStatus,
         });
         setPapers(res.papers);
         setTotalPapers(res.total);
@@ -193,6 +196,7 @@ export function ZoteroSync({ onViewChange }: Props) {
       collectionKey: selectedCollectionKey ?? undefined,
       offset: page * PAGE_SIZE,
       search: debouncedSearch || undefined,
+      syncStatus,
     });
   }, [
     status?.configured,
@@ -200,6 +204,7 @@ export function ZoteroSync({ onViewChange }: Props) {
     selectedCollectionKey,
     page,
     debouncedSearch,
+    syncStatus,
     loadPapers,
   ]);
 
@@ -223,6 +228,7 @@ export function ZoteroSync({ onViewChange }: Props) {
               collectionKey: selectedCollectionKey ?? undefined,
               offset: page * PAGE_SIZE,
               search: debouncedSearch || undefined,
+              syncStatus,
             });
           }
         }
@@ -238,6 +244,7 @@ export function ZoteroSync({ onViewChange }: Props) {
     selectedCollectionKey,
     page,
     debouncedSearch,
+    syncStatus,
     loadPapers,
   ]);
 
@@ -265,6 +272,11 @@ export function ZoteroSync({ onViewChange }: Props) {
     } finally {
       setAnnotationsLoading(false);
     }
+  }
+
+  function handleSyncStatusChange(s: "all" | "synced" | "unsynced") {
+    setSyncStatus(s);
+    setPage(0);
   }
 
   function handleSelectCollection(key: string | null) {
@@ -450,9 +462,26 @@ export function ZoteroSync({ onViewChange }: Props) {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search papers..."
+                placeholder="Search by title or author..."
                 className="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-foreground placeholder:text-muted outline-none focus:border-accent"
               />
+
+              {/* Sync status filter */}
+              <div className="flex gap-2">
+                {(["all", "synced", "unsynced"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => handleSyncStatusChange(s)}
+                    className={
+                      syncStatus === s
+                        ? "px-3 py-1.5 text-xs font-medium rounded bg-accent/15 text-accent"
+                        : "px-3 py-1.5 text-xs font-medium rounded bg-surface text-muted border border-border"
+                    }
+                  >
+                    {s === "all" ? "All" : s === "synced" ? "Synced" : "Not Synced"}
+                  </button>
+                ))}
+              </div>
 
               {papersLoading && papers.length === 0 ? (
                 <div className="text-muted text-sm">Loading papers...</div>

@@ -382,6 +382,7 @@ async def zotero_papers(
     offset: int = 0,
     limit: int = 25,
     search: str | None = None,
+    sync_status: str | None = None,
 ):
     _require_zotero()
     try:
@@ -394,7 +395,16 @@ async def zotero_papers(
             # Live fetch from Zotero, slice in memory
             client = _create_zotero_client()
             papers = client.fetch_papers(collection_key)
-            summaries = [_to_paper_summary(asdict(p), syncs) for p in papers]
+            # Enrich with cached annotation counts (API doesn't return them)
+            cached_papers = {p["key"]: p for p in sync_state.get_all_cached_papers()}
+            paper_dicts = []
+            for p in papers:
+                d = asdict(p)
+                cached = cached_papers.get(d["key"])
+                if cached:
+                    d["annotation_count"] = cached["annotation_count"]
+                paper_dicts.append(d)
+            summaries = [_to_paper_summary(d, syncs) for d in paper_dicts]
             if search:
                 q = search.lower()
                 summaries = [
@@ -402,12 +412,20 @@ async def zotero_papers(
                     for s in summaries
                     if q in s.title.lower() or any(q in a.lower() for a in s.authors)
                 ]
+            if sync_status == "synced":
+                summaries = [s for s in summaries if s.last_synced]
+            elif sync_status == "unsynced":
+                summaries = [
+                    s
+                    for s in summaries
+                    if not s.last_synced and (s.annotation_count or 0) > 0
+                ]
             total = len(summaries)
             summaries = summaries[offset : offset + limit]
         else:
             # Use cached papers with SQL pagination
             cached, total = sync_state.get_cached_papers_paginated(
-                offset, limit, search
+                offset, limit, search, sync_status
             )
             summaries = [_to_paper_summary(p, syncs) for p in cached]
 

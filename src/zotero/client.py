@@ -200,9 +200,9 @@ class ZoteroClient:
     ) -> list[ZoteroPaperMetadata]:
         """Fetch all top-level bibliographic items (no attachments/annotations/notes)."""
         if collection_key:
-            items = self._zot.collection_items_top(collection_key)
+            items = self._zot.everything(self._zot.collection_items_top(collection_key))
         else:
-            items = self._zot.top()
+            items = self._zot.everything(self._zot.top())
         # top() already excludes child items (attachments/annotations);
         # filter out standalone notes client-side
         skip = {"note", "attachment", "annotation"}
@@ -233,7 +233,7 @@ class ZoteroClient:
 
     def count_annotations_per_paper(self) -> dict[str, int]:
         """Count annotations per paper via bulk fetch (2 paginated API calls)."""
-        all_annotations = self._zot.everything(self._zot.items, itemType="annotation")
+        all_annotations = self._zot.everything(self._zot.items(itemType="annotation"))
 
         # Group annotation counts by parent attachment
         att_counts: dict[str, int] = {}
@@ -247,7 +247,7 @@ class ZoteroClient:
             return {}
 
         # Resolve attachment → paper
-        all_attachments = self._zot.everything(self._zot.items, itemType="attachment")
+        all_attachments = self._zot.everything(self._zot.items(itemType="attachment"))
         att_to_paper: dict[str, str] = {}
         for att in all_attachments:
             key = att.get("key", att.get("data", {}).get("key", ""))
