@@ -36,7 +36,8 @@ class ZoteroSyncState:
                 year              TEXT NOT NULL DEFAULT '',
                 item_type         TEXT NOT NULL DEFAULT '',
                 url               TEXT NOT NULL DEFAULT '',
-                cached_at         TEXT NOT NULL
+                cached_at         TEXT NOT NULL,
+                annotation_count  INTEGER
             );
             CREATE TABLE IF NOT EXISTS zotero_collections (
                 key               TEXT PRIMARY KEY,
@@ -47,6 +48,14 @@ class ZoteroSyncState:
                 cached_at         TEXT NOT NULL
             );
         """)
+        # Migration: add annotation_count column to existing tables
+        try:
+            self._conn.execute(
+                "ALTER TABLE zotero_papers ADD COLUMN annotation_count INTEGER"
+            )
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     def get_last_version(self) -> int | None:
         row = self._conn.execute(
@@ -161,26 +170,54 @@ class ZoteroSyncState:
         )
         self._conn.commit()
 
+    def _row_to_paper_dict(self, row: sqlite3.Row) -> dict:
+        """Convert a zotero_papers row to a dict."""
+        return {
+            "key": row["key"],
+            "title": row["title"],
+            "authors": json.loads(row["authors"]),
+            "doi": row["doi"],
+            "abstract": row["abstract"],
+            "publication_title": row["publication_title"],
+            "year": row["year"],
+            "item_type": row["item_type"],
+            "url": row["url"],
+            "cached_at": row["cached_at"],
+            "annotation_count": row["annotation_count"],
+        }
+
     def get_all_cached_papers(self) -> list[dict]:
         """Return all cached papers ordered by year DESC, title ASC."""
         rows = self._conn.execute(
             "SELECT * FROM zotero_papers ORDER BY year DESC, title ASC"
         ).fetchall()
-        return [
-            {
-                "key": row["key"],
-                "title": row["title"],
-                "authors": json.loads(row["authors"]),
-                "doi": row["doi"],
-                "abstract": row["abstract"],
-                "publication_title": row["publication_title"],
-                "year": row["year"],
-                "item_type": row["item_type"],
-                "url": row["url"],
-                "cached_at": row["cached_at"],
-            }
-            for row in rows
-        ]
+        return [self._row_to_paper_dict(row) for row in rows]
+
+    def get_cached_papers_paginated(
+        self,
+        offset: int = 0,
+        limit: int = 25,
+        search: str | None = None,
+    ) -> tuple[list[dict], int]:
+        """Return paginated cached papers with optional search filter."""
+        where = ""
+        params: list = []
+        if search:
+            where = "WHERE title LIKE ? OR authors LIKE ?"
+            pattern = f"%{search}%"
+            params = [pattern, pattern]
+
+        count_row = self._conn.execute(
+            f"SELECT COUNT(*) as cnt FROM zotero_papers {where}", params
+        ).fetchone()
+        total = count_row["cnt"]
+
+        rows = self._conn.execute(
+            f"SELECT * FROM zotero_papers {where} ORDER BY year DESC, title ASC LIMIT ? OFFSET ?",
+            params + [limit, offset],
+        ).fetchall()
+
+        return [self._row_to_paper_dict(row) for row in rows], total
 
     def get_cached_paper_count(self) -> int:
         """Return the number of cached papers."""
@@ -193,6 +230,14 @@ class ZoteroSyncState:
             "SELECT MAX(cached_at) as latest FROM zotero_papers"
         ).fetchone()
         return row["latest"] if row and row["latest"] else None
+
+    def update_annotation_counts(self, counts: dict[str, int]) -> None:
+        """Bulk update annotation counts for cached papers."""
+        self._conn.executemany(
+            "UPDATE zotero_papers SET annotation_count = ? WHERE key = ?",
+            [(count, key) for key, count in counts.items()],
+        )
+        self._conn.commit()
 
     def delete_papers_not_in(self, keys: set[str]) -> int:
         """Remove papers from cache that are no longer in Zotero. Returns count deleted."""

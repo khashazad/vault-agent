@@ -117,6 +117,7 @@ export interface ZoteroPaperSummary {
   item_type: string;
   last_synced: string | null;
   changeset_id: string | null;
+  annotation_count: number | null;
 }
 
 export interface ZoteroPapersResponse {

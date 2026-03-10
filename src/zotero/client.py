@@ -230,3 +230,36 @@ class ZoteroClient:
                     annotations.append(ann)
         annotations.sort(key=lambda a: (a.page_label or "", a.date_added or ""))
         return annotations
+
+    def count_annotations_per_paper(self) -> dict[str, int]:
+        """Count annotations per paper via bulk fetch (2 paginated API calls)."""
+        all_annotations = self._zot.everything(self._zot.items, itemType="annotation")
+
+        # Group annotation counts by parent attachment
+        att_counts: dict[str, int] = {}
+        for ann in all_annotations:
+            data = ann.get("data", {})
+            parent = data.get("parentItem", "")
+            if parent and (data.get("annotationText") or data.get("annotationComment")):
+                att_counts[parent] = att_counts.get(parent, 0) + 1
+
+        if not att_counts:
+            return {}
+
+        # Resolve attachment → paper
+        all_attachments = self._zot.everything(self._zot.items, itemType="attachment")
+        att_to_paper: dict[str, str] = {}
+        for att in all_attachments:
+            key = att.get("key", att.get("data", {}).get("key", ""))
+            parent = att.get("data", {}).get("parentItem", "")
+            if key and parent:
+                att_to_paper[key] = parent
+
+        # Aggregate by paper
+        paper_counts: dict[str, int] = {}
+        for att_key, count in att_counts.items():
+            paper_key = att_to_paper.get(att_key)
+            if paper_key:
+                paper_counts[paper_key] = paper_counts.get(paper_key, 0) + count
+
+        return paper_counts

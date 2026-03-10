@@ -88,6 +88,20 @@ class ZoteroPaperCacheSyncer:
                     len(papers),
                     deleted,
                 )
+
+                # Fetch annotation counts per paper
+                try:
+                    counts = await asyncio.to_thread(client.count_annotations_per_paper)
+                    if counts:
+                        await asyncio.to_thread(
+                            sync_state.update_annotation_counts, counts
+                        )
+                        logger.info(
+                            "Annotation counts updated for %d papers",
+                            len(counts),
+                        )
+                except Exception:
+                    logger.exception("Failed to fetch annotation counts")
             except Exception:
                 logger.exception("Failed to sync Zotero paper cache")
 
