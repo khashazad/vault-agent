@@ -111,13 +111,19 @@ export function fetchZoteroStatus(): Promise<ZoteroStatus> {
   return fetchJSON(`${BASE}/zotero/status`);
 }
 
-export function fetchZoteroPapers(
-  collectionKey?: string
-): Promise<ZoteroPapersResponse> {
-  const params = collectionKey
-    ? `?collection_key=${encodeURIComponent(collectionKey)}`
-    : "";
-  return fetchJSON(`${BASE}/zotero/papers${params}`);
+export function fetchZoteroPapers(opts?: {
+  collectionKey?: string;
+  offset?: number;
+  limit?: number;
+  search?: string;
+}): Promise<ZoteroPapersResponse> {
+  const params = new URLSearchParams();
+  if (opts?.collectionKey) params.set("collection_key", opts.collectionKey);
+  if (opts?.offset) params.set("offset", String(opts.offset));
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.search) params.set("search", opts.search);
+  const qs = params.toString();
+  return fetchJSON(`${BASE}/zotero/papers${qs ? `?${qs}` : ""}`);
 }
 
 export function fetchZoteroPapersCacheStatus(): Promise<ZoteroPapersCacheStatus> {

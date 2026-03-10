@@ -23,6 +23,7 @@ class ZoteroPaperSummary(BaseModel):
     item_type: str
     last_synced: str | None = None
     changeset_id: str | None = None
+    annotation_count: int | None = None
 
 
 class ZoteroPapersResponse(BaseModel):

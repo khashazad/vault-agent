@@ -101,6 +101,22 @@ export function CollectionTree({ collections, selectedKey, onSelect }: Props) {
   );
 }
 
+export function CollectionTreeSkeleton() {
+  const widths = [100, 75, 88, 65, 80];
+  return (
+    <div className="flex flex-col gap-2.5 animate-pulse py-1">
+      <div className="h-5 bg-surface rounded w-24" />
+      {widths.map((w, i) => (
+        <div
+          key={i}
+          className="h-4 bg-surface rounded"
+          style={{ width: `${w}%`, marginLeft: i > 0 ? "16px" : 0 }}
+        />
+      ))}
+    </div>
+  );
+}
+
 interface TreeNodeItemProps {
   node: TreeNode;
   depth: number;
