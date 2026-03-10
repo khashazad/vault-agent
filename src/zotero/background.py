@@ -6,9 +6,6 @@ from src.config import AppConfig
 
 logger = logging.getLogger("vault-agent")
 
-SYNC_INTERVAL_SECONDS = 5 * 60  # 5 minutes
-
-
 class ZoteroPaperCacheSyncer:
     def __init__(self, config: AppConfig):
         self._config = config
@@ -42,15 +39,8 @@ class ZoteroPaperCacheSyncer:
 
         while True:
             try:
-                # Wait for either the interval or a manual trigger
-                try:
-                    await asyncio.wait_for(
-                        self._trigger_event.wait(),
-                        timeout=SYNC_INTERVAL_SECONDS,
-                    )
-                    self._trigger_event.clear()
-                except asyncio.TimeoutError:
-                    pass  # Normal interval elapsed
+                await self._trigger_event.wait()
+                self._trigger_event.clear()
 
                 await self._do_sync()
             except asyncio.CancelledError:
