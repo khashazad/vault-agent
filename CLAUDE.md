@@ -2,25 +2,20 @@
 
 ## Project Overview
 
-A **FastAPI backend server** running on Python that takes web/PDF highlights and intelligently integrates them into an Obsidian vault using Claude as the AI reasoning layer. Highlights are submitted via HTTP API, processed by a Claude agent with vault-aware tools, and written to the filesystem as Obsidian-compatible markdown.
+A **FastAPI backend server** running on Python that takes highlights and annotations from web pages, Zotero, and books, then intelligently integrates them into an Obsidian vault using Claude as the AI reasoning layer. Content items are submitted via HTTP API (primarily through Zotero sync), processed by a Claude agent with vault-aware tools, and written to the filesystem as Obsidian-compatible markdown.
 
 ## Architecture
 
 ```
-HTTP Request (highlight payload)
-  → FastAPI server
-
-  Preview (POST /highlights/preview or /highlights/preview-batch):
+Zotero Sync Flow:
+  POST /zotero/papers/{paper_key}/sync (or POST /zotero/sync for batch)
+    → Fetch annotations from Zotero API
+    → Build ContentItem list from annotations
     → Agent runs in dry-run mode (virtual filesystem)
     → Claude calls search_vault, reads notes, reports routing decision
     → Tool calls intercepted: diffs computed against originals
     → Proposed changes collected into a Changeset (persisted in SQLite)
     → Response: full Changeset with diffs and routing info
-
-  Regenerate (POST /changesets/{id}/regenerate):
-    → Client provides feedback on a pending changeset
-    → Agent re-runs with original highlights + feedback
-    → New changeset created, linked to parent via parent_changeset_id
 
   Apply (POST /changesets/{id}/apply):
     → Client approves/rejects individual changes
@@ -30,13 +25,13 @@ HTTP Request (highlight payload)
 ### Key Modules
 
 - **`src/server.py`** — FastAPI entry point. Route definitions, middleware, request validation.
-- **`src/models.py`** — Pydantic models (`HighlightInput`, `VaultNote`, `VaultMap`, etc.).
-- **`src/config.py`** — Loads env vars, validates VAULT_PATH and API key.
+- **`src/models/`** — Pydantic models package (`ContentItem`, `Changeset`, `VaultNote`, `VaultMap`, Zotero types, etc.). Split into `content.py`, `changesets.py`, `vault.py`, `tools.py`, `search.py`, `zotero.py`.
+- **`src/config.py`** — Loads env vars, validates VAULT_PATH, API keys, and optional Zotero config.
 - **`src/vault/reader.py`** — Scans the Obsidian vault filesystem. Parses frontmatter, extracts wikilinks, builds the vault map string for the LLM context.
 - **`src/vault/writer.py`** — Filesystem write operations: create note, append to note. All operations are additive-only (no destructive edits).
 - **`src/agent/agent.py`** — The core agent loop. Sends messages to Claude with tools, executes tool calls, loops until completion.
 - **`src/agent/tools.py`** — Tool definitions and handlers for `search_vault`, `report_routing_decision`, `read_note`, `create_note`, `update_note`.
-- **`src/agent/prompts.py`** — System prompt templates. The vault map gets interpolated into the system prompt at runtime.
+- **`src/agent/prompts.py`** — System prompt templates with source-type-aware configs (web, zotero, book). The vault map gets interpolated into the system prompt at runtime.
 - **`src/store.py`** — SQLite-backed persistent `ChangesetStore` using WAL journal mode. Stores changesets in `.changesets.db`.
 - **`src/agent/changeset.py`** — `apply_changeset(vault_path, changeset, approved_ids?)`. Iterates approved `ProposedChange` objects and dispatches to `create_note` / `update_note`.
 - **`src/agent/diff.py`** — `generate_diff(path, original, proposed)`. Wraps `difflib.unified_diff` to produce unified diffs for display in the UI.
@@ -46,6 +41,10 @@ HTTP Request (highlight payload)
 - **`src/rag/indexer.py`** — Orchestrator: scans vault → chunks notes → embeds changed chunks → upserts into LanceDB.
 - **`src/rag/search.py`** — Hybrid search: combines vector similarity + full-text search with RRF (Reciprocal Rank Fusion) reranking. Falls back to vector-only if hybrid fails.
 - **`src/vault/__init__.py`** — Path validation utility (`validate_path`) preventing traversal outside vault root.
+- **`src/zotero/client.py`** — Zotero API client wrapping `pyzotero`. Fetches papers, annotations, collections.
+- **`src/zotero/sync.py`** — Zotero highlight sync logic. Converts annotations to `ContentItem` list and runs agent.
+- **`src/zotero/orchestrator.py`** — Coordination layer for Zotero sync operations.
+- **`src/zotero/background.py`** — Background sync tasks for paper cache refresh.
 
 ## Tech Stack
 
@@ -58,6 +57,7 @@ HTTP Request (highlight payload)
 - **Vector store**: LanceDB (local, file-based) for chunk storage, vector search, and FTS index
 - **Changeset storage**: SQLite with WAL journal mode (`.changesets.db`)
 - **Filesystem**: `pathlib.Path.rglob()` for vault traversal, `Path.read_text()` / `.write_text()` for I/O
+- **Zotero integration**: `pyzotero` for Zotero API access, background sync with local paper cache
 - **UI**: React 19, TypeScript 5.6, Vite 6, Tailwind CSS 4
 
 ## Commands
@@ -73,16 +73,26 @@ cd ui && bun run build                             # Build UI for production →
 
 ## UI
 
-A React 19 + TypeScript single-page application built with Vite 6 and Tailwind CSS 4.
+A React 19 + TypeScript single-page application built with Vite 6 and Tailwind CSS 4. Catppuccin Mocha dark theme.
 
-### Views
-- **Preview** — Submit highlights, review proposed changes (diffs), approve/reject individual changes, regenerate with feedback
-- **Search** — Semantic search across vault contents
-- **History** — Browse past changesets and their statuses
+### Workflow (3 steps)
+1. **Papers** — Browse Zotero papers with collection sidebar, search, sync status filter, pagination. Trigger cache refresh from Zotero API.
+2. **Annotations** — View annotations for a selected paper, grouped by color. Toggle individual annotations on/off before processing.
+3. **Processing** — Agent runs, produces a changeset. Review proposed changes via `ChangesetReview` component with diff/preview toggle, approve/reject individual changes, apply to vault.
+
+### Components
+- **`Layout`** — App shell with header
+- **`ZoteroSync`** — Main workflow component (papers → annotations → processing)
+- **`ChangesetReview`** — Changeset review UI with approve/reject/apply actions
+- **`DiffViewer`** — Structured diff display with line numbers, collapsible context sections
+- **`MarkdownPreview`** — Obsidian-aware markdown renderer (wikilinks, embeds, tags, callouts)
+- **`CollectionTree`** — Hierarchical Zotero collection browser with expand/collapse
+- **`ErrorAlert`** — Error display component
 
 ### Features
 - Obsidian-aware markdown rendering (wikilinks, embeds, tags, callouts)
 - Structured diff viewer with line numbers and collapsible sections
+- Dual view modes: diff and markdown preview for each proposed change
 
 ### Development
 - Dev server on port 5173 with proxy to backend at port 3000
@@ -90,33 +100,49 @@ A React 19 + TypeScript single-page application built with Vite 6 and Tailwind C
 
 ## API Endpoints
 
+### Health & Vault
 - `GET /health` — Health check, returns vault path and status
 - `GET /vault/map` — Returns vault structure JSON (for debugging)
 - `POST /vault/index` — Index vault into LanceDB for semantic search
 - `GET /vault/search?q=...&n=10` — Semantic search across vault contents
-- `POST /highlights/preview` — Process a highlight through the agent in dry-run mode; returns Changeset
-- `POST /highlights/preview-batch` — Process multiple highlights (max 50) in a single request; returns Changeset
-- `GET /changesets` — List all changesets
+
+### Changesets
 - `GET /changesets/{id}` — Get full changeset with all ProposedChange details
 - `PATCH /changesets/{id}/changes/{change_id}` — Set individual change status to `"approved"` | `"rejected"`
 - `POST /changesets/{id}/apply` — Apply approved changes to disk; optional body: `{ change_ids: [...] }`
 - `POST /changesets/{id}/reject` — Reject entire changeset and all its changes
-- `POST /changesets/{id}/regenerate` — Re-run agent with original highlights + feedback; creates new linked changeset
+
+### Zotero
+- `POST /zotero/sync` — Sync papers from Zotero, process annotations, create changesets
+- `GET /zotero/collections` — List Zotero collections (cached or live)
+- `GET /zotero/papers/cache-status` — Cached paper count, last updated, sync in progress
+- `POST /zotero/papers/refresh` — Trigger background paper cache sync from Zotero
+- `GET /zotero/papers?collection_key=...&offset=0&limit=25&search=...&sync_status=...` — Paginated paper list with sync status
+- `GET /zotero/papers/{paper_key}/annotations` — All annotations for a paper
+- `POST /zotero/papers/{paper_key}/sync` — Sync single paper; optional body: `{ excluded_annotation_keys: [...] }`
+- `GET /zotero/status` — Zotero configuration status (configured, last_version, last_synced)
 
 ### Changeset lifecycle
 
 - Changesets are persisted in SQLite; no automatic expiry
-- Changeset status: `pending` → `applied` | `rejected` | `partially_applied`
+- Changeset status: `pending` → `applied` | `rejected` | `partially_applied` | `skipped`
 - Individual change status: `pending` → `approved` | `rejected` | `applied`
-- Regeneration creates a new changeset linked via `parent_changeset_id`
 
-### Highlight payload format
+### ContentItem payload format
 
 ```json
 {
   "text": "The highlighted text",
   "source": "URL or document title",
-  "annotation": "Optional user note"
+  "annotation": "Optional user note",
+  "source_type": "web" | "zotero" | "book",
+  "source_metadata": {
+    "title": "Paper title",
+    "doi": "10.1234/...",
+    "authors": ["Author One"],
+    "year": "2024",
+    "paper_key": "ZOTERO_KEY"
+  }
 }
 ```
 
@@ -131,10 +157,14 @@ PORT=3000
 VOYAGE_API_KEY=pa-...          # Required — powers semantic search
 LANCEDB_PATH=.lancedb          # Optional — default ".lancedb"
 CHANGESET_DB_PATH=.changesets.db  # Optional — default ".changesets.db"
+ZOTERO_API_KEY=...             # Optional — Zotero integration
+ZOTERO_LIBRARY_ID=...          # Optional — Zotero library ID
+ZOTERO_LIBRARY_TYPE=user       # Optional — default "user"
 ```
 
 `VAULT_PATH` must point to the root of the Obsidian vault (the directory containing `.obsidian/`).
 `VOYAGE_API_KEY` is required. The agent uses semantic search (Voyage AI + LanceDB) to discover relevant notes.
+`ZOTERO_API_KEY` and `ZOTERO_LIBRARY_ID` are required for Zotero integration endpoints.
 
 ## Key Design Decisions
 
@@ -148,10 +178,13 @@ Two write operations: create note and append section. No modifications to existi
 The agent loop is ~50 lines. No LangChain/LlamaIndex — a framework adds complexity without value for this use case.
 
 ### Changeset approval workflow
-Highlights are previewed before being written. `POST /highlights/preview` runs the agent in dry-run mode using a virtual filesystem: tool calls are intercepted, diffs computed against originals, and a `Changeset` persisted to SQLite without touching the vault. The agent pre-fetches notes found via `search_vault` into the virtual filesystem before running. The client approves or rejects individual changes, then calls `POST /changesets/{id}/apply` to write only approved changes. Changesets can be regenerated with feedback via `POST /changesets/{id}/regenerate`. Git remains useful for reviewing what landed, but the primary safety mechanism is the approval gate.
+Content is previewed before being written. The agent runs in dry-run mode using a virtual filesystem: tool calls are intercepted, diffs computed against originals, and a `Changeset` persisted to SQLite without touching the vault. The agent pre-fetches notes found via `search_vault` into the virtual filesystem before running. The client approves or rejects individual changes, then calls `POST /changesets/{id}/apply` to write only approved changes. Git remains useful for reviewing what landed, but the primary safety mechanism is the approval gate.
 
 ### Routing decisions
-The agent must call `report_routing_decision` exactly once before making any `create_note` or `update_note` calls. This declares the intended placement (update existing vs. create new), target path, reasoning, and confidence score. Routing decisions are stored on the changeset and displayed in the UI for review.
+The agent must call `report_routing_decision` exactly once before making any `create_note` or `update_note` calls. This declares the intended placement (update existing, create new, or skip), target path, reasoning, confidence score, and optional duplicate_notes. Routing decisions are stored on the changeset and displayed in the UI for review. If the agent reports "skip", the changeset status is set to "skipped".
+
+### Zotero integration
+Papers and annotations are fetched via `pyzotero`. A local paper cache supports paginated browsing, search, and collection filtering. Background sync refreshes the cache from Zotero API. Per-paper sync creates a changeset by converting annotations to `ContentItem` objects and running the agent. Annotations can be excluded before sync.
 
 ## Obsidian Conventions
 
@@ -207,7 +240,7 @@ Commentary about the highlight.
 - **Usage**: Agent calls this first to find semantically relevant notes before reading/creating
 
 ### `report_routing_decision`
-- **Input**: `{ action: "update" | "create", target_path?: string, reasoning: string, confidence: number }`
+- **Input**: `{ action: "update" | "create" | "skip", target_path?: string, reasoning: string, confidence: number, duplicate_notes?: string[] }`
 - **Output**: Confirmation that routing decision was recorded
 - **Constraint**: Must be called exactly once before any `create_note` or `update_note` calls
 
@@ -216,6 +249,7 @@ Commentary about the highlight.
 ```
 vault-agent/
 ├── CLAUDE.md
+├── README.md
 ├── .env                   # gitignored
 ├── .env.example
 ├── .gitignore
@@ -223,10 +257,18 @@ vault-agent/
 ├── pyproject.toml
 ├── uv.lock
 ├── src/
+│   ├── __init__.py
 │   ├── server.py
-│   ├── models.py
 │   ├── config.py
 │   ├── store.py               # SQLite changeset store
+│   ├── models/
+│   │   ├── __init__.py        # Re-exports all models
+│   │   ├── content.py         # ContentItem, SourceMetadata, SourceType
+│   │   ├── changesets.py      # Changeset, ProposedChange, RoutingInfo
+│   │   ├── vault.py           # VaultNote, VaultMap, VaultNoteSummary
+│   │   ├── tools.py           # ReadNoteInput, CreateNoteInput, UpdateNoteInput
+│   │   ├── search.py          # ChunkInfo, IndexResponse, SearchResponse
+│   │   └── zotero.py          # Zotero request/response models
 │   ├── vault/
 │   │   ├── __init__.py        # validate_path()
 │   │   ├── reader.py
@@ -238,24 +280,42 @@ vault-agent/
 │   │   ├── prompts.py
 │   │   ├── changeset.py       # Applies approved changes to vault
 │   │   └── diff.py            # Unified diff generation
-│   └── rag/
+│   ├── rag/
+│   │   ├── __init__.py
+│   │   ├── chunker.py
+│   │   ├── embedder.py
+│   │   ├── store.py
+│   │   ├── indexer.py
+│   │   └── search.py
+│   └── zotero/
 │       ├── __init__.py
-│       ├── chunker.py
-│       ├── embedder.py
-│       ├── store.py
-│       ├── indexer.py
-│       └── search.py
+│       ├── client.py          # Zotero API client (pyzotero)
+│       ├── sync.py            # Annotation → ContentItem conversion
+│       ├── orchestrator.py    # Sync coordination
+│       └── background.py     # Background cache refresh
 ├── ui/
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tsconfig.json
 │   └── src/
 │       ├── main.tsx           # Entry point
-│       ├── App.tsx            # Root component, routing
+│       ├── App.tsx            # Root component (renders Layout + ZoteroSync)
 │       ├── types.ts           # TypeScript type definitions
-│       ├── styles.css
-│       ├── utils.ts
-│       ├── api/               # API client
-│       ├── components/        # React components
-│       ├── hooks/             # Custom React hooks
-│       └── utils/             # Utility modules
+│       ├── styles.css         # Catppuccin Mocha theme, Obsidian styles
+│       ├── utils.ts           # formatError utility
+│       ├── api/
+│       │   └── client.ts      # API client (fetch wrapper)
+│       ├── components/
+│       │   ├── Layout.tsx
+│       │   ├── ZoteroSync.tsx
+│       │   ├── ChangesetReview.tsx
+│       │   ├── DiffViewer.tsx
+│       │   ├── MarkdownPreview.tsx
+│       │   ├── CollectionTree.tsx
+│       │   └── ErrorAlert.tsx
+│       └── utils/
+│           └── obsidian.ts    # Wikilink/tag/embed preprocessing
 ├── .github/
 │   └── workflows/
 │       ├── claude.yml
@@ -263,5 +323,6 @@ vault-agent/
 ├── test-highlights/
 │   └── highlights.json
 └── .claude/
-    └── plans/                 # Saved implementation plans
+    └── skills/
+        └── update-doc/        # Doc update skill
 ```
