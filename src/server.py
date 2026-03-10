@@ -395,7 +395,16 @@ async def zotero_papers(
             # Live fetch from Zotero, slice in memory
             client = _create_zotero_client()
             papers = client.fetch_papers(collection_key)
-            summaries = [_to_paper_summary(asdict(p), syncs) for p in papers]
+            # Enrich with cached annotation counts (API doesn't return them)
+            cached_papers = {p["key"]: p for p in sync_state.get_all_cached_papers()}
+            paper_dicts = []
+            for p in papers:
+                d = asdict(p)
+                cached = cached_papers.get(d["key"])
+                if cached:
+                    d["annotation_count"] = cached["annotation_count"]
+                paper_dicts.append(d)
+            summaries = [_to_paper_summary(d, syncs) for d in paper_dicts]
             if search:
                 q = search.lower()
                 summaries = [
@@ -406,7 +415,11 @@ async def zotero_papers(
             if sync_status == "synced":
                 summaries = [s for s in summaries if s.last_synced]
             elif sync_status == "unsynced":
-                summaries = [s for s in summaries if not s.last_synced and (s.annotation_count or 0) > 0]
+                summaries = [
+                    s
+                    for s in summaries
+                    if not s.last_synced and (s.annotation_count or 0) > 0
+                ]
             total = len(summaries)
             summaries = summaries[offset : offset + limit]
         else:

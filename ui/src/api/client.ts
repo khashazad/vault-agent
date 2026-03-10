@@ -116,12 +116,14 @@ export function fetchZoteroPapers(opts?: {
   offset?: number;
   limit?: number;
   search?: string;
+  syncStatus?: string;
 }): Promise<ZoteroPapersResponse> {
   const params = new URLSearchParams();
   if (opts?.collectionKey) params.set("collection_key", opts.collectionKey);
   if (opts?.offset) params.set("offset", String(opts.offset));
   if (opts?.limit) params.set("limit", String(opts.limit));
   if (opts?.search) params.set("search", opts.search);
+  if (opts?.syncStatus) params.set("sync_status", opts.syncStatus);
   const qs = params.toString();
   return fetchJSON(`${BASE}/zotero/papers${qs ? `?${qs}` : ""}`);
 }
