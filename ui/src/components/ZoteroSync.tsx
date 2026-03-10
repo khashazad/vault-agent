@@ -78,11 +78,7 @@ function StepIndicator({
   );
 }
 
-interface Props {
-  onViewChange: (view: string) => void;
-}
-
-export function ZoteroSync({ onViewChange }: Props) {
+export function ZoteroSync() {
   const [status, setStatus] = useState<ZoteroStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -749,12 +745,6 @@ export function ZoteroSync({ onViewChange }: Props) {
             onDone={handleBackToPapers}
           />
 
-          <button
-            onClick={() => onViewChange("preview")}
-            className="text-xs text-accent bg-transparent border-none cursor-pointer underline self-start"
-          >
-            Open in Review tab &rarr;
-          </button>
         </div>
       )}
 

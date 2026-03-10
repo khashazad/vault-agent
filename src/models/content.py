@@ -29,7 +29,3 @@ class ContentItem(BaseModel):
     annotation: str | None = Field(default=None, max_length=10_000)
     source_type: SourceType = "web"
     source_metadata: SourceMetadata | None = None
-
-
-class BatchContentInput(BaseModel):
-    items: list[ContentItem] = Field(max_length=50)

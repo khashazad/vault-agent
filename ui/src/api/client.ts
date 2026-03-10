@@ -1,8 +1,5 @@
 import type {
   Changeset,
-  ChangesetSummary,
-  SearchResponse,
-  ContentItem,
   ZoteroSyncRequest,
   ZoteroSyncResponse,
   ZoteroStatus,
@@ -23,28 +20,6 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 async function fetchVoid(url: string, options?: RequestInit): Promise<void> {
   const res = await fetch(url, options);
   if (!res.ok) throw new Error(await res.text());
-}
-
-export function previewContent(item: ContentItem): Promise<Changeset> {
-  return fetchJSON(`${BASE}/content/preview`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(item),
-  });
-}
-
-export function previewContentBatch(
-  items: ContentItem[]
-): Promise<Changeset> {
-  return fetchJSON(`${BASE}/content/preview-batch`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items }),
-  });
-}
-
-export function fetchChangesets(): Promise<ChangesetSummary[]> {
-  return fetchJSON(`${BASE}/changesets`);
 }
 
 export function fetchChangeset(id: string): Promise<Changeset> {
@@ -81,22 +56,6 @@ export function rejectChangeset(changesetId: string): Promise<void> {
   return fetchVoid(`${BASE}/changesets/${changesetId}/reject`, {
     method: "POST",
   });
-}
-
-export function regenerateChangeset(
-  changesetId: string,
-  feedback: string
-): Promise<Changeset> {
-  return fetchJSON(`${BASE}/changesets/${changesetId}/regenerate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ feedback }),
-  });
-}
-
-export function searchVault(query: string, n = 10): Promise<SearchResponse> {
-  const params = new URLSearchParams({ q: query, n: String(n) });
-  return fetchJSON(`${BASE}/vault/search?${params}`);
 }
 
 export function syncZotero(request?: ZoteroSyncRequest): Promise<ZoteroSyncResponse> {

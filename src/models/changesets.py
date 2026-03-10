@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
 
 from .content import ContentItem, SourceType
 
@@ -49,10 +49,6 @@ class Changeset(BaseModel):
             data["items"] = data.pop("highlights")
         data.setdefault("source_type", "web")
         return data
-
-
-class RegenerateRequest(BaseModel):
-    feedback: str = Field(max_length=10_000)
 
 
 class ChangeStatusUpdate(BaseModel):
