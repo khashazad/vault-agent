@@ -22,7 +22,6 @@ import { ChangesetReview } from "./ChangesetReview";
 
 type Step = "papers" | "annotations" | "processing";
 
-const CACHE_POLL_INTERVAL = 30_000;
 const PAGE_SIZE = 25;
 
 const COLOR_NAMES: Record<string, string> = {
@@ -204,50 +203,33 @@ export function ZoteroSync() {
     loadPapers,
   ]);
 
-  // Poll cache status every 30s; refetch papers when cache_updated_at changes
-  useEffect(() => {
-    if (!status?.configured) return;
+  async function handleRefresh() {
+    try {
+      await triggerZoteroPapersRefresh();
+      setSyncInProgress(true);
 
-    const interval = setInterval(async () => {
-      try {
-        const cacheStatus = await fetchZoteroPapersCacheStatus();
-        setSyncInProgress(cacheStatus.sync_in_progress);
-
-        if (
-          cacheStatus.cache_updated_at &&
-          cacheStatus.cache_updated_at !== lastCacheUpdatedAtRef.current
-        ) {
-          lastCacheUpdatedAtRef.current = cacheStatus.cache_updated_at;
-          setCacheUpdatedAt(cacheStatus.cache_updated_at);
-          if (step === "papers") {
+      const pollInterval = setInterval(async () => {
+        try {
+          const cacheStatus = await fetchZoteroPapersCacheStatus();
+          if (!cacheStatus.sync_in_progress) {
+            clearInterval(pollInterval);
+            setSyncInProgress(false);
+            if (cacheStatus.cache_updated_at) {
+              lastCacheUpdatedAtRef.current = cacheStatus.cache_updated_at;
+              setCacheUpdatedAt(cacheStatus.cache_updated_at);
+            }
             loadPapers({
               collectionKey: selectedCollectionKey ?? undefined,
               offset: page * PAGE_SIZE,
               search: debouncedSearch || undefined,
               syncStatus,
             });
+            loadCollections();
           }
+        } catch {
+          // Polling failure is non-fatal
         }
-      } catch {
-        // Polling failure is non-fatal
-      }
-    }, CACHE_POLL_INTERVAL);
-
-    return () => clearInterval(interval);
-  }, [
-    status?.configured,
-    step,
-    selectedCollectionKey,
-    page,
-    debouncedSearch,
-    syncStatus,
-    loadPapers,
-  ]);
-
-  async function handleRefresh() {
-    try {
-      await triggerZoteroPapersRefresh();
-      setSyncInProgress(true);
+      }, 3000);
     } catch (err) {
       setError(formatError(err));
     }
@@ -512,7 +494,7 @@ export function ZoteroSync() {
                             {paper.annotation_count != null &&
                               paper.annotation_count > 0 && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent">
-                                  {paper.annotation_count} ann.
+                                  {paper.annotation_count}
                                 </span>
                               )}
                             <span
