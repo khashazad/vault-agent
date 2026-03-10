@@ -1,48 +1,76 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from .content import ContentItem, SourceType
 
 
 class RoutingInfo(BaseModel):
-    action: Literal["update", "create", "skip"]
-    target_path: str | None = None
-    reasoning: str
-    confidence: float
-    search_results_used: int = 0
-    additional_targets: list[str] | None = None
-    duplicate_notes: list[str] | None = None
+    action: Literal["update", "create", "skip"] = Field(
+        description="Whether to update existing note, create new, or skip"
+    )
+    target_path: str | None = Field(
+        default=None, description="Vault-relative path of the target note"
+    )
+    reasoning: str = Field(description="Agent's explanation for the routing decision")
+    confidence: float = Field(description="Confidence score 0-1")
+    search_results_used: int = Field(
+        default=0, description="Number of search results considered"
+    )
+    additional_targets: list[str] | None = Field(
+        default=None, description="Extra note paths affected"
+    )
+    duplicate_notes: list[str] | None = Field(
+        default=None, description="Paths of detected duplicate notes"
+    )
 
 
 class ProposedChange(BaseModel):
-    id: str
-    tool_name: Literal["create_note", "update_note"]
-    input: dict[str, Any]
-    original_content: str | None = None
-    proposed_content: str
-    diff: str
-    status: Literal["pending", "approved", "rejected", "applied"] = "pending"
+    id: str = Field(description="Unique change identifier")
+    tool_name: Literal["create_note", "update_note"] = Field(
+        description="Which write operation to perform"
+    )
+    input: dict[str, Any] = Field(description="Tool input parameters")
+    original_content: str | None = Field(
+        default=None,
+        description="Current note content before change (null for new notes)",
+    )
+    proposed_content: str = Field(description="Full note content after change")
+    diff: str = Field(description="Unified diff of the change")
+    status: Literal["pending", "approved", "rejected", "applied"] = Field(
+        default="pending", description="Current approval status"
+    )
 
 
 class Changeset(BaseModel):
-    id: str
-    items: list[ContentItem]
-    changes: list[ProposedChange]
-    reasoning: str
+    id: str = Field(description="Unique changeset identifier")
+    items: list[ContentItem] = Field(
+        description="Content items that produced this changeset"
+    )
+    changes: list[ProposedChange] = Field(description="Proposed vault changes")
+    reasoning: str = Field(description="Agent's overall reasoning for the changes")
     status: Literal[
         "pending", "applied", "rejected", "partially_applied", "skipped"
-    ] = "pending"
-    created_at: str
-    source_type: SourceType = "web"
-    routing: RoutingInfo | None = None
-    feedback: str | None = None
-    parent_changeset_id: str | None = None
+    ] = Field(default="pending", description="Current changeset status")
+    created_at: str = Field(description="ISO 8601 creation timestamp")
+    source_type: SourceType = Field(
+        default="web", description="Origin type of the content items"
+    )
+    routing: RoutingInfo | None = Field(
+        default=None, description="Agent's routing decision for note placement"
+    )
+    feedback: str | None = Field(
+        default=None, description="User feedback for regeneration"
+    )
+    parent_changeset_id: str | None = Field(
+        default=None,
+        description="ID of the parent changeset if this was regenerated",
+    )
 
     @model_validator(mode="before")
     @classmethod
     def _migrate_highlights(cls, data):
-        """Migrate old persisted changesets: highlights → items."""
+        """Migrate old persisted changesets: highlights -> items."""
         if not isinstance(data, dict):
             return data
         if "highlights" in data and "items" not in data:
@@ -52,8 +80,35 @@ class Changeset(BaseModel):
 
 
 class ChangeStatusUpdate(BaseModel):
-    status: Literal["approved", "rejected"]
+    status: Literal["approved", "rejected"] = Field(
+        description="New status for the change"
+    )
 
 
 class ApplyRequest(BaseModel):
-    change_ids: list[str] | None = None
+    change_ids: list[str] | None = Field(
+        default=None,
+        description="Specific change IDs to apply; if null, all approved changes are applied",
+    )
+
+
+class ChangeStatusResponse(BaseModel):
+    id: str = Field(description="Change identifier")
+    status: str = Field(description="Updated status")
+
+
+class ApplyFailure(BaseModel):
+    id: str = Field(description="ID of the change that failed to apply")
+    error: str = Field(description="Error message describing the failure")
+
+
+class ApplyResponse(BaseModel):
+    applied: list[str] = Field(description="IDs of successfully applied changes")
+    failed: list[ApplyFailure] = Field(
+        description="Changes that failed to apply with error details"
+    )
+
+
+class RejectResponse(BaseModel):
+    id: str = Field(description="Changeset identifier")
+    status: str = Field(description="New status (rejected)")

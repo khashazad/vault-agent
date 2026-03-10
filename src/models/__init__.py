@@ -1,15 +1,27 @@
 from .changesets import (
+    ApplyFailure,
     ApplyRequest,
+    ApplyResponse,
     Changeset,
+    ChangeStatusResponse,
     ChangeStatusUpdate,
     ProposedChange,
+    RejectResponse,
     RoutingInfo,
 )
 from .content import ContentItem, SourceMetadata, SourceType
 from .search import ChunkInfo, IndexResponse, SearchResponse, SearchType
 from .tools import CreateNoteInput, ReadNoteInput, UpdateNoteInput
-from .vault import VaultMap, VaultNote, VaultNoteSummary
+from .vault import (
+    HealthResponse,
+    VaultMap,
+    VaultMapResponse,
+    VaultNote,
+    VaultNoteSummary,
+)
 from .zotero import (
+    PaperCacheStatusResponse,
+    RefreshResponse,
     ZoteroAnnotationItem,
     ZoteroCollection,
     ZoteroCollectionsResponse,
@@ -17,6 +29,7 @@ from .zotero import (
     ZoteroPaperSummary,
     ZoteroPaperSyncRequest,
     ZoteroPapersResponse,
+    ZoteroStatusResponse,
     ZoteroSyncRequest,
     ZoteroSyncResponse,
 )
@@ -30,6 +43,8 @@ __all__ = [
     "VaultNoteSummary",
     "VaultNote",
     "VaultMap",
+    "HealthResponse",
+    "VaultMapResponse",
     # tools
     "ReadNoteInput",
     "CreateNoteInput",
@@ -40,6 +55,10 @@ __all__ = [
     "Changeset",
     "ChangeStatusUpdate",
     "ApplyRequest",
+    "ChangeStatusResponse",
+    "ApplyFailure",
+    "ApplyResponse",
+    "RejectResponse",
     # search
     "SearchType",
     "ChunkInfo",
@@ -55,4 +74,7 @@ __all__ = [
     "ZoteroPaperSyncRequest",
     "ZoteroCollection",
     "ZoteroCollectionsResponse",
+    "PaperCacheStatusResponse",
+    "RefreshResponse",
+    "ZoteroStatusResponse",
 ]

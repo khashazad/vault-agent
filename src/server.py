@@ -15,19 +15,28 @@ from fastapi.staticfiles import StaticFiles
 from src.config import load_config
 from src.models import (
     ApplyRequest,
+    ApplyResponse,
+    Changeset,
+    ChangeStatusResponse,
     ChangeStatusUpdate,
     ChunkInfo,
+    HealthResponse,
     IndexResponse,
+    PaperCacheStatusResponse,
+    RefreshResponse,
+    RejectResponse,
     SearchResponse,
+    VaultMapResponse,
     ZoteroAnnotationItem,
+    ZoteroCollection,
+    ZoteroCollectionsResponse,
     ZoteroPaperAnnotationsResponse,
     ZoteroPapersResponse,
     ZoteroPaperSummary,
     ZoteroPaperSyncRequest,
+    ZoteroStatusResponse,
     ZoteroSyncRequest,
     ZoteroSyncResponse,
-    ZoteroCollection,
-    ZoteroCollectionsResponse,
 )
 from src.vault.reader import build_vault_map
 from src.agent.agent import generate_changeset
@@ -58,7 +67,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         paper_cache_syncer.stop()
 
 
-app = FastAPI(title="Vault Agent", lifespan=lifespan)
+app = FastAPI(
+    title="Vault Agent",
+    description="AI-powered Obsidian vault integration — processes highlights and Zotero annotations into structured markdown notes via Claude.",
+    version="1.0.0",
+    lifespan=lifespan,
+    openapi_tags=[
+        {"name": "Health", "description": "Server health and status"},
+        {
+            "name": "Vault",
+            "description": "Vault structure, indexing, and semantic search",
+        },
+        {
+            "name": "Changesets",
+            "description": "Changeset review, approval, and application",
+        },
+        {
+            "name": "Zotero",
+            "description": "Zotero library sync, papers, and collections",
+        },
+    ],
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,7 +144,13 @@ def _create_zotero_client():
     )
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["Health"],
+    summary="Health check",
+    description="Returns server status, whether a vault is configured, and the current UTC timestamp.",
+)
 async def health():
     return {
         "status": "ok",
@@ -124,7 +159,13 @@ async def health():
     }
 
 
-@app.get("/vault/map")
+@app.get(
+    "/vault/map",
+    response_model=VaultMapResponse,
+    tags=["Vault"],
+    summary="Get vault map",
+    description="Returns the vault structure including total note count and per-note summaries with paths, titles, wikilinks, and headings.",
+)
 async def vault_map():
     try:
         vm = build_vault_map(config.vault_path)
@@ -137,13 +178,25 @@ async def vault_map():
 # --- Changeset routes ---
 
 
-@app.get("/changesets/{changeset_id}")
+@app.get(
+    "/changesets/{changeset_id}",
+    response_model=Changeset,
+    tags=["Changesets"],
+    summary="Get changeset",
+    description="Retrieve a changeset by ID, including all proposed changes, routing info, and current status.",
+)
 async def get_changeset(changeset_id: str):
     cs = _get_changeset_or_404(changeset_id)
     return cs.model_dump()
 
 
-@app.patch("/changesets/{changeset_id}/changes/{change_id}")
+@app.patch(
+    "/changesets/{changeset_id}/changes/{change_id}",
+    response_model=ChangeStatusResponse,
+    tags=["Changesets"],
+    summary="Update change status",
+    description="Set an individual proposed change to approved or rejected.",
+)
 async def update_change_status(
     changeset_id: str, change_id: str, body: ChangeStatusUpdate
 ):
@@ -158,7 +211,13 @@ async def update_change_status(
     return JSONResponse({"error": "Change not found"}, status_code=404)
 
 
-@app.post("/changesets/{changeset_id}/apply")
+@app.post(
+    "/changesets/{changeset_id}/apply",
+    response_model=ApplyResponse,
+    tags=["Changesets"],
+    summary="Apply changeset",
+    description="Write approved changes to the vault filesystem. Optionally pass specific change_ids; otherwise all approved changes are applied.",
+)
 async def apply(changeset_id: str, body: ApplyRequest | None = None):
     cs = _get_changeset_or_404(changeset_id)
 
@@ -179,7 +238,13 @@ async def apply(changeset_id: str, body: ApplyRequest | None = None):
     return result
 
 
-@app.post("/changesets/{changeset_id}/reject")
+@app.post(
+    "/changesets/{changeset_id}/reject",
+    response_model=RejectResponse,
+    tags=["Changesets"],
+    summary="Reject changeset",
+    description="Reject an entire changeset and all its proposed changes.",
+)
 async def reject(changeset_id: str):
     cs = _get_changeset_or_404(changeset_id)
     _reject_changeset(cs)
@@ -189,7 +254,13 @@ async def reject(changeset_id: str):
 # --- RAG routes ---
 
 
-@app.post("/vault/index", response_model=IndexResponse)
+@app.post(
+    "/vault/index",
+    response_model=IndexResponse,
+    tags=["Vault"],
+    summary="Index vault",
+    description="Scan the vault, chunk notes by heading, embed via Voyage AI, and upsert into LanceDB. Incremental — only re-embeds changed chunks.",
+)
 async def vault_index():
     try:
         stats = await index_vault(
@@ -201,7 +272,13 @@ async def vault_index():
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
-@app.get("/vault/search", response_model=SearchResponse)
+@app.get(
+    "/vault/search",
+    response_model=SearchResponse,
+    tags=["Vault"],
+    summary="Search vault",
+    description="Hybrid semantic + full-text search across indexed vault chunks. Returns ranked results with similarity scores.",
+)
 async def vault_search(q: str, n: int = 10):
     n = min(n, 100)
     try:
@@ -232,7 +309,13 @@ async def vault_search(q: str, n: int = 10):
 # --- Zotero routes ---
 
 
-@app.post("/zotero/sync", response_model=ZoteroSyncResponse)
+@app.post(
+    "/zotero/sync",
+    response_model=ZoteroSyncResponse,
+    tags=["Zotero"],
+    summary="Sync Zotero library",
+    description="Sync papers from Zotero, process annotations through the agent, and create changesets. Supports filtering by collection or paper keys.",
+)
 async def zotero_sync(body: ZoteroSyncRequest | None = None):
     _require_zotero()
     try:
@@ -245,7 +328,13 @@ async def zotero_sync(body: ZoteroSyncRequest | None = None):
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
-@app.get("/zotero/collections", response_model=ZoteroCollectionsResponse)
+@app.get(
+    "/zotero/collections",
+    response_model=ZoteroCollectionsResponse,
+    tags=["Zotero"],
+    summary="List collections",
+    description="List all Zotero collections. Uses cached data when available, falls back to live API fetch.",
+)
 async def zotero_collections():
     _require_zotero()
     try:
@@ -266,7 +355,13 @@ async def zotero_collections():
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
-@app.get("/zotero/papers/cache-status")
+@app.get(
+    "/zotero/papers/cache-status",
+    response_model=PaperCacheStatusResponse,
+    tags=["Zotero"],
+    summary="Paper cache status",
+    description="Returns the number of cached papers, when the cache was last updated, and whether a background sync is in progress.",
+)
 async def zotero_papers_cache_status():
     _require_zotero()
     try:
@@ -285,7 +380,13 @@ async def zotero_papers_cache_status():
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
-@app.post("/zotero/papers/refresh")
+@app.post(
+    "/zotero/papers/refresh",
+    response_model=RefreshResponse,
+    tags=["Zotero"],
+    summary="Refresh paper cache",
+    description="Trigger a background sync of the Zotero paper cache. Returns immediately; sync runs asynchronously.",
+)
 async def zotero_papers_refresh():
     _require_zotero()
     if paper_cache_syncer is None:
@@ -312,7 +413,13 @@ def _to_paper_summary(p: dict, syncs: dict) -> ZoteroPaperSummary:
     )
 
 
-@app.get("/zotero/papers", response_model=ZoteroPapersResponse)
+@app.get(
+    "/zotero/papers",
+    response_model=ZoteroPapersResponse,
+    tags=["Zotero"],
+    summary="List papers",
+    description="List Zotero papers with pagination, optional collection filter, text search, and sync status filter.",
+)
 async def zotero_papers(
     collection_key: str | None = None,
     offset: int = 0,
@@ -378,6 +485,9 @@ async def zotero_papers(
 @app.get(
     "/zotero/papers/{paper_key}/annotations",
     response_model=ZoteroPaperAnnotationsResponse,
+    tags=["Zotero"],
+    summary="Get paper annotations",
+    description="Fetch all annotations (highlights, notes) for a specific paper from Zotero.",
 )
 async def zotero_paper_annotations(paper_key: str):
     _require_zotero()
@@ -411,7 +521,13 @@ async def zotero_paper_annotations(paper_key: str):
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
-@app.post("/zotero/papers/{paper_key}/sync")
+@app.post(
+    "/zotero/papers/{paper_key}/sync",
+    response_model=Changeset,
+    tags=["Zotero"],
+    summary="Sync paper",
+    description="Process a single paper's annotations through the agent and return a changeset. Optionally exclude specific annotations.",
+)
 async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
     _require_zotero()
     try:
@@ -451,7 +567,13 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
         return _handle_anthropic_error(err, "Error syncing Zotero paper")
 
 
-@app.get("/zotero/status")
+@app.get(
+    "/zotero/status",
+    response_model=ZoteroStatusResponse,
+    tags=["Zotero"],
+    summary="Zotero status",
+    description="Check whether Zotero is configured and return the last sync version and timestamp.",
+)
 async def zotero_status():
     configured = bool(config.zotero_api_key and config.zotero_library_id)
     last_version = None
