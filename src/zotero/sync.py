@@ -198,22 +198,36 @@ class ZoteroSyncState:
         offset: int = 0,
         limit: int = 25,
         search: str | None = None,
+        sync_status: str | None = None,
     ) -> tuple[list[dict], int]:
-        """Return paginated cached papers with optional search filter."""
-        where = ""
+        """Return paginated cached papers with optional search and sync_status filters."""
+        conditions: list[str] = []
         params: list = []
+        join = ""
+
+        if sync_status in ("synced", "unsynced"):
+            join = " LEFT JOIN zotero_paper_sync ps ON p.key = ps.paper_key"
+            if sync_status == "synced":
+                conditions.append("ps.last_synced IS NOT NULL")
+            else:
+                conditions.append("ps.last_synced IS NULL AND p.annotation_count > 0")
+
         if search:
-            where = "WHERE title LIKE ? OR authors LIKE ?"
             pattern = f"%{search}%"
-            params = [pattern, pattern]
+            conditions.append("(p.title LIKE ? OR p.authors LIKE ?)")
+            params.extend([pattern, pattern])
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        table = "zotero_papers p" if join else "zotero_papers"
+        select_cols = "p.*" if join else "*"
 
         count_row = self._conn.execute(
-            f"SELECT COUNT(*) as cnt FROM zotero_papers {where}", params
+            f"SELECT COUNT(*) as cnt FROM {table}{join}{where}", params
         ).fetchone()
         total = count_row["cnt"]
 
         rows = self._conn.execute(
-            f"SELECT * FROM zotero_papers {where} ORDER BY year DESC, title ASC LIMIT ? OFFSET ?",
+            f"SELECT {select_cols} FROM {table}{join}{where} ORDER BY year DESC, title ASC LIMIT ? OFFSET ?",
             params + [limit, offset],
         ).fetchall()
 

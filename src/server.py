@@ -382,6 +382,7 @@ async def zotero_papers(
     offset: int = 0,
     limit: int = 25,
     search: str | None = None,
+    sync_status: str | None = None,
 ):
     _require_zotero()
     try:
@@ -402,12 +403,16 @@ async def zotero_papers(
                     for s in summaries
                     if q in s.title.lower() or any(q in a.lower() for a in s.authors)
                 ]
+            if sync_status == "synced":
+                summaries = [s for s in summaries if s.last_synced]
+            elif sync_status == "unsynced":
+                summaries = [s for s in summaries if not s.last_synced and (s.annotation_count or 0) > 0]
             total = len(summaries)
             summaries = summaries[offset : offset + limit]
         else:
             # Use cached papers with SQL pagination
             cached, total = sync_state.get_cached_papers_paginated(
-                offset, limit, search
+                offset, limit, search, sync_status
             )
             summaries = [_to_paper_summary(p, syncs) for p in cached]
 
