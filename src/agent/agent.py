@@ -94,7 +94,10 @@ async def _init_agent(
     source_config = SOURCE_CONFIGS.get(items[0].source_type, SOURCE_CONFIGS["web"])
     vault_map = build_vault_map(config.vault_path)
     system_prompt = build_system_prompt(
-        vault_map.as_string, source_config, is_batch=is_batch
+        vault_map.as_string,
+        source_config,
+        is_batch=is_batch,
+        source_type=items[0].source_type,
     )
     tool_defs = get_tool_definitions()
 
