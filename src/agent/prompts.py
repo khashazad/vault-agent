@@ -3,6 +3,20 @@ from dataclasses import dataclass
 from src.models.content import ContentItem, SourceMetadata
 
 
+COLOR_SEMANTICS: dict[str, str] = {
+    "#ff6666": "Critical",
+    "#ffd400": "Important",
+    "#5fb236": "General",
+}
+
+
+def get_color_label(color: str | None) -> str | None:
+    """Map a hex color code to a semantic priority label."""
+    if not color:
+        return None
+    return COLOR_SEMANTICS.get(color.lower())
+
+
 @dataclass
 class SourceConfig:
     singular: str
@@ -79,13 +93,69 @@ You are receiving multiple {plural} at once. Your job is to integrate them coher
    - Use the {singular} ordering as a guide — they often follow the source document's structure."""
 
 
+ZOTERO_PAPER_TEMPLATE = """## Paper Note Template
+
+When creating a note for a Zotero paper, use this structure:
+
+```markdown
+---
+created: YYYY-MM-DD
+aliases:
+  - "Paper - {ZOTERO_ITEM_KEY}"
+tags:
+  - source/paper
+---
+
+# Paper Title
+
+> [!ad-abstract]
+> Brief synthesis of the paper's key contributions based on the annotations.
+
+## Key Findings
+
+- ! Critical findings from the annotations (use `- !` for emphasis)
+- = Important supporting points (use `- =` for notable items)
+- General context and background details
+
+## Detailed Notes
+
+### Subtopic Heading
+
+> Quoted annotation text
+
+Commentary linking this to broader themes. Use [[wikilinks]] to connect to existing vault notes.
+
+## References
+
+- DOI / URL if available
+```
+
+### Formatting conventions
+- **Callouts**: Use `> [!ad-abstract]` for paper summaries, `> [!ad-quote]` for key quotes
+- **Emphasis bullets**: `- !` for critical points, `- =` for notable points, plain `-` for general
+- **Math**: Use `$\\large{...}$` for important terms or definitions
+- **Links**: Always use `[[wikilinks]]` to connect to existing vault notes
+- **Frontmatter**: Must include `created`, `aliases` (with Zotero item key as citekey), and `tags`
+
+### Annotation priority guidance
+Annotations have priority labels (Critical, Important, General) based on the reader's color coding:
+- **Critical**: Must appear in the note and feature prominently in key findings
+- **Important**: Should appear in the note as key supporting content
+- **General**: Include selectively for background and context — not everything needs to be in the note
+
+Priority informs **synthesis weighting**, not output formatting. All content uses the same formatting conventions above. Critical annotations simply get more prominence in the note structure."""
+
+
 def _fmt(template: str, sc: SourceConfig) -> str:
     """Format a template string with source config terms."""
     return template.format(singular=sc.singular, plural=sc.plural)
 
 
 def build_system_prompt(
-    vault_map_string: str, source_config: SourceConfig, is_batch: bool = False
+    vault_map_string: str,
+    source_config: SourceConfig,
+    is_batch: bool = False,
+    source_type: str = "web",
 ) -> str:
     sc = source_config
     tools = [_fmt(t, sc) for t in BASE_TOOL_DESCRIPTIONS]
@@ -100,6 +170,28 @@ def build_system_prompt(
     )
 
     batch_section = f"\n\n{_fmt(BATCH_ROUTING_GUIDANCE, sc)}" if is_batch else ""
+
+    if source_type == "zotero":
+        note_template = ZOTERO_PAPER_TEMPLATE
+    else:
+        note_template = f"""## New Note Template
+
+```markdown
+---
+source: ""
+created: YYYY-MM-DD
+---
+
+# Note Title
+
+Content with [[wikilinks]] to related notes.
+
+## Source {sc.plural.title()}
+
+> {sc.singular.title()} text
+
+Commentary about the {sc.singular}.
+```"""
 
     return f"""You are Vault Agent, an AI assistant that {sc.role_desc}.
 
@@ -119,24 +211,7 @@ You have access to the user's Obsidian vault structure shown below. Your job is 
 - Wikilinks: `[[Note Title]]`, `[[Note Title|display]]`, `[[Note Title#Heading]]`
 - Never modify callouts (`> [!note]`), dataview queries, embeds (`![[Note]]`), or block references (`^block-id`).
 
-## New Note Template
-
-```markdown
----
-source: ""
-created: YYYY-MM-DD
----
-
-# Note Title
-
-Content with [[wikilinks]] to related notes.
-
-## Source {sc.plural.title()}
-
-> {sc.singular.title()} text
-
-Commentary about the {sc.singular}.
-```"""
+{note_template}"""
 
 
 def build_user_message(
@@ -152,6 +227,9 @@ def build_user_message(
     msg += f"**Source:** {item.source}\n"
     if item.annotation:
         msg += f"**My note:** {item.annotation}\n"
+    label = get_color_label(item.color)
+    if label:
+        msg += f"**Priority:** {label}\n"
     if feedback and previous_reasoning:
         msg += "\n## Previous Attempt (rejected by user)\n\n"
         msg += f"**Previous reasoning:**\n{previous_reasoning}\n\n"
@@ -254,6 +332,9 @@ def build_batch_user_message(
         msg += f"**Source:** {item.source}\n"
         if item.annotation:
             msg += f"**Note:** {item.annotation}\n"
+        label = get_color_label(item.color)
+        if label:
+            msg += f"**Priority:** {label}\n"
         msg += "\n"
 
     if feedback and previous_reasoning:
