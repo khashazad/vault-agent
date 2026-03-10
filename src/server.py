@@ -15,12 +15,9 @@ from fastapi.staticfiles import StaticFiles
 from src.config import load_config
 from src.models import (
     ApplyRequest,
-    BatchContentInput,
     ChangeStatusUpdate,
     ChunkInfo,
-    ContentItem,
     IndexResponse,
-    RegenerateRequest,
     SearchResponse,
     ZoteroAnnotationItem,
     ZoteroPaperAnnotationsResponse,
@@ -137,50 +134,7 @@ async def vault_map():
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
-# --- Content preview ---
-
-
-@app.post("/content/preview")
-async def preview_content(item: ContentItem):
-    try:
-        changeset = await generate_changeset(config, items=[item])
-        return changeset.model_dump()
-    except Exception as err:
-        return _handle_anthropic_error(err, "Error previewing content")
-
-
-@app.post("/content/preview-batch")
-async def preview_content_batch(body: BatchContentInput):
-    if not body.items:
-        return JSONResponse({"error": "No items provided"}, status_code=400)
-    try:
-        changeset = await generate_changeset(config, items=body.items)
-        return changeset.model_dump()
-    except Exception as err:
-        return _handle_anthropic_error(err, "Error previewing batch")
-
-
 # --- Changeset routes ---
-
-
-@app.get("/changesets")
-async def list_changesets():
-    changesets = changeset_store.get_all()
-    return [
-        {
-            "id": cs.id,
-            "source": cs.items[0].source if cs.items else "",
-            "item_count": len(cs.items),
-            "source_type": cs.source_type,
-            "change_count": len(cs.changes),
-            "status": cs.status,
-            "created_at": cs.created_at,
-            "routing_action": cs.routing.action if cs.routing else None,
-            "routing_target": cs.routing.target_path if cs.routing else None,
-            "routing_confidence": cs.routing.confidence if cs.routing else None,
-        }
-        for cs in changesets
-    ]
 
 
 @app.get("/changesets/{changeset_id}")
@@ -230,24 +184,6 @@ async def reject(changeset_id: str):
     cs = _get_changeset_or_404(changeset_id)
     _reject_changeset(cs)
     return {"id": cs.id, "status": "rejected"}
-
-
-@app.post("/changesets/{changeset_id}/regenerate")
-async def regenerate(changeset_id: str, body: RegenerateRequest):
-    cs = _get_changeset_or_404(changeset_id)
-    _reject_changeset(cs)
-
-    try:
-        new_changeset = await generate_changeset(
-            config,
-            items=cs.items,
-            feedback=body.feedback,
-            previous_reasoning=cs.reasoning,
-            parent_changeset_id=cs.id,
-        )
-        return new_changeset.model_dump()
-    except Exception as err:
-        return _handle_anthropic_error(err, "Error regenerating changeset")
 
 
 # --- RAG routes ---

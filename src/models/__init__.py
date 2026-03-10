@@ -3,10 +3,9 @@ from .changesets import (
     Changeset,
     ChangeStatusUpdate,
     ProposedChange,
-    RegenerateRequest,
     RoutingInfo,
 )
-from .content import BatchContentInput, ContentItem, SourceMetadata, SourceType
+from .content import ContentItem, SourceMetadata, SourceType
 from .search import ChunkInfo, IndexResponse, SearchResponse, SearchType
 from .tools import CreateNoteInput, ReadNoteInput, UpdateNoteInput
 from .vault import VaultMap, VaultNote, VaultNoteSummary
@@ -25,7 +24,6 @@ from .zotero import (
 __all__ = [
     # content
     "ContentItem",
-    "BatchContentInput",
     "SourceType",
     "SourceMetadata",
     # vault
@@ -40,7 +38,6 @@ __all__ = [
     "RoutingInfo",
     "ProposedChange",
     "Changeset",
-    "RegenerateRequest",
     "ChangeStatusUpdate",
     "ApplyRequest",
     # search
