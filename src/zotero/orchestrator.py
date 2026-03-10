@@ -69,6 +69,7 @@ def _paper_to_content_items(paper: ZoteroPaper) -> list[ContentItem]:
                 source=source,
                 annotation=annotation if text else None,
                 source_type="zotero",
+                color=ann.color or None,
                 source_metadata=source_meta,
             )
         )

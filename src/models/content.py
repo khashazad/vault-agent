@@ -40,6 +40,9 @@ class ContentItem(BaseModel):
     source_type: SourceType = Field(
         default="web", description="Origin type: web, zotero, or book"
     )
+    color: str | None = Field(
+        default=None, max_length=20, description="Annotation color hex code"
+    )
     source_metadata: SourceMetadata | None = Field(
         default=None, description="Structured metadata about the source document"
     )

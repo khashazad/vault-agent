@@ -22,6 +22,7 @@ export interface ContentItem {
   text: string;
   source: string;
   annotation?: string;
+  color?: string;
   source_type?: SourceType;
   source_metadata?: SourceMetadata;
 }
