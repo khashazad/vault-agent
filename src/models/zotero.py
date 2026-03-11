@@ -85,6 +85,10 @@ class ZoteroPaperSyncRequest(BaseModel):
         max_length=500,
         description="Annotation keys to exclude from processing",
     )
+    batch: bool = Field(
+        default=False,
+        description="Submit via Batch API for 50% cost reduction (async, poll for result)",
+    )
 
 
 class ZoteroCollection(BaseModel):
@@ -126,3 +130,13 @@ class ZoteroStatusResponse(BaseModel):
     last_synced: str | None = Field(
         default=None, description="ISO 8601 timestamp of last successful sync"
     )
+
+
+class BatchJobStatusResponse(BaseModel):
+    paper_key: str = Field(description="Zotero paper key")
+    batch_id: str = Field(description="Anthropic Batch API batch ID")
+    status: str = Field(description="Job status: pending, processing, completed, failed")
+    changeset_id: str | None = Field(
+        default=None, description="Changeset ID once batch completes"
+    )
+    created_at: str = Field(description="ISO 8601 timestamp of job creation")

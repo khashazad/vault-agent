@@ -20,6 +20,7 @@ from .vault import (
     VaultNoteSummary,
 )
 from .zotero import (
+    BatchJobStatusResponse,
     PaperCacheStatusResponse,
     RefreshResponse,
     ZoteroAnnotationItem,
@@ -77,4 +78,5 @@ __all__ = [
     "PaperCacheStatusResponse",
     "RefreshResponse",
     "ZoteroStatusResponse",
+    "BatchJobStatusResponse",
 ]

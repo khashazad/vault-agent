@@ -178,17 +178,13 @@ def build_zotero_synthesis_prompt(
     user = _format_zotero_context(metadata) + "\n\n"
     user += f"## Annotations ({len(items)} total)\n\n"
     for i, item in enumerate(items, 1):
-        user += f"### Annotation {i}\n"
-        user += f"**Text:**\n> {item.text}\n\n"
-        if item.annotation:
-            user += f"**Comment:** {item.annotation}\n"
         label = get_color_label(item.color)
-        if label:
-            user += f"**Priority:** {label}\n"
-        user += "\n"
+        prefix = f"[{label}] " if label else ""
+        comment = f" — {item.annotation}" if item.annotation else ""
+        user += f'{i}. {prefix}"{item.text}"{comment}\n'
 
     user += (
-        "Synthesize these annotations into a single Obsidian note following "
+        "\nSynthesize these annotations into a single Obsidian note following "
         "the Paper Note Template above. Return ONLY the markdown."
     )
     return system, user
@@ -356,26 +352,13 @@ def _format_zotero_context(metadata: SourceMetadata) -> str:
     if metadata.title:
         lines.append(f"**Title:** {_sanitize_metadata(metadata.title, 300)}")
     if metadata.authors:
-        safe = [_sanitize_metadata(a, 100) for a in metadata.authors[:20]]
-        lines.append(f"**Authors:** {'; '.join(safe)}")
+        first = _sanitize_metadata(metadata.authors[0], 100)
+        suffix = " et al." if len(metadata.authors) > 1 else ""
+        lines.append(f"**Author:** {first}{suffix}")
     if metadata.year:
         lines.append(f"**Year:** {_sanitize_metadata(metadata.year, 10)}")
-    if metadata.publication_title:
-        lines.append(
-            f"**Journal/Publication:** {_sanitize_metadata(metadata.publication_title, 200)}"
-        )
     if metadata.doi:
         lines.append(f"**DOI:** {_sanitize_metadata(metadata.doi, 100)}")
-    if metadata.url:
-        lines.append(f"**URL:** {_sanitize_metadata(metadata.url, 500)}")
-    if metadata.abstract:
-        lines.append(
-            f"\n**Abstract:**\n> {_sanitize_metadata(metadata.abstract, 2000)}"
-        )
-    lines.append(
-        "\nUse this paper metadata for citations, frontmatter fields, "
-        "and to contextualize the annotations below."
-    )
     return "\n".join(lines)
 
 
