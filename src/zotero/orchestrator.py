@@ -9,13 +9,19 @@ from src.models import (
 )
 from src.zotero.client import ZoteroClient, ZoteroPaper
 from src.zotero.sync import ZoteroSyncState
-from src.agent.agent import generate_changeset
+from src.agent.agent import generate_zotero_note
 
 logger = logging.getLogger("vault-agent")
 
 
+# Format paper metadata into a citation-style source string.
+#
+# Args:
+#     paper: Zotero paper with metadata (authors, title, year).
+#
+# Returns:
+#     Citation string like "Author et al. - Title (2024)".
 def _format_source(paper: ZoteroPaper) -> str:
-    """Format paper metadata into a citation-style source string."""
     meta = paper.metadata
     authors = meta.authors
     if not authors:
@@ -30,8 +36,14 @@ def _format_source(paper: ZoteroPaper) -> str:
     return f"{author_str} - {title} ({year})"
 
 
+# Build SourceMetadata from a ZoteroPaper's metadata.
+#
+# Args:
+#     paper: Zotero paper with metadata fields.
+#
+# Returns:
+#     SourceMetadata populated from the paper's metadata.
 def _build_source_metadata(paper: ZoteroPaper) -> SourceMetadata:
-    """Build SourceMetadata from a ZoteroPaper's metadata."""
     meta = paper.metadata
     return SourceMetadata(
         title=meta.title,
@@ -45,8 +57,17 @@ def _build_source_metadata(paper: ZoteroPaper) -> SourceMetadata:
     )
 
 
+# Convert a ZoteroPaper's annotations into ContentItem objects.
+#
+# Skips annotations with no text and no comment. Combines comment and page
+# label into the annotation field.
+#
+# Args:
+#     paper: Zotero paper with annotations to convert.
+#
+# Returns:
+#     List of ContentItem objects, one per valid annotation.
 def _paper_to_content_items(paper: ZoteroPaper) -> list[ContentItem]:
-    """Convert a ZoteroPaper's annotations into ContentItem objects."""
     source = _format_source(paper)
     source_meta = _build_source_metadata(paper)
     items = []
@@ -76,10 +97,24 @@ def _paper_to_content_items(paper: ZoteroPaper) -> list[ContentItem]:
     return items
 
 
+# Fetch Zotero annotations and run each paper through the agent pipeline.
+#
+# Connects to the Zotero API, fetches papers with annotations (optionally
+# filtered by collection or paper keys), converts annotations to ContentItems,
+# and generates a changeset per paper via the agent.
+#
+# Args:
+#     config: App config with Zotero credentials and vault path.
+#     request: Optional sync params (collection filter, paper keys, full_sync).
+#
+# Returns:
+#     ZoteroSyncResponse with counts, changeset IDs, and skipped papers.
+#
+# Raises:
+#     ValueError: When Zotero API key or library ID is not configured.
 async def sync_zotero(
     config: AppConfig, request: ZoteroSyncRequest | None = None
 ) -> ZoteroSyncResponse:
-    """Fetch Zotero annotations and run each paper through the agent pipeline."""
     if not config.zotero_api_key or not config.zotero_library_id:
         raise ValueError("Zotero API key and library ID must be configured")
 
@@ -127,10 +162,7 @@ async def sync_zotero(
             continue
 
         try:
-            changeset = await generate_changeset(
-                config,
-                items=items,
-            )
+            changeset = await generate_zotero_note(config, items)
             changeset_ids.append(changeset.id)
             logger.info(
                 "Generated changeset %s for paper '%s' (%d items)",

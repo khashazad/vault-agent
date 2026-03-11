@@ -67,10 +67,10 @@ class Changeset(BaseModel):
         description="ID of the parent changeset if this was regenerated",
     )
 
+    # Migrate old persisted changesets: highlights -> items.
     @model_validator(mode="before")
     @classmethod
     def _migrate_highlights(cls, data):
-        """Migrate old persisted changesets: highlights -> items."""
         if not isinstance(data, dict):
             return data
         if "highlights" in data and "items" not in data:

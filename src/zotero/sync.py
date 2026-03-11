@@ -6,13 +6,16 @@ from datetime import datetime, timezone
 DEFAULT_DB_PATH = os.environ.get("CHANGESET_DB_PATH", ".changesets.db")
 
 
+# SQLite-backed state tracker for Zotero sync, paper cache, and collection cache.
 class ZoteroSyncState:
+    # Initialize SQLite connection with WAL mode for Zotero sync state.
     def __init__(self, db_path: str = DEFAULT_DB_PATH):
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._create_table()
 
+    # Create sync, paper, and collection tables if they don't exist.
     def _create_table(self) -> None:
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS zotero_sync_state (
@@ -57,6 +60,10 @@ class ZoteroSyncState:
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+    # Retrieve the last synced Zotero library version.
+    #
+    # Returns:
+    #     The version number, or None if never synced.
     def get_last_version(self) -> int | None:
         row = self._conn.execute(
             "SELECT last_version FROM zotero_sync_state WHERE id = 1"
@@ -65,6 +72,10 @@ class ZoteroSyncState:
             return None
         return row["last_version"]
 
+    # Upsert the Zotero library version and record the current timestamp.
+    #
+    # Args:
+    #     version: Zotero library version number.
     def set_last_version(self, version: int) -> None:
         now = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
@@ -79,6 +90,10 @@ class ZoteroSyncState:
         )
         self._conn.commit()
 
+    # Retrieve the ISO timestamp of the last Zotero sync.
+    #
+    # Returns:
+    #     ISO timestamp string, or None if never synced.
     def get_last_synced(self) -> str | None:
         row = self._conn.execute(
             "SELECT last_synced FROM zotero_sync_state WHERE id = 1"
@@ -89,8 +104,11 @@ class ZoteroSyncState:
 
     # --- Per-paper sync tracking ---
 
+    # Retrieve all paper sync records keyed by paper_key.
+    #
+    # Returns:
+    #     Dict mapping paper_key to sync info (paper_title, last_synced, changeset_id).
     def get_all_paper_syncs(self) -> dict[str, dict]:
-        """Return all paper sync records keyed by paper_key."""
         rows = self._conn.execute("SELECT * FROM zotero_paper_sync").fetchall()
         return {
             row["paper_key"]: {
@@ -101,8 +119,14 @@ class ZoteroSyncState:
             for row in rows
         }
 
+    # Retrieve sync info for a single paper.
+    #
+    # Args:
+    #     paper_key: Zotero paper key.
+    #
+    # Returns:
+    #     Sync info dict, or None if the paper has not been synced.
     def get_paper_sync(self, paper_key: str) -> dict | None:
-        """Return sync info for a single paper, or None."""
         row = self._conn.execute(
             "SELECT * FROM zotero_paper_sync WHERE paper_key = ?", (paper_key,)
         ).fetchone()
@@ -114,10 +138,15 @@ class ZoteroSyncState:
             "changeset_id": row["changeset_id"],
         }
 
+    # Upsert a paper sync record with the current timestamp.
+    #
+    # Args:
+    #     paper_key: Zotero paper key.
+    #     paper_title: Title of the paper.
+    #     changeset_id: ID of the changeset produced by syncing this paper.
     def set_paper_sync(
         self, paper_key: str, paper_title: str, changeset_id: str
     ) -> None:
-        """Upsert paper sync record with current timestamp."""
         now = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
             """
@@ -134,8 +163,11 @@ class ZoteroSyncState:
 
     # --- Paper cache (zotero_papers table) ---
 
+    # Bulk upsert paper metadata into the local cache.
+    #
+    # Args:
+    #     papers: List of paper dicts with key, title, authors, doi, etc.
     def upsert_papers(self, papers: list[dict]) -> None:
-        """Bulk upsert paper metadata into the cache."""
         now = datetime.now(timezone.utc).isoformat()
         self._conn.executemany(
             """
@@ -170,8 +202,8 @@ class ZoteroSyncState:
         )
         self._conn.commit()
 
+    # Convert a zotero_papers row to a plain dict.
     def _row_to_paper_dict(self, row: sqlite3.Row) -> dict:
-        """Convert a zotero_papers row to a dict."""
         return {
             "key": row["key"],
             "title": row["title"],
@@ -186,13 +218,26 @@ class ZoteroSyncState:
             "annotation_count": row["annotation_count"],
         }
 
+    # Retrieve all cached papers ordered by year descending, title ascending.
+    #
+    # Returns:
+    #     List of paper dicts.
     def get_all_cached_papers(self) -> list[dict]:
-        """Return all cached papers ordered by year DESC, title ASC."""
         rows = self._conn.execute(
             "SELECT * FROM zotero_papers ORDER BY year DESC, title ASC"
         ).fetchall()
         return [self._row_to_paper_dict(row) for row in rows]
 
+    # Retrieve paginated cached papers with optional search and sync status filters.
+    #
+    # Args:
+    #     offset: Number of rows to skip.
+    #     limit: Maximum number of rows to return.
+    #     search: Optional substring filter on title or authors.
+    #     sync_status: Optional filter: "synced" or "unsynced".
+    #
+    # Returns:
+    #     Tuple of (list of paper dicts, total matching count).
     def get_cached_papers_paginated(
         self,
         offset: int = 0,
@@ -200,7 +245,6 @@ class ZoteroSyncState:
         search: str | None = None,
         sync_status: str | None = None,
     ) -> tuple[list[dict], int]:
-        """Return paginated cached papers with optional search and sync_status filters."""
         conditions: list[str] = []
         params: list = []
         join = ""
@@ -233,28 +277,43 @@ class ZoteroSyncState:
 
         return [self._row_to_paper_dict(row) for row in rows], total
 
+    # Return the number of cached papers.
+    #
+    # Returns:
+    #     Total count of papers in the cache.
     def get_cached_paper_count(self) -> int:
-        """Return the number of cached papers."""
         row = self._conn.execute("SELECT COUNT(*) as cnt FROM zotero_papers").fetchone()
         return row["cnt"]
 
+    # Retrieve the most recent cached_at timestamp from the paper cache.
+    #
+    # Returns:
+    #     ISO timestamp string, or None if the cache is empty.
     def get_papers_cache_updated_at(self) -> str | None:
-        """Return the most recent cached_at timestamp, or None if cache is empty."""
         row = self._conn.execute(
             "SELECT MAX(cached_at) as latest FROM zotero_papers"
         ).fetchone()
         return row["latest"] if row and row["latest"] else None
 
+    # Bulk update annotation counts for cached papers.
+    #
+    # Args:
+    #     counts: Dict mapping paper key to annotation count.
     def update_annotation_counts(self, counts: dict[str, int]) -> None:
-        """Bulk update annotation counts for cached papers."""
         self._conn.executemany(
             "UPDATE zotero_papers SET annotation_count = ? WHERE key = ?",
             [(count, key) for key, count in counts.items()],
         )
         self._conn.commit()
 
+    # Remove papers from cache whose keys are not in the provided set.
+    #
+    # Args:
+    #     keys: Set of Zotero paper keys to keep.
+    #
+    # Returns:
+    #     Number of papers deleted.
     def delete_papers_not_in(self, keys: set[str]) -> int:
-        """Remove papers from cache that are no longer in Zotero. Returns count deleted."""
         if not keys:
             return 0
         placeholders = ",".join("?" for _ in keys)
@@ -267,8 +326,11 @@ class ZoteroSyncState:
 
     # --- Collection cache (zotero_collections table) ---
 
+    # Bulk upsert collection metadata into the local cache.
+    #
+    # Args:
+    #     collections: List of collection dicts with key, name, parent_collection, etc.
     def upsert_collections(self, collections: list[dict]) -> None:
-        """Bulk upsert collection metadata into the cache."""
         now = datetime.now(timezone.utc).isoformat()
         self._conn.executemany(
             """
@@ -295,8 +357,11 @@ class ZoteroSyncState:
         )
         self._conn.commit()
 
+    # Retrieve all cached collections ordered by name ascending.
+    #
+    # Returns:
+    #     List of collection dicts.
     def get_all_cached_collections(self) -> list[dict]:
-        """Return all cached collections ordered by name ASC."""
         rows = self._conn.execute(
             "SELECT * FROM zotero_collections ORDER BY name ASC"
         ).fetchall()
@@ -311,8 +376,14 @@ class ZoteroSyncState:
             for row in rows
         ]
 
+    # Remove collections from cache whose keys are not in the provided set.
+    #
+    # Args:
+    #     keys: Set of Zotero collection keys to keep.
+    #
+    # Returns:
+    #     Number of collections deleted.
     def delete_collections_not_in(self, keys: set[str]) -> int:
-        """Remove collections from cache that are no longer in Zotero. Returns count deleted."""
         if not keys:
             return 0
         placeholders = ",".join("?" for _ in keys)

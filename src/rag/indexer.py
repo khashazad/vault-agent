@@ -19,6 +19,7 @@ from src.rag.store import (
 logger = logging.getLogger("vault-agent")
 
 
+# Statistics from a vault indexing run.
 @dataclass
 class IndexStats:
     total_notes_scanned: int
@@ -30,6 +31,7 @@ class IndexStats:
     duration_seconds: float
 
 
+# Scan all markdown files in the vault and split them into heading-based chunks.
 def _scan_and_chunk(vault_path: str) -> list[Chunk]:
     vault = Path(vault_path)
     all_chunks: list[Chunk] = []
@@ -57,11 +59,24 @@ def _scan_and_chunk(vault_path: str) -> list[Chunk]:
     return all_chunks
 
 
+# Build the text string sent to Voyage AI for embedding, prefixed with note title and heading.
 def _build_embed_text(chunk: Chunk) -> str:
     title = PurePosixPath(chunk.note_path).stem
     return f"Note: {title} > {chunk.heading}\n\n{chunk.content}"
 
 
+# Incrementally index the vault into LanceDB: scan, chunk, embed changed chunks, upsert, and prune stale entries.
+#
+# Only re-embeds chunks whose content hash has changed since the last run.
+# Rebuilds the FTS index after any mutations.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     voyage_api_key: Voyage AI API key for embedding.
+#     lancedb_path: Path to the LanceDB database directory.
+#
+# Returns:
+#     IndexStats with counts of added, updated, unchanged, and deleted chunks.
 async def index_vault(
     vault_path: str, voyage_api_key: str, lancedb_path: str
 ) -> IndexStats:

@@ -6,33 +6,42 @@ from src.config import AppConfig
 
 logger = logging.getLogger("vault-agent")
 
+# Background syncer that periodically refreshes the local Zotero paper and collection cache.
 class ZoteroPaperCacheSyncer:
+    # Initialize the syncer with app config.
+    #
+    # Args:
+    #     config: App config with Zotero credentials.
     def __init__(self, config: AppConfig):
         self._config = config
         self._task: asyncio.Task | None = None
         self._sync_in_progress = False
         self._trigger_event = asyncio.Event()
 
+    # Whether a sync cycle is currently running.
     @property
     def sync_in_progress(self) -> bool:
         return self._sync_in_progress
 
+    # Start the background sync loop as an asyncio task.
     def start(self) -> None:
         if self._task is not None:
             return
         self._task = asyncio.create_task(self._sync_loop())
         logger.info("Zotero paper cache sync started")
 
+    # Cancel the background sync task.
     def stop(self) -> None:
         if self._task is not None:
             self._task.cancel()
             self._task = None
             logger.info("Zotero paper cache sync stopped")
 
+    # Trigger an immediate sync cycle by signaling the event loop.
     def trigger_sync(self) -> None:
-        """Trigger an immediate sync cycle."""
         self._trigger_event.set()
 
+    # Event loop that runs sync on startup, then waits for trigger signals.
     async def _sync_loop(self) -> None:
         # Run first sync immediately
         await self._do_sync()
@@ -50,6 +59,7 @@ class ZoteroPaperCacheSyncer:
                 # Wait a bit before retrying after an unexpected error
                 await asyncio.sleep(30)
 
+    # Execute a full sync: fetch papers, collections, and annotation counts from Zotero API.
     async def _do_sync(self) -> None:
         self._sync_in_progress = True
         try:

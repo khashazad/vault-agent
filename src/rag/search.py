@@ -5,6 +5,7 @@ from src.rag.embedder import embed_query
 from src.rag.store import get_db, get_or_create_table, search_hybrid
 
 
+# A single ranked result from vault search with content snippet and relevance score.
 @dataclass
 class SearchResult:
     note_path: str
@@ -14,6 +15,19 @@ class SearchResult:
     search_type: Literal["hybrid", "vector"] = "hybrid"
 
 
+# Run hybrid semantic + full-text search over indexed vault chunks.
+#
+# Embeds the query via Voyage AI, then performs RRF-ranked hybrid search
+# in LanceDB combining vector similarity and full-text matching.
+#
+# Args:
+#     query: Natural language search query.
+#     voyage_api_key: Voyage AI API key for embedding.
+#     lancedb_path: Path to the LanceDB database directory.
+#     n: Maximum number of results to return.
+#
+# Returns:
+#     Ranked list of SearchResult objects.
 async def search_vault(
     query: str, voyage_api_key: str, lancedb_path: str, n: int = 10
 ) -> list[SearchResult]:

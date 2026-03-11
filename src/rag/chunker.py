@@ -11,6 +11,7 @@ CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 MIN_CHUNK_CHARS = 50
 
 
+# A heading-delimited section of a vault note with its content hash.
 @dataclass
 class Chunk:
     note_path: str
@@ -19,6 +20,7 @@ class Chunk:
     content_hash: str
 
 
+# Strip code fences, LaTeX blocks, and image embeds from text.
 def _clean_content(text: str) -> str:
     text = CODE_FENCE_RE.sub("", text)
     text = LATEX_BLOCK_RE.sub("", text)
@@ -26,10 +28,25 @@ def _clean_content(text: str) -> str:
     return text
 
 
+# Return the MD5 hex digest of a UTF-8 encoded string.
 def _md5(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest()
 
 
+# Split a vault note into heading-delimited chunks for embedding.
+#
+# Strips code fences, LaTeX, and image embeds before splitting. Chunks
+# shorter than MIN_CHUNK_CHARS are discarded. Duplicate headings within
+# a note are disambiguated with a numeric suffix.
+#
+# Args:
+#     note_path: Relative path of the note in the vault.
+#     title: Note title (used as heading for preamble/no-heading content).
+#     content: Raw markdown content of the note.
+#
+# Returns:
+#     List of Chunk objects, one per heading section that meets the
+#     minimum length threshold.
 def chunk_note(note_path: str, title: str, content: str) -> list[Chunk]:
     cleaned = _clean_content(content)
     matches = list(HEADING_RE.finditer(cleaned))

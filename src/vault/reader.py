@@ -14,6 +14,7 @@ WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
 
+# Parse YAML frontmatter from raw markdown, returning metadata dict and body content.
 def _parse_frontmatter(raw: str) -> tuple[dict, str]:
     try:
         post = frontmatter.loads(raw)
@@ -23,15 +24,25 @@ def _parse_frontmatter(raw: str) -> tuple[dict, str]:
         return {}, raw
 
 
+# Extract deduplicated [[wikilink]] targets from markdown content, preserving order.
 def extract_wikilinks(content: str) -> list[str]:
     links = [m.group(1) for m in WIKILINK_RE.finditer(content)]
     return list(dict.fromkeys(links))  # dedupe preserving order
 
 
+# Extract all heading texts (h1-h6) from markdown content.
 def extract_headings(content: str) -> list[str]:
     return [m.group(2) for m in HEADING_RE.finditer(content)]
 
 
+# Parse a markdown file into a lightweight summary with title, wikilinks, and headings.
+#
+# Args:
+#     file_path: Relative path from vault root (forward slashes).
+#     raw: Raw file content including frontmatter.
+#
+# Returns:
+#     VaultNoteSummary with extracted metadata.
 def parse_note_summary(file_path: str, raw: str) -> VaultNoteSummary:
     fm, content = _parse_frontmatter(raw)
 
@@ -47,11 +58,17 @@ def parse_note_summary(file_path: str, raw: str) -> VaultNoteSummary:
     )
 
 
+# Produce a compact vault summary (~500-800 tokens) with folder tree and note count.
+#
+# Used when RAG is enabled so the agent relies on search_vault for discovery
+# instead of a full listing.
+#
+# Args:
+#     summaries: List of all note summaries in the vault.
+#
+# Returns:
+#     Formatted string with folder structure and usage instructions.
 def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
-    """Produce a compact vault summary (~500-800 tokens) with folder tree
-    and total note count. Used when RAG is enabled so the agent relies on
-    search_vault for discovery instead of a full listing."""
-
     total = len(summaries)
 
     # Folder tree with note counts
@@ -81,6 +98,13 @@ def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
     return "\n".join(lines)
 
 
+# Scan the entire vault and build a VaultMap with note summaries and a compact string.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#
+# Returns:
+#     VaultMap with total count, per-note summaries, and formatted string.
 def build_vault_map(vault_path: str) -> VaultMap:
     vault = Path(vault_path)
     summaries: list[VaultNoteSummary] = []
@@ -103,6 +127,17 @@ def build_vault_map(vault_path: str) -> VaultMap:
     return VaultMap(total_notes=total_notes, notes=summaries, as_string=as_string)
 
 
+# Read a single note from the vault and parse its frontmatter and wikilinks.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     note_path: Relative path to the note from vault root.
+#
+# Returns:
+#     VaultNote with parsed frontmatter, content, and wikilinks.
+#
+# Raises:
+#     FileNotFoundError: When note_path does not exist on disk.
 def read_note(vault_path: str, note_path: str) -> VaultNote:
     full_path = validate_path(vault_path, note_path)
 
