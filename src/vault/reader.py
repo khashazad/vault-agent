@@ -1,12 +1,12 @@
 import logging
 import re
 from collections import Counter
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 import frontmatter
 
 from src.models import VaultNote, VaultNoteSummary, VaultMap
-from src.vault import validate_path
+from src.vault import validate_path, iter_markdown_files
 
 logger = logging.getLogger("vault-agent")
 
@@ -15,7 +15,7 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
 
 # Parse YAML frontmatter from raw markdown, returning metadata dict and body content.
-def _parse_frontmatter(raw: str) -> tuple[dict, str]:
+def parse_frontmatter(raw: str) -> tuple[dict, str]:
     try:
         post = frontmatter.loads(raw)
         return dict(post.metadata), post.content
@@ -44,7 +44,7 @@ def extract_headings(content: str) -> list[str]:
 # Returns:
 #     VaultNoteSummary with extracted metadata.
 def parse_note_summary(file_path: str, raw: str) -> VaultNoteSummary:
-    fm, content = _parse_frontmatter(raw)
+    fm, content = parse_frontmatter(raw)
 
     title = fm.get("title") if isinstance(fm.get("title"), str) else None
     if not title:
@@ -106,19 +106,10 @@ def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
 # Returns:
 #     VaultMap with total count, per-note summaries, and formatted string.
 def build_vault_map(vault_path: str) -> VaultMap:
-    vault = Path(vault_path)
     summaries: list[VaultNoteSummary] = []
 
-    for md_file in vault.rglob("*.md"):
-        if md_file.is_symlink():
-            continue
-        rel = md_file.relative_to(vault)
-        # Skip hidden directories/files (e.g. .obsidian/)
-        if any(part.startswith(".") for part in rel.parts):
-            continue
-
+    for md_file, file_path in iter_markdown_files(vault_path):
         raw = md_file.read_text(encoding="utf-8")
-        file_path = str(PurePosixPath(rel))  # always forward slashes
         summaries.append(parse_note_summary(file_path, raw))
 
     total_notes = len(summaries)
@@ -145,7 +136,7 @@ def read_note(vault_path: str, note_path: str) -> VaultNote:
         raise FileNotFoundError(f"Note not found: {note_path}")
 
     raw = full_path.read_text(encoding="utf-8")
-    fm, content = _parse_frontmatter(raw)
+    fm, content = parse_frontmatter(raw)
 
     return VaultNote(
         path=note_path,
