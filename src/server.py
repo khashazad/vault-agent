@@ -16,6 +16,7 @@ from src.config import load_config
 from src.models import (
     ApplyRequest,
     ApplyResponse,
+    BatchJobStatusResponse,
     Changeset,
     ChangeStatusResponse,
     ChangeStatusUpdate,
@@ -39,9 +40,9 @@ from src.models import (
     ZoteroSyncResponse,
 )
 from src.vault.reader import build_vault_map
-from src.agent.agent import generate_zotero_note
+from src.agent.agent import generate_zotero_note, submit_zotero_note_batch, poll_zotero_batch
 from src.agent.changeset import apply_changeset
-from src.store import changeset_store
+from src.store import changeset_store, batch_job_store
 from src.rag.indexer import index_vault
 from src.rag.search import search_vault
 from src.rag.embedder import MODEL as EMBEDDING_MODEL
@@ -575,6 +576,30 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
                 status_code=400,
             )
 
+        if body.batch:
+            # Submit via Batch API for 50% cost reduction
+            from src.models import ContentItem
+            import json
+
+            batch_id = await submit_zotero_note_batch(config, items, paper_key)
+            items_json = json.dumps([item.model_dump() for item in items])
+            batch_job_store.set(
+                paper_key=paper_key,
+                batch_id=batch_id,
+                status="pending",
+                items_json=items_json,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            return JSONResponse(
+                {
+                    "batch_id": batch_id,
+                    "status": "pending",
+                    "paper_key": paper_key,
+                    "message": "Submitted via Batch API. Poll GET /zotero/papers/{paper_key}/batch-status for result.",
+                },
+                status_code=202,
+            )
+
         changeset = await generate_zotero_note(config, items)
 
         sync_state = ZoteroSyncState()
@@ -583,6 +608,66 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
         return changeset.model_dump()
     except Exception as err:
         return _handle_anthropic_error(err, "Error syncing Zotero paper")
+
+
+# Poll batch job status for a paper; finalize changeset when complete.
+@app.get(
+    "/zotero/papers/{paper_key}/batch-status",
+    response_model=BatchJobStatusResponse,
+    tags=["Zotero"],
+    summary="Batch job status",
+    description="Poll the Anthropic Batch API for a paper's async synthesis job. When complete, creates the changeset.",
+)
+async def zotero_paper_batch_status(paper_key: str):
+    _require_zotero()
+    job = batch_job_store.get(paper_key)
+    if not job:
+        raise HTTPException(status_code=404, detail="No batch job found for this paper")
+
+    if job["status"] in ("completed", "failed"):
+        return BatchJobStatusResponse(
+            paper_key=paper_key,
+            batch_id=job["batch_id"],
+            status=job["status"],
+            changeset_id=job["changeset_id"],
+            created_at=job["created_at"],
+        )
+
+    try:
+        import json
+        from src.models import ContentItem
+        from src.zotero.sync import ZoteroSyncState
+
+        items = [ContentItem(**d) for d in json.loads(job["items_json"])]
+        status, changeset = await poll_zotero_batch(
+            config, job["batch_id"], paper_key, items
+        )
+
+        changeset_id = None
+        if status == "completed" and changeset:
+            changeset_id = changeset.id
+            batch_job_store.update_status(paper_key, "completed", changeset_id)
+            meta = items[0].source_metadata
+            title = meta.title if meta else "Unknown"
+            sync_state = ZoteroSyncState()
+            sync_state.set_paper_sync(paper_key, title, changeset.id)
+        elif status == "ended":
+            # Ended but no result for this paper
+            batch_job_store.update_status(paper_key, "failed")
+            status = "failed"
+        else:
+            batch_job_store.update_status(paper_key, status)
+
+        return BatchJobStatusResponse(
+            paper_key=paper_key,
+            batch_id=job["batch_id"],
+            status=status,
+            changeset_id=changeset_id,
+            created_at=job["created_at"],
+        )
+    except Exception:
+        logger.exception("Error polling batch status for paper %s", paper_key)
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 # Check Zotero configuration status and last sync info.

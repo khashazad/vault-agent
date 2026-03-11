@@ -479,7 +479,7 @@ async def generate_zotero_note(
         client,
         model=MODEL,
         max_tokens=8192,
-        system=[{"type": "text", "text": system}],
+        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user}],
     )
 
@@ -518,3 +518,111 @@ async def generate_zotero_note(
     _log_token_usage(len(items), 1, 0, *_extract_usage(response))
 
     return changeset
+
+
+# Submit a Zotero note synthesis via the Anthropic Batch API (50% cost).
+#
+# Builds the same prompt as generate_zotero_note but submits via
+# client.messages.batches.create() for async processing.
+#
+# Args:
+#     config: App configuration (API keys).
+#     items: Annotation ContentItems from a single Zotero paper.
+#     paper_key: Zotero paper key (used as custom_id in the batch).
+#
+# Returns:
+#     Batch ID string for polling.
+async def submit_zotero_note_batch(
+    config: AppConfig,
+    items: list[ContentItem],
+    paper_key: str,
+) -> str:
+    client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
+    metadata = items[0].source_metadata
+
+    system, user = build_zotero_synthesis_prompt(items, metadata)
+
+    batch = await client.messages.batches.create(
+        requests=[
+            {
+                "custom_id": paper_key,
+                "params": {
+                    "model": MODEL,
+                    "max_tokens": 8192,
+                    "system": [{"type": "text", "text": system}],
+                    "messages": [{"role": "user", "content": user}],
+                },
+            }
+        ]
+    )
+
+    logger.info("Batch submitted for paper %s: batch_id=%s", paper_key, batch.id)
+    return batch.id
+
+
+# Poll an Anthropic batch and build a changeset from its result.
+#
+# Args:
+#     config: App configuration.
+#     batch_id: Anthropic Batch API batch ID.
+#     paper_key: Zotero paper key.
+#     items: Original ContentItems (needed for changeset construction).
+#
+# Returns:
+#     Tuple of (status_str, Changeset | None). Changeset is non-None only when complete.
+async def poll_zotero_batch(
+    config: AppConfig,
+    batch_id: str,
+    paper_key: str,
+    items: list[ContentItem],
+) -> tuple[str, Changeset | None]:
+    client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
+
+    batch = await client.messages.batches.retrieve(batch_id)
+    status = batch.processing_status
+
+    if status != "ended":
+        return status, None
+
+    # Fetch results
+    note_content = None
+    async for result in client.messages.batches.results(batch_id):
+        if result.custom_id == paper_key and result.result.type == "succeeded":
+            note_content = result.result.message.content[0].text
+            break
+
+    if note_content is None:
+        return "failed", None
+
+    note_path = _zotero_note_path(items)
+    diff = generate_diff(note_path, "", note_content)
+
+    change = ProposedChange(
+        id=str(uuid.uuid4()),
+        tool_name="create_note",
+        input={"path": note_path, "content": note_content},
+        original_content=None,
+        proposed_content=note_content,
+        diff=diff,
+    )
+
+    routing = RoutingInfo(
+        action="create",
+        target_path=note_path,
+        reasoning="Batch API Zotero synthesis — new paper note.",
+        confidence=1.0,
+    )
+
+    changeset = Changeset(
+        id=str(uuid.uuid4()),
+        items=items,
+        changes=[change],
+        reasoning="Synthesized from paper annotations via Batch API.",
+        status="pending",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        source_type="zotero",
+        routing=routing,
+    )
+    changeset_store.set(changeset)
+
+    return "completed", changeset
