@@ -158,8 +158,8 @@ REPORT_ROUTING_DECISION_TOOL = {
 }
 
 
+# Format search results into an LLM-readable string with scores and snippets.
 def format_search_results(results) -> str:
-    """Format search results into a readable string for the LLM context."""
     lines = []
     for i, r in enumerate(results, 1):
         lines.append(f"### Result {i} (score: {r.score:.4f})")
@@ -169,6 +169,7 @@ def format_search_results(results) -> str:
     return "\n".join(lines)
 
 
+# Build the full tool definitions list with search and routing prepended.
 def get_tool_definitions() -> list[dict]:
     tools = list(TOOL_DEFINITIONS)
     tools.insert(0, REPORT_ROUTING_DECISION_TOOL)
@@ -176,6 +177,19 @@ def get_tool_definitions() -> list[dict]:
     return tools
 
 
+# Dispatch a tool call to the appropriate handler and return the result string.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     tool_name: Name of the tool to execute (read_note, create_note, etc.).
+#     tool_input: Tool input parameters parsed from the LLM tool_use block.
+#     config: App config, required for search_vault (Voyage API key, LanceDB path).
+#
+# Returns:
+#     String result to send back as tool_result content.
+#
+# Raises:
+#     ValueError: When tool_name is not recognized.
 async def execute_tool(
     vault_path: str, tool_name: str, tool_input: dict, config: AppConfig | None = None
 ) -> str:

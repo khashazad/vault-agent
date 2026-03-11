@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# Application configuration loaded from environment variables.
 @dataclass
 class AppConfig:
     anthropic_api_key: str
@@ -19,6 +20,13 @@ class AppConfig:
     zotero_library_type: str = "user"
 
 
+# Load and validate application config from environment variables.
+#
+# Returns:
+#     Populated AppConfig instance.
+#
+# Raises:
+#     RuntimeError: If required env vars are missing or VAULT_PATH is invalid.
 def load_config() -> AppConfig:
     anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not anthropic_api_key:

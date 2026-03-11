@@ -12,12 +12,25 @@ MAX_RETRIES = 3
 BATCH_SLEEP_S = 1.0  # stay within free-tier rate limits
 
 
+# Voyage AI embedding result containing vectors and token usage.
 @dataclass
 class EmbeddingResult:
     embeddings: list[list[float]]
     total_tokens: int
 
 
+# Embed a list of texts via Voyage AI in batches with retry on rate limits.
+#
+# Args:
+#     api_key: Voyage AI API key.
+#     texts: Strings to embed.
+#     input_type: Voyage input type ("document" or "query").
+#
+# Returns:
+#     EmbeddingResult with all embedding vectors and total token count.
+#
+# Raises:
+#     RuntimeError: If Voyage AI account lacks a payment method.
 async def embed_texts(
     api_key: str, texts: list[str], input_type: str = "document"
 ) -> EmbeddingResult:
@@ -58,6 +71,14 @@ async def embed_texts(
     return EmbeddingResult(embeddings=all_embeddings, total_tokens=total_tokens)
 
 
+# Embed a single search query via Voyage AI.
+#
+# Args:
+#     api_key: Voyage AI API key.
+#     query: Search query string.
+#
+# Returns:
+#     Embedding vector for the query.
 async def embed_query(api_key: str, query: str) -> list[float]:
     client = voyageai.AsyncClient(api_key=api_key)
     result = await client.embed([query], model=MODEL, input_type="query")

@@ -6,6 +6,7 @@ from pyzotero import zotero
 logger = logging.getLogger("vault-agent")
 
 
+# Collection metadata from a Zotero library.
 @dataclass
 class ZoteroCollectionInfo:
     key: str
@@ -15,6 +16,7 @@ class ZoteroCollectionInfo:
     num_collections: int
 
 
+# Single annotation extracted from a Zotero PDF attachment.
 @dataclass
 class ZoteroAnnotation:
     key: str
@@ -27,6 +29,7 @@ class ZoteroAnnotation:
     parent_key: str
 
 
+# Bibliographic metadata for a Zotero library item.
 @dataclass
 class ZoteroPaperMetadata:
     key: str
@@ -40,14 +43,21 @@ class ZoteroPaperMetadata:
     url: str
 
 
+# Paper with its metadata and associated annotations.
 @dataclass
 class ZoteroPaper:
     metadata: ZoteroPaperMetadata
     annotations: list[ZoteroAnnotation] = field(default_factory=list)
 
 
+# Extract collection info from a Zotero API collection item.
+#
+# Args:
+#     item: Raw Zotero API response dict for a collection.
+#
+# Returns:
+#     Parsed ZoteroCollectionInfo.
 def _extract_collection(item: dict) -> ZoteroCollectionInfo:
-    """Extract collection info from a Zotero collection item."""
     data = item.get("data", item)
     meta = item.get("meta", {})
     parent = data.get("parentCollection", False)
@@ -60,8 +70,14 @@ def _extract_collection(item: dict) -> ZoteroCollectionInfo:
     )
 
 
+# Format Zotero creator dicts into "Last, First" strings.
+#
+# Args:
+#     creators: List of creator dicts with firstName/lastName/name keys.
+#
+# Returns:
+#     List of formatted author name strings.
 def _format_creators(creators: list[dict]) -> list[str]:
-    """Format Zotero creator dicts into 'Last, First' strings."""
     names = []
     for c in creators:
         last = c.get("lastName", "")
@@ -75,8 +91,15 @@ def _format_creators(creators: list[dict]) -> list[str]:
     return names
 
 
+# Extract paper metadata from a Zotero bibliographic item.
+#
+# Args:
+#     item_data: Raw Zotero API response dict for the item.
+#     item_key: Zotero item key to use as the paper identifier.
+#
+# Returns:
+#     Parsed ZoteroPaperMetadata.
 def _extract_paper_metadata(item_data: dict, item_key: str) -> ZoteroPaperMetadata:
-    """Extract paper metadata from a Zotero bibliographic item."""
     data = item_data.get("data", item_data)
     return ZoteroPaperMetadata(
         key=item_key,
@@ -91,8 +114,14 @@ def _extract_paper_metadata(item_data: dict, item_key: str) -> ZoteroPaperMetada
     )
 
 
+# Extract annotation fields from a Zotero annotation item.
+#
+# Args:
+#     item_data: Raw Zotero API response dict for the annotation.
+#
+# Returns:
+#     Parsed ZoteroAnnotation.
 def _extract_annotation(item_data: dict) -> ZoteroAnnotation:
-    """Extract annotation fields from a Zotero annotation item."""
     data = item_data.get("data", item_data)
     return ZoteroAnnotation(
         key=data.get("key", ""),
@@ -106,19 +135,36 @@ def _extract_annotation(item_data: dict) -> ZoteroAnnotation:
     )
 
 
+# Zotero API client wrapping pyzotero for library access.
 class ZoteroClient:
+    # Initialize the client with Zotero library credentials.
+    #
+    # Args:
+    #     library_id: Zotero library ID.
+    #     library_type: Library type ("user" or "group").
+    #     api_key: Zotero API key.
     def __init__(self, library_id: str, library_type: str, api_key: str):
         self._zot = zotero.Zotero(library_id, library_type, api_key)
 
+    # Fetch all collections in the library.
+    #
+    # Returns:
+    #     List of ZoteroCollectionInfo for every collection.
     def fetch_collections(self) -> list[ZoteroCollectionInfo]:
-        """Fetch all collections in the library."""
         raw = self._zot.collections()
         return [_extract_collection(item) for item in raw]
 
+    # Fetch annotation items, optionally filtered by version and collection.
+    #
+    # Args:
+    #     since: Only return items modified after this library version.
+    #     collection_key: Limit to annotations within this collection.
+    #
+    # Returns:
+    #     List of raw annotation item dicts from the Zotero API.
     def fetch_annotations(
         self, since: int | None = None, collection_key: str | None = None
     ) -> list[dict]:
-        """Fetch annotation items, optionally filtered by version and collection."""
         params: dict = {"itemType": "annotation"}
         if since is not None:
             params["since"] = since
@@ -126,22 +172,34 @@ class ZoteroClient:
             return self._zot.collection_items(collection_key, **params)
         return self._zot.items(**params)
 
+    # Fetch a single library item by key.
+    #
+    # Args:
+    #     item_key: Zotero item key.
+    #
+    # Returns:
+    #     Raw item dict from the Zotero API.
     def fetch_item(self, item_key: str) -> dict:
-        """Fetch a single item by key."""
         return self._zot.item(item_key)
 
+    # Return the library version from the last API response.
     @property
     def last_modified_version(self) -> int:
-        """Return the library version from the last API response."""
         return int(self._zot.request.headers.get("Last-Modified-Version", 0))
 
+    # Fetch annotations and group them by parent paper.
+    #
+    # Resolution chain: annotation -> PDF attachment -> bibliographic item.
+    #
+    # Args:
+    #     since: Only return items modified after this library version.
+    #     collection_key: Limit to annotations within this collection.
+    #
+    # Returns:
+    #     List of ZoteroPaper objects with annotations attached.
     def fetch_annotations_grouped(
         self, since: int | None = None, collection_key: str | None = None
     ) -> list[ZoteroPaper]:
-        """Fetch annotations and group them by parent paper.
-
-        Resolution chain: annotation → PDF attachment → bibliographic item.
-        """
         raw_annotations = self.fetch_annotations(since, collection_key)
         if not raw_annotations:
             return []
@@ -195,10 +253,16 @@ class ZoteroClient:
 
         return list(paper_map.values())
 
+    # Fetch all top-level bibliographic items, excluding attachments/annotations/notes.
+    #
+    # Args:
+    #     collection_key: Limit to items within this collection.
+    #
+    # Returns:
+    #     List of ZoteroPaperMetadata for each bibliographic item.
     def fetch_papers(
         self, collection_key: str | None = None
     ) -> list[ZoteroPaperMetadata]:
-        """Fetch all top-level bibliographic items (no attachments/annotations/notes)."""
         if collection_key:
             items = self._zot.everything(self._zot.collection_items_top(collection_key))
         else:
@@ -212,8 +276,14 @@ class ZoteroClient:
             if item.get("data", {}).get("itemType", "") not in skip
         ]
 
+    # Fetch annotations for a single paper by traversing its attachment children.
+    #
+    # Args:
+    #     paper_key: Zotero item key of the parent paper.
+    #
+    # Returns:
+    #     Annotations sorted by page label then date.
     def fetch_paper_annotations(self, paper_key: str) -> list[ZoteroAnnotation]:
-        """Fetch annotations for a single paper via attachment children."""
         children = self._zot.children(paper_key)
         annotations: list[ZoteroAnnotation] = []
         for child in children:
@@ -231,8 +301,11 @@ class ZoteroClient:
         annotations.sort(key=lambda a: (a.page_label or "", a.date_added or ""))
         return annotations
 
+    # Count annotations per paper via bulk fetch (2 paginated API calls).
+    #
+    # Returns:
+    #     Dict mapping paper_key to annotation count.
     def count_annotations_per_paper(self) -> dict[str, int]:
-        """Count annotations per paper via bulk fetch (2 paginated API calls)."""
         all_annotations = self._zot.everything(self._zot.items(itemType="annotation"))
 
         # Group annotation counts by parent attachment

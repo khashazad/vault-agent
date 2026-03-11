@@ -10,13 +10,20 @@ COLOR_SEMANTICS: dict[str, str] = {
 }
 
 
+# Map a hex color code to a semantic priority label.
+#
+# Args:
+#     color: Hex color string (e.g. "#ff6666").
+#
+# Returns:
+#     Priority label ("Critical", "Important", "General") or None if no match.
 def get_color_label(color: str | None) -> str | None:
-    """Map a hex color code to a semantic priority label."""
     if not color:
         return None
     return COLOR_SEMANTICS.get(color.lower())
 
 
+# Source-type-specific terminology and role description for prompt templates.
 @dataclass
 class SourceConfig:
     singular: str
@@ -146,11 +153,62 @@ Annotations have priority labels (Critical, Important, General) based on the rea
 Priority informs **synthesis weighting**, not output formatting. All content uses the same formatting conventions above. Critical annotations simply get more prominence in the note structure."""
 
 
+# Build (system_prompt, user_message) for single-call Zotero note synthesis.
+#
+# No tools, no vault map, no routing -- just annotation -> markdown.
+#
+# Args:
+#     items: Annotations to synthesize into a note.
+#     metadata: Paper metadata for citations and context.
+#
+# Returns:
+#     Tuple of (system_prompt, user_message).
+def build_zotero_synthesis_prompt(
+    items: list[ContentItem],
+    metadata: "SourceMetadata",
+) -> tuple[str, str]:
+    system = (
+        "You are a research note synthesizer. Your job is to transform paper "
+        "annotations into a well-structured Obsidian markdown note.\n\n"
+        "Return ONLY the complete markdown note — no preamble, no explanation, "
+        "no code fences.\n\n"
+        f"{ZOTERO_PAPER_TEMPLATE}"
+    )
+
+    user = _format_zotero_context(metadata) + "\n\n"
+    user += f"## Annotations ({len(items)} total)\n\n"
+    for i, item in enumerate(items, 1):
+        user += f"### Annotation {i}\n"
+        user += f"**Text:**\n> {item.text}\n\n"
+        if item.annotation:
+            user += f"**Comment:** {item.annotation}\n"
+        label = get_color_label(item.color)
+        if label:
+            user += f"**Priority:** {label}\n"
+        user += "\n"
+
+    user += (
+        "Synthesize these annotations into a single Obsidian note following "
+        "the Paper Note Template above. Return ONLY the markdown."
+    )
+    return system, user
+
+
+# Format a template string with source config singular/plural terms.
 def _fmt(template: str, sc: SourceConfig) -> str:
-    """Format a template string with source config terms."""
     return template.format(singular=sc.singular, plural=sc.plural)
 
 
+# Build the full system prompt for the agent, including vault map, tools, rules, and templates.
+#
+# Args:
+#     vault_map_string: Rendered vault structure string for LLM context.
+#     source_config: Source-type terminology config.
+#     is_batch: Whether this is a batch processing run.
+#     source_type: Content source type ("web", "zotero", "book").
+#
+# Returns:
+#     Complete system prompt string.
 def build_system_prompt(
     vault_map_string: str,
     source_config: SourceConfig,
@@ -214,6 +272,17 @@ You have access to the user's Obsidian vault structure shown below. Your job is 
 {note_template}"""
 
 
+# Build the user message for a single content item integration request.
+#
+# Args:
+#     item: The content item to integrate.
+#     source_config: Source-type terminology config.
+#     feedback: User feedback from a rejected previous attempt.
+#     previous_reasoning: Agent reasoning from the rejected attempt.
+#     search_context: Pre-fetched vault search results to include.
+#
+# Returns:
+#     Formatted user message string.
 def build_user_message(
     item: ContentItem,
     source_config: SourceConfig,
@@ -248,21 +317,41 @@ def build_user_message(
     return msg
 
 
+# Sanitize a metadata string by stripping newlines and truncating.
+#
+# Args:
+#     value: Raw metadata string.
+#     max_length: Maximum character length.
+#
+# Returns:
+#     Cleaned, truncated string.
 def _sanitize_metadata(value: str, max_length: int = 500) -> str:
-    """Sanitize a metadata string for safe prompt interpolation."""
     sanitized = value.replace("\n", " ").replace("\r", " ")
     return sanitized[:max_length].strip()
 
 
+# Format source metadata into a markdown block for agent context.
+#
+# Args:
+#     metadata: Source metadata to format.
+#     source_type: Content source type; only "zotero" produces output.
+#
+# Returns:
+#     Markdown string, or empty string for non-Zotero sources.
 def _format_source_context(metadata: SourceMetadata, source_type: str) -> str:
-    """Format source metadata into a markdown block for agent context."""
     if source_type == "zotero":
         return _format_zotero_context(metadata)
     return ""
 
 
+# Format Zotero paper metadata into a markdown block for agent context.
+#
+# Args:
+#     metadata: Paper metadata (title, authors, DOI, etc.).
+#
+# Returns:
+#     Markdown string with paper context section.
 def _format_zotero_context(metadata: SourceMetadata) -> str:
-    """Format Zotero paper metadata into a markdown block for agent context."""
     lines = ["## Paper Context\n"]
     if metadata.title:
         lines.append(f"**Title:** {_sanitize_metadata(metadata.title, 300)}")
@@ -290,6 +379,19 @@ def _format_zotero_context(metadata: SourceMetadata) -> str:
     return "\n".join(lines)
 
 
+# Build the user message for a batch of content items.
+#
+# Falls back to build_user_message for single items without metadata.
+#
+# Args:
+#     items: Content items to integrate.
+#     source_config: Source-type terminology config.
+#     feedback: User feedback from a rejected previous attempt.
+#     previous_reasoning: Agent reasoning from the rejected attempt.
+#     search_context: Pre-fetched vault search results to include.
+#
+# Returns:
+#     Formatted user message string.
 def build_batch_user_message(
     items: list[ContentItem],
     source_config: SourceConfig,

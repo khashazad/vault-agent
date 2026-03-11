@@ -2,14 +2,24 @@ from src.models import Changeset, CreateNoteInput, UpdateNoteInput
 from src.vault.writer import create_note, update_note
 
 
+# Write approved changes from a changeset to the vault filesystem.
+#
+# Iterates changeset.changes and applies each via create_note or update_note.
+# If approved_ids is provided, only those changes are applied; otherwise
+# applies all changes with status 'approved'.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     changeset: Changeset containing ProposedChange objects to apply.
+#     approved_ids: Explicit list of change IDs to apply. If None, uses status field.
+#
+# Returns:
+#     Dict with 'applied' (list of change IDs) and 'failed' (list of {id, error}).
 def apply_changeset(
     vault_path: str,
     changeset: Changeset,
     approved_ids: list[str] | None = None,
 ) -> dict:
-    """Apply approved changes from a changeset to disk.
-    If approved_ids is None, apply all changes with status 'approved'.
-    """
     applied: list[str] = []
     failed: list[dict] = []
 

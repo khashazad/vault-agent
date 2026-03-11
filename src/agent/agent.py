@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -18,6 +19,7 @@ from src.agent.tools import get_tool_definitions, execute_tool, format_search_re
 from src.agent.prompts import (
     build_system_prompt,
     build_batch_user_message,
+    build_zotero_synthesis_prompt,
     SOURCE_CONFIGS,
 )
 from src.rag.search import search_vault
@@ -39,6 +41,16 @@ _CACHE_WRITE_COST_PER_MTOK = 1.25
 _CACHE_READ_COST_PER_MTOK = 0.10
 
 
+# Log cache-aware token usage and estimated cost breakdown.
+#
+# Args:
+#     item_count: Number of ContentItems processed.
+#     api_calls: Number of Claude API round-trips.
+#     tool_call_count: Total tool invocations across all rounds.
+#     input_tokens: Non-cached input tokens consumed.
+#     output_tokens: Output tokens generated.
+#     cache_write_tokens: Tokens written to prompt cache.
+#     cache_read_tokens: Tokens read from prompt cache.
 def _log_token_usage(
     item_count: int,
     api_calls: int,
@@ -48,7 +60,6 @@ def _log_token_usage(
     cache_write_tokens: int,
     cache_read_tokens: int,
 ) -> None:
-    """Log cache-aware token usage and estimated cost."""
     input_cost = input_tokens * _INPUT_COST_PER_MTOK / 1_000_000
     output_cost = output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
     cache_write_cost = cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
@@ -71,18 +82,31 @@ def _log_token_usage(
     )
 
 
+# Scale the max tool call limit based on batch size (min 15, max 40).
 def _max_tool_calls(item_count: int) -> int:
-    """Scale tool call limit with batch size."""
     return min(40, max(MAX_TOOL_CALLS, 5 + 3 * item_count))
 
 
+# Build a truncated search query from item texts for pre-fetch discovery.
 def _build_search_query(items: list[ContentItem]) -> str:
-    """Build a search query from item texts for pre-fetching."""
     if len(items) == 1:
         return items[0].text[:300]
     return " ".join(item.text[:100] for item in items)[:500]
 
 
+# Initialize the agent: build client, system prompt, tools, and opening message.
+#
+# Pre-fetches search results for the items and injects them into the user
+# message so the agent starts with relevant vault context.
+#
+# Args:
+#     config: App configuration (API keys, vault path, etc.).
+#     items: Content items to process.
+#     feedback: Optional user feedback from a previous changeset attempt.
+#     previous_reasoning: Optional agent reasoning from a prior run for continuity.
+#
+# Returns:
+#     Tuple of (AsyncAnthropic client, system prompt str, tool defs list, messages list).
 async def _init_agent(
     config: AppConfig,
     items: list[ContentItem],
@@ -129,9 +153,9 @@ async def _init_agent(
     return client, system_prompt, tool_defs, messages
 
 
+# Call client.messages.create with exponential backoff on 429/529 errors.
+# Retries up to 3 times with 1s base delay.
 async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
-    """Call client.messages.create with exponential backoff on rate limit (429)
-    and overloaded (529) errors. Retries up to 3 times with 1s base delay."""
     max_retries = 3
     base_delay = 1.0
 
@@ -163,6 +187,23 @@ async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
                 raise
 
 
+# Run the core agent loop: search vault, decide placement, produce a dry-run changeset.
+#
+# Executes a multi-turn conversation with Claude. The agent searches the vault,
+# reports a routing decision, then calls create_note/update_note. All write
+# tool calls are intercepted and computed against a virtual filesystem — nothing
+# is written to disk. Diffs are generated for each proposed change and the full
+# changeset is persisted to SQLite for later approval.
+#
+# Args:
+#     config: App configuration (API keys, vault path, LanceDB path).
+#     items: Content items (highlights/annotations) to integrate into the vault.
+#     feedback: Optional user feedback to incorporate from a prior attempt.
+#     previous_reasoning: Optional agent reasoning from a prior run for context.
+#     parent_changeset_id: ID of the previous changeset if this is a retry.
+#
+# Returns:
+#     Changeset with proposed changes, routing info, and agent reasoning.
 async def generate_changeset(
     config: AppConfig,
     items: list[ContentItem],
@@ -170,8 +211,6 @@ async def generate_changeset(
     previous_reasoning: str | None = None,
     parent_changeset_id: str | None = None,
 ) -> Changeset:
-    """Run the agent to search, decide placement, and generate changes.
-    Returns a Changeset with proposed changes (no writes to disk)."""
 
     max_calls = _max_tool_calls(len(items))
 
@@ -391,5 +430,87 @@ async def generate_changeset(
         parent_changeset_id=parent_changeset_id,
     )
     changeset_store.set(changeset)
+
+    return changeset
+
+
+# Derive a vault-relative path (Papers/<sanitized-title>.md) from Zotero metadata.
+def _zotero_note_path(items: list[ContentItem]) -> str:
+    meta = items[0].source_metadata
+    title = (meta.title if meta and meta.title else "Untitled Paper").strip()
+    # Sanitize for filesystem: keep alphanumeric, spaces, hyphens
+    sanitized = re.sub(r"[^\w\s\-]", "", title)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    if len(sanitized) > 100:
+        sanitized = sanitized[:100].rsplit(" ", 1)[0]
+    return f"Papers/{sanitized}.md"
+
+
+# Synthesize a Zotero paper note in a single LLM call (no tool loop).
+#
+# Sends all annotations to Claude with a Zotero-specific synthesis prompt
+# and creates a changeset containing one create_note ProposedChange.
+# Faster than generate_changeset since it skips search/routing.
+#
+# Args:
+#     config: App configuration (API keys, vault path).
+#     items: Annotation ContentItems from a single Zotero paper.
+#
+# Returns:
+#     Changeset with a single proposed create_note change.
+async def generate_zotero_note(
+    config: AppConfig,
+    items: list[ContentItem],
+) -> Changeset:
+    client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
+    metadata = items[0].source_metadata
+
+    system, user = build_zotero_synthesis_prompt(items, metadata)
+
+    response = await _create_with_retry(
+        client,
+        model=MODEL,
+        max_tokens=8192,
+        system=[{"type": "text", "text": system}],
+        messages=[{"role": "user", "content": user}],
+    )
+
+    note_content = response.content[0].text
+    note_path = _zotero_note_path(items)
+    diff = generate_diff(note_path, "", note_content)
+
+    change = ProposedChange(
+        id=str(uuid.uuid4()),
+        tool_name="create_note",
+        input={"path": note_path, "content": note_content},
+        original_content=None,
+        proposed_content=note_content,
+        diff=diff,
+    )
+
+    routing = RoutingInfo(
+        action="create",
+        target_path=note_path,
+        reasoning="Single-call Zotero synthesis — new paper note.",
+        confidence=1.0,
+    )
+
+    changeset = Changeset(
+        id=str(uuid.uuid4()),
+        items=items,
+        changes=[change],
+        reasoning="Synthesized from paper annotations in a single LLM call.",
+        status="pending",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        source_type="zotero",
+        routing=routing,
+    )
+    changeset_store.set(changeset)
+
+    input_tokens = response.usage.input_tokens
+    output_tokens = response.usage.output_tokens
+    cache_write = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+    cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+    _log_token_usage(len(items), 1, 0, input_tokens, output_tokens, cache_write, cache_read)
 
     return changeset

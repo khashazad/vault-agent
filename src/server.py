@@ -39,7 +39,7 @@ from src.models import (
     ZoteroSyncResponse,
 )
 from src.vault.reader import build_vault_map
-from src.agent.agent import generate_changeset
+from src.agent.agent import generate_changeset, generate_zotero_note
 from src.agent.changeset import apply_changeset
 from src.store import changeset_store
 from src.rag.indexer import index_vault
@@ -56,6 +56,7 @@ config = load_config()
 paper_cache_syncer: ZoteroPaperCacheSyncer | None = None
 
 
+# Manage app lifecycle: start/stop the Zotero paper cache syncer.
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global paper_cache_syncer
@@ -97,8 +98,15 @@ app.add_middleware(
 )
 
 
+# Map Anthropic SDK exceptions to appropriate HTTP error responses.
+#
+# Args:
+#     err: The caught exception.
+#     context: Log message prefix for unexpected errors.
+#
+# Returns:
+#     JSONResponse with appropriate status code (401, 502, or 500).
 def _handle_anthropic_error(err: Exception, context: str) -> JSONResponse:
-    """Shared error handler for endpoints that call the Anthropic API."""
     if isinstance(err, anthropic.AuthenticationError):
         return JSONResponse({"error": "Invalid Anthropic API key"}, status_code=401)
     if isinstance(err, anthropic.APIError):
@@ -108,24 +116,39 @@ def _handle_anthropic_error(err: Exception, context: str) -> JSONResponse:
     return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+# Fetch a changeset by ID, raising HTTP 404 if not found.
+#
+# Args:
+#     changeset_id: The changeset ID to look up.
+#
+# Returns:
+#     The Changeset object.
+#
+# Raises:
+#     HTTPException: When changeset ID does not exist in the store.
 def _get_changeset_or_404(changeset_id: str):
-    """Fetch a changeset, raising HTTP 404 if not found."""
     cs = changeset_store.get(changeset_id)
     if not cs:
         raise HTTPException(status_code=404, detail="Changeset not found")
     return cs
 
 
+# Mark a changeset and all its changes as rejected, then persist.
+#
+# Args:
+#     cs: The changeset to reject.
 def _reject_changeset(cs):
-    """Mark a changeset and all its changes as rejected."""
     cs.status = "rejected"
     for change in cs.changes:
         change.status = "rejected"
     changeset_store.set(cs)
 
 
+# Raise HTTP 400 if Zotero API key or library ID is not configured.
+#
+# Raises:
+#     HTTPException: When Zotero credentials are missing.
 def _require_zotero():
-    """Raise 400 if Zotero is not configured."""
     if not config.zotero_api_key or not config.zotero_library_id:
         raise HTTPException(
             status_code=400,
@@ -133,8 +156,11 @@ def _require_zotero():
         )
 
 
+# Create a ZoteroClient from app config (lazy import to avoid hard dep on pyzotero).
+#
+# Returns:
+#     Configured ZoteroClient instance.
 def _create_zotero_client():
-    """Create a ZoteroClient from app config (lazy import to avoid hard dep on pyzotero)."""
     from src.zotero.client import ZoteroClient
 
     return ZoteroClient(
@@ -144,6 +170,7 @@ def _create_zotero_client():
     )
 
 
+# Return server health status and vault configuration state.
 @app.get(
     "/health",
     response_model=HealthResponse,
@@ -159,6 +186,7 @@ async def health():
     }
 
 
+# Return vault structure with note summaries.
 @app.get(
     "/vault/map",
     response_model=VaultMapResponse,
@@ -178,6 +206,7 @@ async def vault_map():
 # --- Changeset routes ---
 
 
+# Retrieve a changeset by ID.
 @app.get(
     "/changesets/{changeset_id}",
     response_model=Changeset,
@@ -190,6 +219,7 @@ async def get_changeset(changeset_id: str):
     return cs.model_dump()
 
 
+# Set an individual proposed change to approved or rejected.
 @app.patch(
     "/changesets/{changeset_id}/changes/{change_id}",
     response_model=ChangeStatusResponse,
@@ -211,6 +241,7 @@ async def update_change_status(
     return JSONResponse({"error": "Change not found"}, status_code=404)
 
 
+# Apply approved changes from a changeset to the vault filesystem.
 @app.post(
     "/changesets/{changeset_id}/apply",
     response_model=ApplyResponse,
@@ -238,6 +269,7 @@ async def apply(changeset_id: str, body: ApplyRequest | None = None):
     return result
 
 
+# Reject an entire changeset and all its proposed changes.
 @app.post(
     "/changesets/{changeset_id}/reject",
     response_model=RejectResponse,
@@ -254,6 +286,7 @@ async def reject(changeset_id: str):
 # --- RAG routes ---
 
 
+# Index vault notes into LanceDB for semantic search.
 @app.post(
     "/vault/index",
     response_model=IndexResponse,
@@ -272,6 +305,7 @@ async def vault_index():
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+# Hybrid semantic + full-text search across indexed vault chunks.
 @app.get(
     "/vault/search",
     response_model=SearchResponse,
@@ -309,6 +343,7 @@ async def vault_search(q: str, n: int = 10):
 # --- Zotero routes ---
 
 
+# Sync papers from Zotero and create changesets from annotations.
 @app.post(
     "/zotero/sync",
     response_model=ZoteroSyncResponse,
@@ -328,6 +363,7 @@ async def zotero_sync(body: ZoteroSyncRequest | None = None):
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+# List all Zotero collections from cache or live API.
 @app.get(
     "/zotero/collections",
     response_model=ZoteroCollectionsResponse,
@@ -355,6 +391,7 @@ async def zotero_collections():
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+# Return paper cache count, last update time, and sync progress.
 @app.get(
     "/zotero/papers/cache-status",
     response_model=PaperCacheStatusResponse,
@@ -380,6 +417,7 @@ async def zotero_papers_cache_status():
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+# Trigger a background refresh of the Zotero paper cache.
 @app.post(
     "/zotero/papers/refresh",
     response_model=RefreshResponse,
@@ -398,8 +436,15 @@ async def zotero_papers_refresh():
     return {"status": "sync_triggered"}
 
 
+# Build a ZoteroPaperSummary from a paper dict and sync state lookup.
+#
+# Args:
+#     p: Paper dict with key, title, authors, year, item_type, annotation_count.
+#     syncs: Dict mapping paper keys to sync info (last_synced, changeset_id).
+#
+# Returns:
+#     ZoteroPaperSummary with sync metadata attached.
 def _to_paper_summary(p: dict, syncs: dict) -> ZoteroPaperSummary:
-    """Build a ZoteroPaperSummary from a dict and sync state lookup."""
     sync = syncs.get(p["key"], {})
     return ZoteroPaperSummary(
         key=p["key"],
@@ -413,6 +458,7 @@ def _to_paper_summary(p: dict, syncs: dict) -> ZoteroPaperSummary:
     )
 
 
+# List Zotero papers with pagination, collection filter, and search.
 @app.get(
     "/zotero/papers",
     response_model=ZoteroPapersResponse,
@@ -482,6 +528,7 @@ async def zotero_papers(
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+# Fetch all annotations for a specific paper from Zotero.
 @app.get(
     "/zotero/papers/{paper_key}/annotations",
     response_model=ZoteroPaperAnnotationsResponse,
@@ -521,6 +568,7 @@ async def zotero_paper_annotations(paper_key: str):
         return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
+# Process a single paper's annotations through the agent and return a changeset.
 @app.post(
     "/zotero/papers/{paper_key}/sync",
     response_model=Changeset,
@@ -554,10 +602,7 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
                 status_code=400,
             )
 
-        changeset = await generate_changeset(
-            config,
-            items=items,
-        )
+        changeset = await generate_zotero_note(config, items)
 
         sync_state = ZoteroSyncState()
         sync_state.set_paper_sync(paper_key, metadata.title, changeset.id)
@@ -567,6 +612,7 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
         return _handle_anthropic_error(err, "Error syncing Zotero paper")
 
 
+# Check Zotero configuration status and last sync info.
 @app.get(
     "/zotero/status",
     response_model=ZoteroStatusResponse,

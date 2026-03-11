@@ -4,8 +4,18 @@ from src.models import CreateNoteInput, UpdateNoteInput
 from src.vault import validate_path
 
 
+# Validate that the note path is available and return proposed content without writing.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     inp: CreateNoteInput with target path and content.
+#
+# Returns:
+#     The proposed note content string.
+#
+# Raises:
+#     FileExistsError: When a note already exists at the target path.
 def compute_create(vault_path: str, inp: CreateNoteInput) -> str:
-    """Validate and return proposed content without writing to disk."""
     full_path = validate_path(vault_path, inp.path)
 
     if full_path.exists():
@@ -16,10 +26,18 @@ def compute_create(vault_path: str, inp: CreateNoteInput) -> str:
     return inp.content
 
 
+# Compute the result of an append operation on raw file content without writing to disk.
+#
+# Inserts content under the specified heading if found, creates the heading if missing,
+# or appends to end of file if no heading specified.
+#
+# Args:
+#     raw: Current raw file content.
+#     inp: UpdateNoteInput with heading and content to append.
+#
+# Returns:
+#     The full updated content string.
 def compute_update(raw: str, inp: UpdateNoteInput) -> str:
-    """Compute the result of an update operation on raw file content.
-    Returns the updated content string without writing to disk.
-    """
     content_to_append = inp.content or ""
 
     if inp.heading:
@@ -66,6 +84,14 @@ def compute_update(raw: str, inp: UpdateNoteInput) -> str:
     return updated
 
 
+# Create a new note on disk, failing atomically if the file already exists.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     inp: CreateNoteInput with target path and content.
+#
+# Returns:
+#     Confirmation message with the created path.
 def create_note(vault_path: str, inp: CreateNoteInput) -> str:
     full_path = validate_path(vault_path, inp.path)
     full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -76,6 +102,17 @@ def create_note(vault_path: str, inp: CreateNoteInput) -> str:
     return f"Created note at {inp.path}"
 
 
+# Append content to an existing note, optionally under a specific heading.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     inp: UpdateNoteInput with target path, heading, and content.
+#
+# Returns:
+#     Confirmation message describing the append.
+#
+# Raises:
+#     FileNotFoundError: When the target note does not exist.
 def update_note(vault_path: str, inp: UpdateNoteInput) -> str:
     full_path = validate_path(vault_path, inp.path)
 
