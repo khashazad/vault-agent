@@ -306,6 +306,26 @@ class ZoteroSyncState:
         )
         self._conn.commit()
 
+    # Remove rows from a table whose key is not in the provided set.
+    #
+    # Args:
+    #     table: SQL table name.
+    #     key_column: Column name for the key.
+    #     keys: Set of key values to keep.
+    #
+    # Returns:
+    #     Number of rows deleted.
+    def _delete_not_in(self, table: str, key_column: str, keys: set[str]) -> int:
+        if not keys:
+            return 0
+        placeholders = ",".join("?" for _ in keys)
+        cursor = self._conn.execute(
+            f"DELETE FROM {table} WHERE {key_column} NOT IN ({placeholders})",
+            list(keys),
+        )
+        self._conn.commit()
+        return cursor.rowcount
+
     # Remove papers from cache whose keys are not in the provided set.
     #
     # Args:
@@ -314,15 +334,7 @@ class ZoteroSyncState:
     # Returns:
     #     Number of papers deleted.
     def delete_papers_not_in(self, keys: set[str]) -> int:
-        if not keys:
-            return 0
-        placeholders = ",".join("?" for _ in keys)
-        cursor = self._conn.execute(
-            f"DELETE FROM zotero_papers WHERE key NOT IN ({placeholders})",
-            list(keys),
-        )
-        self._conn.commit()
-        return cursor.rowcount
+        return self._delete_not_in("zotero_papers", "key", keys)
 
     # --- Collection cache (zotero_collections table) ---
 
@@ -384,12 +396,4 @@ class ZoteroSyncState:
     # Returns:
     #     Number of collections deleted.
     def delete_collections_not_in(self, keys: set[str]) -> int:
-        if not keys:
-            return 0
-        placeholders = ",".join("?" for _ in keys)
-        cursor = self._conn.execute(
-            f"DELETE FROM zotero_collections WHERE key NOT IN ({placeholders})",
-            list(keys),
-        )
-        self._conn.commit()
-        return cursor.rowcount
+        return self._delete_not_in("zotero_collections", "key", keys)

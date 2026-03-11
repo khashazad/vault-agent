@@ -1,4 +1,5 @@
-from pathlib import Path
+from collections.abc import Iterator
+from pathlib import Path, PurePosixPath
 
 
 # Resolve a note path against the vault root and verify it stays within bounds.
@@ -18,3 +19,21 @@ def validate_path(vault_path: str, note_path: str) -> Path:
     if not resolved.is_relative_to(vault_resolved):
         raise ValueError(f'Path "{note_path}" escapes the vault directory')
     return resolved
+
+
+# Iterate markdown files in the vault, skipping symlinks and hidden dirs.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#
+# Yields:
+#     Tuples of (absolute Path, forward-slash relative path string).
+def iter_markdown_files(vault_path: str) -> Iterator[tuple[Path, str]]:
+    vault = Path(vault_path)
+    for md_file in vault.rglob("*.md"):
+        if md_file.is_symlink():
+            continue
+        rel = md_file.relative_to(vault)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        yield md_file, str(PurePosixPath(rel))

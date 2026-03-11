@@ -1,11 +1,11 @@
 import logging
 import time
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
-
-import frontmatter
+from pathlib import PurePosixPath
 
 from src.rag.chunker import Chunk, chunk_note
+from src.vault import iter_markdown_files
+from src.vault.reader import parse_frontmatter
 from src.rag.embedder import embed_texts
 from src.rag.store import (
     get_db,
@@ -33,26 +33,11 @@ class IndexStats:
 
 # Scan all markdown files in the vault and split them into heading-based chunks.
 def _scan_and_chunk(vault_path: str) -> list[Chunk]:
-    vault = Path(vault_path)
     all_chunks: list[Chunk] = []
 
-    for md_file in vault.rglob("*.md"):
-        if md_file.is_symlink():
-            continue
-        rel = md_file.relative_to(vault)
-        if any(part.startswith(".") for part in rel.parts):
-            continue
-
+    for md_file, file_path in iter_markdown_files(vault_path):
         raw = md_file.read_text(encoding="utf-8")
-        file_path = str(PurePosixPath(rel))
-
-        try:
-            post = frontmatter.loads(raw)
-            content = post.content
-        except Exception as e:
-            logger.debug("Failed to parse frontmatter in %s: %s", file_path, e)
-            content = raw
-
+        _, content = parse_frontmatter(raw)
         title = PurePosixPath(file_path).stem
         all_chunks.extend(chunk_note(file_path, title, content))
 
@@ -87,7 +72,7 @@ async def index_vault(
     note_paths = set(c.note_path for c in all_chunks)
     total_notes = len(note_paths)
 
-    logger.info(f"Scanned {total_notes} notes, {len(all_chunks)} chunks")
+    logger.info("Scanned %d notes, %d chunks", total_notes, len(all_chunks))
 
     # Compare with existing hashes
     db = get_db(lancedb_path)
@@ -99,7 +84,7 @@ async def index_vault(
         if table.count_rows() > 0:
             existing_hashes, existing_df = get_existing_data(table)
     except Exception as e:
-        logger.warning(f"Failed to load existing data from LanceDB: {e}")
+        logger.warning("Failed to load existing data from LanceDB: %s", e)
 
     changed_chunks: list[Chunk] = []
     unchanged_count = 0
@@ -111,7 +96,7 @@ async def index_vault(
         else:
             changed_chunks.append(chunk)
 
-    logger.info(f"{len(changed_chunks)} changed, {unchanged_count} unchanged")
+    logger.info("%d changed, %d unchanged", len(changed_chunks), unchanged_count)
 
     # Embed changed chunks
     added = 0
@@ -141,7 +126,9 @@ async def index_vault(
 
         upsert_chunks(table, rows)
         build_fts_index(table)
-        logger.info(f"Upserted {len(rows)} chunks ({added} new, {updated} updated)")
+        logger.info(
+            "Upserted %d chunks (%d new, %d updated)", len(rows), added, updated
+        )
 
     # Delete stale
     valid_keys = {f"{c.note_path}::{c.heading}" for c in all_chunks}
@@ -155,9 +142,9 @@ async def index_vault(
                 # Table was recreated; re-open and rebuild FTS index
                 table = get_or_create_table(db)
                 build_fts_index(table)
-                logger.info(f"Deleted {deleted} stale chunks")
+                logger.info("Deleted %d stale chunks", deleted)
     except Exception as e:
-        logger.warning(f"Failed to delete stale chunks: {e}")
+        logger.warning("Failed to delete stale chunks: %s", e)
 
     duration = time.time() - start
 
