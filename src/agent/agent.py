@@ -41,6 +41,17 @@ _CACHE_WRITE_COST_PER_MTOK = 1.25
 _CACHE_READ_COST_PER_MTOK = 0.10
 
 
+# Extract token counts from an Anthropic API response.
+def _extract_usage(response) -> tuple[int, int, int, int]:
+    u = response.usage
+    return (
+        u.input_tokens,
+        u.output_tokens,
+        getattr(u, "cache_creation_input_tokens", 0) or 0,
+        getattr(u, "cache_read_input_tokens", 0) or 0,
+    )
+
+
 # Log cache-aware token usage and estimated cost breakdown.
 #
 # Args:
@@ -252,14 +263,11 @@ async def generate_changeset(
         )
 
         api_calls += 1
-        total_input_tokens += response.usage.input_tokens
-        total_output_tokens += response.usage.output_tokens
-        total_cache_write_tokens += (
-            getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-        )
-        total_cache_read_tokens += (
-            getattr(response.usage, "cache_read_input_tokens", 0) or 0
-        )
+        inp, out, cw, cr = _extract_usage(response)
+        total_input_tokens += inp
+        total_output_tokens += out
+        total_cache_write_tokens += cw
+        total_cache_read_tokens += cr
 
         for block in response.content:
             if block.type == "text":
@@ -507,11 +515,7 @@ async def generate_zotero_note(
     )
     changeset_store.set(changeset)
 
-    input_tokens = response.usage.input_tokens
-    output_tokens = response.usage.output_tokens
-    cache_write = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-    cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
-    _log_token_usage(len(items), 1, 0, input_tokens, output_tokens, cache_write, cache_read)
+    _log_token_usage(len(items), 1, 0, *_extract_usage(response))
 
     return changeset
 

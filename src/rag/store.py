@@ -120,6 +120,20 @@ def delete_stale_chunks(
     return stale_count
 
 
+# Convert a search result DataFrame to a list of result dicts.
+def _to_result_dicts(df, score_key: str, search_type: str) -> list[dict]:
+    return [
+        {
+            "note_path": r["note_path"],
+            "heading": r["heading"],
+            "content": r["content"],
+            "score": float(r[score_key]),
+            "search_type": search_type,
+        }
+        for r in df.to_dict(orient="records")
+    ]
+
+
 # Search for similar chunks using vector distance only.
 #
 # Args:
@@ -133,16 +147,7 @@ def search_vectors(
     table: lancedb.table.Table, query_vector: list[float], n: int = 10
 ) -> list[dict]:
     df = table.search(query_vector).limit(n).to_pandas()
-    return [
-        {
-            "note_path": r["note_path"],
-            "heading": r["heading"],
-            "content": r["content"],
-            "score": float(r["_distance"]),
-            "search_type": "vector",
-        }
-        for r in df.to_dict(orient="records")
-    ]
+    return _to_result_dicts(df, "_distance", "vector")
 
 
 # Hybrid vector + full-text search with RRF reranking.
@@ -172,16 +177,7 @@ def search_hybrid(
             .limit(n)
             .to_pandas()
         )
-        return [
-            {
-                "note_path": r["note_path"],
-                "heading": r["heading"],
-                "content": r["content"],
-                "score": float(r["_relevance_score"]),
-                "search_type": "hybrid",
-            }
-            for r in df.to_dict(orient="records")
-        ]
+        return _to_result_dicts(df, "_relevance_score", "hybrid")
     except Exception as e:
-        logger.warning(f"Hybrid search failed, falling back to vector: {e}")
+        logger.warning("Hybrid search failed, falling back to vector: %s", e)
         return search_vectors(table, query_vector, n)

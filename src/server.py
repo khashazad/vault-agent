@@ -40,7 +40,7 @@ from src.models import (
     ZoteroSyncResponse,
 )
 from src.vault.reader import build_vault_map
-from src.agent.agent import generate_changeset, generate_zotero_note, submit_zotero_note_batch, poll_zotero_batch
+from src.agent.agent import generate_zotero_note, submit_zotero_note_batch, poll_zotero_batch
 from src.agent.changeset import apply_changeset
 from src.store import changeset_store, batch_job_store
 from src.rag.indexer import index_vault
@@ -97,6 +97,12 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["Content-Type"],
 )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request, exc):
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 
 # Map Anthropic SDK exceptions to appropriate HTTP error responses.
@@ -196,12 +202,8 @@ async def health():
     description="Returns the vault structure including total note count and per-note summaries with paths, titles, wikilinks, and headings.",
 )
 async def vault_map():
-    try:
-        vm = build_vault_map(config.vault_path)
-        return {"totalNotes": vm.total_notes, "notes": vm.notes}
-    except Exception:
-        logger.exception("Error building vault map")
-        return JSONResponse({"error": "Internal server error"}, status_code=500)
+    vm = build_vault_map(config.vault_path)
+    return {"totalNotes": vm.total_notes, "notes": vm.notes}
 
 
 # --- Changeset routes ---
@@ -296,14 +298,10 @@ async def reject(changeset_id: str):
     description="Scan the vault, chunk notes by heading, embed via Voyage AI, and upsert into LanceDB. Incremental — only re-embeds changed chunks.",
 )
 async def vault_index():
-    try:
-        stats = await index_vault(
-            config.vault_path, config.voyage_api_key, config.lancedb_path
-        )
-        return IndexResponse(success=True, **asdict(stats))
-    except Exception:
-        logger.exception("Error indexing vault")
-        return JSONResponse({"error": "Internal server error"}, status_code=500)
+    stats = await index_vault(
+        config.vault_path, config.voyage_api_key, config.lancedb_path
+    )
+    return IndexResponse(success=True, **asdict(stats))
 
 
 # Hybrid semantic + full-text search across indexed vault chunks.
@@ -316,29 +314,25 @@ async def vault_index():
 )
 async def vault_search(q: str, n: int = 10):
     n = min(n, 100)
-    try:
-        results = await search_vault(q, config.voyage_api_key, config.lancedb_path, n=n)
-        overall_search_type = results[0].search_type if results else "hybrid"
-        return SearchResponse(
-            query=q,
-            results=[
-                ChunkInfo(
-                    note_path=r.note_path,
-                    heading=r.heading,
-                    content=r.content,
-                    score=r.score,
-                    search_type=r.search_type,
-                )
-                for r in results
-            ],
-            count=len(results),
-            embedding_model=EMBEDDING_MODEL,
-            vector_dimensions=VECTOR_DIM,
-            search_type=overall_search_type,
-        )
-    except Exception:
-        logger.exception("Error searching vault")
-        return JSONResponse({"error": "Internal server error"}, status_code=500)
+    results = await search_vault(q, config.voyage_api_key, config.lancedb_path, n=n)
+    overall_search_type = results[0].search_type if results else "hybrid"
+    return SearchResponse(
+        query=q,
+        results=[
+            ChunkInfo(
+                note_path=r.note_path,
+                heading=r.heading,
+                content=r.content,
+                score=r.score,
+                search_type=r.search_type,
+            )
+            for r in results
+        ],
+        count=len(results),
+        embedding_model=EMBEDDING_MODEL,
+        vector_dimensions=VECTOR_DIM,
+        search_type=overall_search_type,
+    )
 
 
 # --- Zotero routes ---
@@ -354,14 +348,9 @@ async def vault_search(q: str, n: int = 10):
 )
 async def zotero_sync(body: ZoteroSyncRequest | None = None):
     _require_zotero()
-    try:
-        from src.zotero.orchestrator import sync_zotero
+    from src.zotero.orchestrator import sync_zotero
 
-        result = await sync_zotero(config, body)
-        return result
-    except Exception:
-        logger.exception("Error during Zotero sync")
-        return JSONResponse({"error": "Internal server error"}, status_code=500)
+    return await sync_zotero(config, body)
 
 
 # List all Zotero collections from cache or live API.
@@ -374,22 +363,18 @@ async def zotero_sync(body: ZoteroSyncRequest | None = None):
 )
 async def zotero_collections():
     _require_zotero()
-    try:
-        from src.zotero.sync import ZoteroSyncState
+    from src.zotero.sync import ZoteroSyncState
 
-        sync_state = ZoteroSyncState()
-        cached = sync_state.get_all_cached_collections()
-        if cached:
-            items = [ZoteroCollection(**c) for c in cached]
-            return ZoteroCollectionsResponse(collections=items, total=len(items))
-        # Cache empty — fetch live
-        client = _create_zotero_client()
-        collections = client.fetch_collections()
-        items = [ZoteroCollection(**asdict(c)) for c in collections]
+    sync_state = ZoteroSyncState()
+    cached = sync_state.get_all_cached_collections()
+    if cached:
+        items = [ZoteroCollection(**c) for c in cached]
         return ZoteroCollectionsResponse(collections=items, total=len(items))
-    except Exception:
-        logger.exception("Error fetching Zotero collections")
-        return JSONResponse({"error": "Internal server error"}, status_code=500)
+    # Cache empty — fetch live
+    client = _create_zotero_client()
+    collections = client.fetch_collections()
+    items = [ZoteroCollection(**asdict(c)) for c in collections]
+    return ZoteroCollectionsResponse(collections=items, total=len(items))
 
 
 # Return paper cache count, last update time, and sync progress.
@@ -402,20 +387,16 @@ async def zotero_collections():
 )
 async def zotero_papers_cache_status():
     _require_zotero()
-    try:
-        from src.zotero.sync import ZoteroSyncState
+    from src.zotero.sync import ZoteroSyncState
 
-        sync_state = ZoteroSyncState()
-        return {
-            "cached_count": sync_state.get_cached_paper_count(),
-            "cache_updated_at": sync_state.get_papers_cache_updated_at(),
-            "sync_in_progress": paper_cache_syncer.sync_in_progress
-            if paper_cache_syncer
-            else False,
-        }
-    except Exception:
-        logger.exception("Error fetching paper cache status")
-        return JSONResponse({"error": "Internal server error"}, status_code=500)
+    sync_state = ZoteroSyncState()
+    return {
+        "cached_count": sync_state.get_cached_paper_count(),
+        "cache_updated_at": sync_state.get_papers_cache_updated_at(),
+        "sync_in_progress": paper_cache_syncer.sync_in_progress
+        if paper_cache_syncer
+        else False,
+    }
 
 
 # Trigger a background refresh of the Zotero paper cache.
@@ -475,58 +456,54 @@ async def zotero_papers(
     sync_status: str | None = None,
 ):
     _require_zotero()
-    try:
-        from src.zotero.sync import ZoteroSyncState
+    from src.zotero.sync import ZoteroSyncState
 
-        sync_state = ZoteroSyncState()
-        syncs = sync_state.get_all_paper_syncs()
+    sync_state = ZoteroSyncState()
+    syncs = sync_state.get_all_paper_syncs()
 
-        if collection_key:
-            # Live fetch from Zotero, slice in memory
-            client = _create_zotero_client()
-            papers = client.fetch_papers(collection_key)
-            # Enrich with cached annotation counts (API doesn't return them)
-            cached_papers = {p["key"]: p for p in sync_state.get_all_cached_papers()}
-            paper_dicts = []
-            for p in papers:
-                d = asdict(p)
-                cached = cached_papers.get(d["key"])
-                if cached:
-                    d["annotation_count"] = cached["annotation_count"]
-                paper_dicts.append(d)
-            summaries = [_to_paper_summary(d, syncs) for d in paper_dicts]
-            if search:
-                q = search.lower()
-                summaries = [
-                    s
-                    for s in summaries
-                    if q in s.title.lower() or any(q in a.lower() for a in s.authors)
-                ]
-            if sync_status == "synced":
-                summaries = [s for s in summaries if s.last_synced]
-            elif sync_status == "unsynced":
-                summaries = [
-                    s
-                    for s in summaries
-                    if not s.last_synced and (s.annotation_count or 0) > 0
-                ]
-            total = len(summaries)
-            summaries = summaries[offset : offset + limit]
-        else:
-            # Use cached papers with SQL pagination
-            cached, total = sync_state.get_cached_papers_paginated(
-                offset, limit, search, sync_status
-            )
-            summaries = [_to_paper_summary(p, syncs) for p in cached]
-
-        return ZoteroPapersResponse(
-            papers=summaries,
-            total=total,
-            cache_updated_at=sync_state.get_papers_cache_updated_at(),
+    if collection_key:
+        # Live fetch from Zotero, slice in memory
+        client = _create_zotero_client()
+        papers = client.fetch_papers(collection_key)
+        # Enrich with cached annotation counts (API doesn't return them)
+        cached_papers = {p["key"]: p for p in sync_state.get_all_cached_papers()}
+        paper_dicts = []
+        for p in papers:
+            d = asdict(p)
+            cached = cached_papers.get(d["key"])
+            if cached:
+                d["annotation_count"] = cached["annotation_count"]
+            paper_dicts.append(d)
+        summaries = [_to_paper_summary(d, syncs) for d in paper_dicts]
+        if search:
+            q = search.lower()
+            summaries = [
+                s
+                for s in summaries
+                if q in s.title.lower() or any(q in a.lower() for a in s.authors)
+            ]
+        if sync_status == "synced":
+            summaries = [s for s in summaries if s.last_synced]
+        elif sync_status == "unsynced":
+            summaries = [
+                s
+                for s in summaries
+                if not s.last_synced and (s.annotation_count or 0) > 0
+            ]
+        total = len(summaries)
+        summaries = summaries[offset : offset + limit]
+    else:
+        # Use cached papers with SQL pagination
+        cached, total = sync_state.get_cached_papers_paginated(
+            offset, limit, search, sync_status
         )
-    except Exception:
-        logger.exception("Error fetching Zotero papers")
-        return JSONResponse({"error": "Internal server error"}, status_code=500)
+        summaries = [_to_paper_summary(p, syncs) for p in cached]
+
+    return ZoteroPapersResponse(
+        papers=summaries,
+        total=total,
+        cache_updated_at=sync_state.get_papers_cache_updated_at(),
+    )
 
 
 # Fetch all annotations for a specific paper from Zotero.
@@ -539,34 +516,30 @@ async def zotero_papers(
 )
 async def zotero_paper_annotations(paper_key: str):
     _require_zotero()
-    try:
-        from src.zotero.client import _extract_paper_metadata
+    from src.zotero.client import _extract_paper_metadata
 
-        client = _create_zotero_client()
-        paper_item = client.fetch_item(paper_key)
-        metadata = _extract_paper_metadata(paper_item, paper_key)
-        annotations = client.fetch_paper_annotations(paper_key)
+    client = _create_zotero_client()
+    paper_item = client.fetch_item(paper_key)
+    metadata = _extract_paper_metadata(paper_item, paper_key)
+    annotations = client.fetch_paper_annotations(paper_key)
 
-        return ZoteroPaperAnnotationsResponse(
-            paper_key=paper_key,
-            paper_title=metadata.title,
-            annotations=[
-                ZoteroAnnotationItem(
-                    key=a.key,
-                    text=a.text,
-                    comment=a.comment,
-                    color=a.color,
-                    page_label=a.page_label,
-                    annotation_type=a.annotation_type,
-                    date_added=a.date_added,
-                )
-                for a in annotations
-            ],
-            total=len(annotations),
-        )
-    except Exception:
-        logger.exception("Error fetching paper annotations")
-        return JSONResponse({"error": "Internal server error"}, status_code=500)
+    return ZoteroPaperAnnotationsResponse(
+        paper_key=paper_key,
+        paper_title=metadata.title,
+        annotations=[
+            ZoteroAnnotationItem(
+                key=a.key,
+                text=a.text,
+                comment=a.comment,
+                color=a.color,
+                page_label=a.page_label,
+                annotation_type=a.annotation_type,
+                date_added=a.date_added,
+            )
+            for a in annotations
+        ],
+        total=len(annotations),
+    )
 
 
 # Process a single paper's annotations through the agent and return a changeset.

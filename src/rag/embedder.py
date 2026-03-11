@@ -63,7 +63,9 @@ async def embed_texts(
                 )
                 if attempt < MAX_RETRIES - 1 and is_rate_limit:
                     wait = 2 ** (attempt + 1)
-                    logger.warning(f"Rate limited by Voyage AI, retrying in {wait}s...")
+                    logger.warning(
+                        "Rate limited by Voyage AI, retrying in %ss...", wait
+                    )
                     await asyncio.sleep(wait)
                 else:
                     raise
