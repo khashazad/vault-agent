@@ -12,9 +12,7 @@ export function Layout({ children }: Props) {
           <span className="text-base font-semibold">Vault Agent</span>
         </div>
       </header>
-      <main className="flex-1 overflow-y-auto py-6 px-8">
-        {children}
-      </main>
+      <main className="flex-1 overflow-y-auto py-6 px-8">{children}</main>
     </div>
   );
 }

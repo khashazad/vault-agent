@@ -11,21 +11,21 @@ export function preprocessObsidian(content: string): string {
   result = result.replace(
     /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
     (_match, note: string, display?: string) =>
-      `<span class="embed-link">${display ?? note}</span>`
+      `<span class="embed-link">${display ?? note}</span>`,
   );
 
   // Wikilinks: [[Note]] or [[Note|display]] or [[Note#Heading]]
   result = result.replace(
     /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
     (_match, note: string, display?: string) =>
-      `<span class="wikilink">${display ?? note}</span>`
+      `<span class="wikilink">${display ?? note}</span>`,
   );
 
   // Tags: #tag or #nested/tag (but not headings — must be preceded by whitespace or start of line)
   result = result.replace(
     /(^|[\s(])#([\w][\w/-]*)/gm,
     (_match, prefix: string, tag: string) =>
-      `${prefix}<span class="obsidian-tag">#${tag}</span>`
+      `${prefix}<span class="obsidian-tag">#${tag}</span>`,
   );
 
   return result;

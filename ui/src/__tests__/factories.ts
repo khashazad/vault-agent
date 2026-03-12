@@ -16,7 +16,9 @@ export function makeContentItem(overrides?: Partial<ContentItem>): ContentItem {
   };
 }
 
-export function makeProposedChange(overrides?: Partial<ProposedChange>): ProposedChange {
+export function makeProposedChange(
+  overrides?: Partial<ProposedChange>,
+): ProposedChange {
   return {
     id: "change-1",
     tool_name: "create_note",
@@ -54,7 +56,9 @@ export function makeChangeset(overrides?: Partial<Changeset>): Changeset {
   };
 }
 
-export function makePaper(overrides?: Partial<ZoteroPaperSummary>): ZoteroPaperSummary {
+export function makePaper(
+  overrides?: Partial<ZoteroPaperSummary>,
+): ZoteroPaperSummary {
   return {
     key: "PAPER1",
     title: "Test Paper Title",
@@ -68,7 +72,9 @@ export function makePaper(overrides?: Partial<ZoteroPaperSummary>): ZoteroPaperS
   };
 }
 
-export function makeAnnotation(overrides?: Partial<ZoteroAnnotationItem>): ZoteroAnnotationItem {
+export function makeAnnotation(
+  overrides?: Partial<ZoteroAnnotationItem>,
+): ZoteroAnnotationItem {
   return {
     key: "ANN1",
     text: "Important finding about neural networks.",
@@ -81,7 +87,9 @@ export function makeAnnotation(overrides?: Partial<ZoteroAnnotationItem>): Zoter
   };
 }
 
-export function makeCollection(overrides?: Partial<ZoteroCollection>): ZoteroCollection {
+export function makeCollection(
+  overrides?: Partial<ZoteroCollection>,
+): ZoteroCollection {
   return {
     key: "COL1",
     name: "My Collection",

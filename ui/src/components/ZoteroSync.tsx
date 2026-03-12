@@ -185,7 +185,9 @@ export function ZoteroSync() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [syncStatus, setSyncStatus] = useState<"all" | "synced" | "unsynced">("unsynced");
+  const [syncStatus, setSyncStatus] = useState<"all" | "synced" | "unsynced">(
+    "unsynced",
+  );
 
   // Collections
   const [collections, setCollections] = useState<ZoteroCollection[]>([]);
@@ -195,8 +197,9 @@ export function ZoteroSync() {
   >(null);
 
   // Annotations step
-  const [selectedPaper, setSelectedPaper] =
-    useState<ZoteroPaperSummary | null>(null);
+  const [selectedPaper, setSelectedPaper] = useState<ZoteroPaperSummary | null>(
+    null,
+  );
   const [annotations, setAnnotations] = useState<ZoteroAnnotationItem[]>([]);
   const [annotationsLoading, setAnnotationsLoading] = useState(false);
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
@@ -546,7 +549,11 @@ export function ZoteroSync() {
                         : "px-3 py-1.5 text-xs font-medium rounded bg-surface text-muted border border-border"
                     }
                   >
-                    {s === "all" ? "All" : s === "synced" ? "Synced" : "Not Synced"}
+                    {s === "all"
+                      ? "All"
+                      : s === "synced"
+                        ? "Synced"
+                        : "Not Synced"}
                   </button>
                 ))}
               </div>
@@ -770,7 +777,9 @@ export function ZoteroSync() {
               <div className="flex items-center gap-2">
                 <select
                   value={model}
-                  onChange={(e) => setModel(e.target.value as "haiku" | "sonnet")}
+                  onChange={(e) =>
+                    setModel(e.target.value as "haiku" | "sonnet")
+                  }
                   className="bg-surface border border-border rounded px-2 py-2 text-xs text-foreground outline-none focus:border-accent cursor-pointer"
                 >
                   <option value="haiku">Haiku 4.5</option>
@@ -849,7 +858,6 @@ export function ZoteroSync() {
             initialChanges={resultChangeset.changes}
             onDone={handleBackToPapers}
           />
-
         </div>
       )}
 

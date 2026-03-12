@@ -17,8 +17,8 @@
   --color-blue: #89b4fa;
   --color-blue-bg: rgba(137, 180, 250, 0.15);
   --color-crust: #11111b;
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
-    sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
   --radius-DEFAULT: 6px;
   --animate-pulse-dot: pulse-dot 1s infinite;
