@@ -25,6 +25,8 @@ import { ChangesetReview } from "./ChangesetReview";
 type Step = "papers" | "annotations" | "processing";
 
 const PAGE_SIZE = 25;
+const POLL_INTERVAL_MS = 3000;
+const SEARCH_DEBOUNCE_MS = 300;
 
 const COLOR_NAMES: Record<string, string> = {
   "#ffd400": "Yellow",
@@ -148,6 +150,11 @@ function CostPopover({
             <span className="text-muted">API calls</span>
             <span>{usage.api_calls}</span>
           </div>
+          {usage.model === "sonnet" && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent self-start">
+              Sonnet 4.6
+            </span>
+          )}
           {usage.is_batch && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent self-start">
               Batch (50% off)
@@ -194,6 +201,9 @@ export function ZoteroSync() {
   const [annotationsLoading, setAnnotationsLoading] = useState(false);
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
+  // Model selection
+  const [model, setModel] = useState<"haiku" | "sonnet">("haiku");
+
   // Processing step
   const [processing, setProcessing] = useState(false);
   const [resultChangeset, setResultChangeset] = useState<Changeset | null>(
@@ -201,14 +211,12 @@ export function ZoteroSync() {
   );
 
   const [costPopoverKey, setCostPopoverKey] = useState<string | null>(null);
-  const lastCacheUpdatedAtRef = useRef<string | null>(null);
-
   // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
       setPage(0);
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -232,7 +240,6 @@ export function ZoteroSync() {
         setPapers(res.papers);
         setTotalPapers(res.total);
         setCacheUpdatedAt(res.cache_updated_at);
-        lastCacheUpdatedAtRef.current = res.cache_updated_at;
       } catch (err) {
         setError(formatError(err));
       } finally {
@@ -298,7 +305,6 @@ export function ZoteroSync() {
             clearInterval(pollInterval);
             setSyncInProgress(false);
             if (cacheStatus.cache_updated_at) {
-              lastCacheUpdatedAtRef.current = cacheStatus.cache_updated_at;
               setCacheUpdatedAt(cacheStatus.cache_updated_at);
             }
             loadPapers({
@@ -312,7 +318,7 @@ export function ZoteroSync() {
         } catch {
           // Polling failure is non-fatal
         }
-      }, 3000);
+      }, POLL_INTERVAL_MS);
     } catch (err) {
       setError(formatError(err));
     }
@@ -399,6 +405,7 @@ export function ZoteroSync() {
       const changeset = await syncZoteroPaper(
         selectedPaper.key,
         excluded.length > 0 ? excluded : undefined,
+        model,
       );
       setResultChangeset(changeset);
     } catch (err) {
@@ -760,14 +767,24 @@ export function ZoteroSync() {
                     : "Select All"}
                 </button>
               </div>
-              <button
-                onClick={handleProcess}
-                disabled={checkedCount === 0}
-                className="bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Process {checkedCount} annotation
-                {checkedCount !== 1 ? "s" : ""}
-              </button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value as "haiku" | "sonnet")}
+                  className="bg-surface border border-border rounded px-2 py-2 text-xs text-foreground outline-none focus:border-accent cursor-pointer"
+                >
+                  <option value="haiku">Haiku 4.5</option>
+                  <option value="sonnet">Sonnet 4.6</option>
+                </select>
+                <button
+                  onClick={handleProcess}
+                  disabled={checkedCount === 0}
+                  className="bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Process {checkedCount} annotation
+                  {checkedCount !== 1 ? "s" : ""}
+                </button>
+              </div>
             </div>
           </>
         )}

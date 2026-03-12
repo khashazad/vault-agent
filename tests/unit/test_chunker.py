@@ -1,16 +1,23 @@
-from src.rag.chunker import chunk_note, MIN_CHUNK_CHARS
+from src.rag.chunker import chunk_note
 
 
 class TestChunkNote:
     def test_heading_splits(self):
-        content = "## Section A\n\n" + ("A content. " * 20) + "\n\n## Section B\n\n" + ("B content. " * 20)
+        content = (
+            "## Section A\n\n"
+            + ("A content. " * 20)
+            + "\n\n## Section B\n\n"
+            + ("B content. " * 20)
+        )
         chunks = chunk_note("test.md", "Test", content)
         headings = [c.heading for c in chunks]
         assert "Section A" in headings
         assert "Section B" in headings
 
     def test_preamble_chunk(self):
-        content = ("Preamble text. " * 20) + "\n\n## Section\n\n" + ("Section text. " * 20)
+        content = (
+            ("Preamble text. " * 20) + "\n\n## Section\n\n" + ("Section text. " * 20)
+        )
         chunks = chunk_note("test.md", "Test Note", content)
         assert chunks[0].heading == "# Test Note"
 
@@ -24,8 +31,10 @@ class TestChunkNote:
 
     def test_duplicate_heading_disambiguation(self):
         content = (
-            "## Notes\n\n" + ("First notes section. " * 20) +
-            "\n\n## Notes\n\n" + ("Second notes section. " * 20)
+            "## Notes\n\n"
+            + ("First notes section. " * 20)
+            + "\n\n## Notes\n\n"
+            + ("Second notes section. " * 20)
         )
         chunks = chunk_note("test.md", "Test", content)
         headings = [c.heading for c in chunks]
@@ -33,7 +42,9 @@ class TestChunkNote:
         assert "Notes (2)" in headings
 
     def test_code_fence_stripping(self):
-        content = "## Code\n\n```python\nprint('hello')\n```\n\n" + ("Explanation text. " * 20)
+        content = "## Code\n\n```python\nprint('hello')\n```\n\n" + (
+            "Explanation text. " * 20
+        )
         chunks = chunk_note("test.md", "Test", content)
         for chunk in chunks:
             assert "```" not in chunk.content

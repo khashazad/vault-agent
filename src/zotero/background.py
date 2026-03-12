@@ -2,9 +2,12 @@ import asyncio
 import logging
 from dataclasses import asdict
 
+from pyzotero.zotero_errors import PyZoteroError
+
 from src.config import AppConfig
 
 logger = logging.getLogger("vault-agent")
+
 
 # Background syncer that periodically refreshes the local Zotero paper and collection cache.
 class ZoteroPaperCacheSyncer:
@@ -73,54 +76,55 @@ class ZoteroPaperCacheSyncer:
             )
             sync_state = ZoteroSyncState()
 
-            try:
-                papers = await asyncio.to_thread(client.fetch_papers, None)
-                paper_dicts = [asdict(p) for p in papers]
-                await asyncio.to_thread(sync_state.upsert_papers, paper_dicts)
-
-                current_keys = {p.key for p in papers}
-                deleted = await asyncio.to_thread(
-                    sync_state.delete_papers_not_in, current_keys
-                )
-
-                logger.info(
-                    "Zotero paper cache synced: %d papers cached, %d removed",
-                    len(papers),
-                    deleted,
-                )
-
-                # Fetch annotation counts per paper
-                try:
-                    counts = await asyncio.to_thread(client.count_annotations_per_paper)
-                    if counts:
-                        await asyncio.to_thread(
-                            sync_state.update_annotation_counts, counts
-                        )
-                        logger.info(
-                            "Annotation counts updated for %d papers",
-                            len(counts),
-                        )
-                except Exception:
-                    logger.exception("Failed to fetch annotation counts")
-            except Exception:
-                logger.exception("Failed to sync Zotero paper cache")
-
-            try:
-                collections = await asyncio.to_thread(client.fetch_collections)
-                collection_dicts = [asdict(c) for c in collections]
-                await asyncio.to_thread(sync_state.upsert_collections, collection_dicts)
-                current_collection_keys = {c.key for c in collections}
-                deleted_cols = await asyncio.to_thread(
-                    sync_state.delete_collections_not_in, current_collection_keys
-                )
-                logger.info(
-                    "Zotero collection cache synced: %d collections cached, %d removed",
-                    len(collections),
-                    deleted_cols,
-                )
-            except Exception:
-                logger.exception("Failed to sync Zotero collection cache")
+            await self._sync_papers(client, sync_state)
+            await self._sync_collections(client, sync_state)
+        except (PyZoteroError, ConnectionError, TimeoutError) as err:
+            logger.error("Zotero API error during sync: %s", err)
         except Exception:
-            logger.exception("Failed to initialize Zotero sync")
+            logger.exception("Unexpected error during Zotero sync")
         finally:
             self._sync_in_progress = False
+
+    async def _sync_papers(self, client, sync_state) -> None:
+        papers = await asyncio.to_thread(client.fetch_papers, None)
+        paper_dicts = [asdict(p) for p in papers]
+        await asyncio.to_thread(sync_state.upsert_papers, paper_dicts)
+
+        current_keys = {p.key for p in papers}
+        deleted = await asyncio.to_thread(
+            sync_state.delete_papers_not_in, current_keys
+        )
+
+        logger.info(
+            "Zotero paper cache synced: %d papers cached, %d removed",
+            len(papers),
+            deleted,
+        )
+
+        # Fetch annotation counts per paper
+        try:
+            counts = await asyncio.to_thread(client.count_annotations_per_paper)
+            if counts:
+                await asyncio.to_thread(
+                    sync_state.update_annotation_counts, counts
+                )
+                logger.info(
+                    "Annotation counts updated for %d papers",
+                    len(counts),
+                )
+        except (PyZoteroError, ConnectionError, TimeoutError) as err:
+            logger.warning("Failed to fetch annotation counts: %s", err)
+
+    async def _sync_collections(self, client, sync_state) -> None:
+        collections = await asyncio.to_thread(client.fetch_collections)
+        collection_dicts = [asdict(c) for c in collections]
+        await asyncio.to_thread(sync_state.upsert_collections, collection_dicts)
+        current_collection_keys = {c.key for c in collections}
+        deleted_cols = await asyncio.to_thread(
+            sync_state.delete_collections_not_in, current_collection_keys
+        )
+        logger.info(
+            "Zotero collection cache synced: %d collections cached, %d removed",
+            len(collections),
+            deleted_cols,
+        )

@@ -43,7 +43,13 @@ class TestGetToolDefinitions:
     def test_tool_names(self):
         tools = get_tool_definitions()
         names = {t["name"] for t in tools}
-        assert names == {"read_note", "create_note", "update_note", "search_vault", "report_routing_decision"}
+        assert names == {
+            "read_note",
+            "create_note",
+            "update_note",
+            "search_vault",
+            "report_routing_decision",
+        }
 
     def test_all_tools_have_input_schema(self):
         for tool in get_tool_definitions():

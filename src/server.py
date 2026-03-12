@@ -40,7 +40,11 @@ from src.models import (
     ZoteroSyncResponse,
 )
 from src.vault.reader import build_vault_map
-from src.agent.agent import generate_zotero_note, submit_zotero_note_batch, poll_zotero_batch
+from src.agent.agent import (
+    generate_zotero_note,
+    submit_zotero_note_batch,
+    poll_zotero_batch,
+)
 from src.agent.changeset import apply_changeset
 from src.store import get_changeset_store, get_batch_job_store
 from src.rag.indexer import index_vault
@@ -564,7 +568,9 @@ async def zotero_paper_annotations(paper_key: str, request: Request):
     summary="Sync paper",
     description="Process a single paper's annotations through the agent and return a changeset. Optionally exclude specific annotations.",
 )
-async def zotero_paper_sync(paper_key: str, request: Request, body: ZoteroPaperSyncRequest):
+async def zotero_paper_sync(
+    paper_key: str, request: Request, body: ZoteroPaperSyncRequest
+):
     _require_zotero(request)
     config = _get_config(request)
     try:
@@ -593,10 +599,11 @@ async def zotero_paper_sync(paper_key: str, request: Request, body: ZoteroPaperS
 
         if body.batch:
             # Submit via Batch API for 50% cost reduction
-            from src.models import ContentItem
             import json
 
-            batch_id = await submit_zotero_note_batch(config, items, paper_key)
+            batch_id = await submit_zotero_note_batch(
+                config, items, paper_key, model=body.model
+            )
             items_json = json.dumps([item.model_dump() for item in items])
             get_batch_job_store().set(
                 paper_key=paper_key,
@@ -615,7 +622,7 @@ async def zotero_paper_sync(paper_key: str, request: Request, body: ZoteroPaperS
                 status_code=202,
             )
 
-        changeset = await generate_zotero_note(config, items)
+        changeset = await generate_zotero_note(config, items, model=body.model)
 
         sync_state = ZoteroSyncState()
         sync_state.set_paper_sync(paper_key, metadata.title, changeset.id)

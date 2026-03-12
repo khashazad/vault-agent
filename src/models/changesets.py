@@ -13,6 +13,7 @@ class TokenUsage(BaseModel):
     api_calls: int = 1
     tool_calls: int = 0
     is_batch: bool = False
+    model: str = "haiku"
     total_cost_usd: float
 
 

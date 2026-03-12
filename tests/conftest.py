@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import pytest
@@ -29,14 +28,13 @@ def tmp_vault(tmp_path: Path) -> Path:
         ),
         "Papers/Some Paper.md": (
             "---\ntags: [source/paper]\ncreated: 2024-06-15\n"
-            "aliases:\n  - \"Paper - ABC123\"\n---\n\n"
+            'aliases:\n  - "Paper - ABC123"\n---\n\n'
             "# Some Paper Title\n\n"
             "> [!ad-abstract]\n> A paper about things.\n\n"
             "## Key Findings\n\n- ! Important finding\n"
         ),
         "daily/2024-01-01.md": (
-            "---\ntags: [daily]\n---\n\n"
-            "# 2024-01-01\n\nDaily note content.\n"
+            "---\ntags: [daily]\n---\n\n# 2024-01-01\n\nDaily note content.\n"
         ),
     }
 

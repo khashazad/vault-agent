@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.models import Changeset, ContentItem, UpdateNoteInput
-from tests.factories import make_changeset, make_content_item
+from tests.factories import make_content_item
 
 
 class TestChangesetMigration:

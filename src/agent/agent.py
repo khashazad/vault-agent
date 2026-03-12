@@ -33,13 +33,29 @@ from src.store import get_changeset_store
 logger = logging.getLogger("vault-agent")
 
 MAX_TOOL_CALLS = 15
-MODEL = "claude-haiku-4-5-20251001"
+_MAX_TOOL_CALLS_CAP = 40
+_TOOL_CALLS_BASE = 5
+_TOOL_CALLS_PER_ITEM = 3
 
-# Pricing per million tokens (USD)
-_INPUT_COST_PER_MTOK = 1.00
-_OUTPUT_COST_PER_MTOK = 5.00
-_CACHE_WRITE_COST_PER_MTOK = 1.25
-_CACHE_READ_COST_PER_MTOK = 0.10
+MODELS = {
+    "haiku": {
+        "id": "claude-haiku-4-5-20251001",
+        "label": "Haiku 4.5",
+        "input": 1.00,
+        "output": 5.00,
+        "cache_write": 1.25,
+        "cache_read": 0.10,
+    },
+    "sonnet": {
+        "id": "claude-sonnet-4-6-20250514",
+        "label": "Sonnet 4.6",
+        "input": 3.00,
+        "output": 15.00,
+        "cache_write": 3.75,
+        "cache_read": 0.30,
+    },
+}
+DEFAULT_MODEL = "haiku"
 _BATCH_DISCOUNT = 0.5
 
 
@@ -48,14 +64,24 @@ def _compute_cost(
     output_tokens: int,
     cache_write_tokens: int,
     cache_read_tokens: int,
+    model_key: str = DEFAULT_MODEL,
     is_batch: bool = False,
+    include_cache_savings: bool = False,
 ) -> float:
-    cost = (
-        input_tokens * _INPUT_COST_PER_MTOK / 1_000_000
-        + output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
-        + cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
-        + cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
-    )
+    pricing = MODELS[model_key]
+    if include_cache_savings:
+        cost = (
+            input_tokens * pricing["input"] / 1_000_000
+            + output_tokens * pricing["output"] / 1_000_000
+            + cache_write_tokens * pricing["cache_write"] / 1_000_000
+            + cache_read_tokens * pricing["cache_read"] / 1_000_000
+        )
+    else:
+        total_input = input_tokens + cache_write_tokens + cache_read_tokens
+        cost = (
+            total_input * pricing["input"] / 1_000_000
+            + output_tokens * pricing["output"] / 1_000_000
+        )
     return cost * _BATCH_DISCOUNT if is_batch else cost
 
 
@@ -66,6 +92,7 @@ def _build_token_usage(
     cache_read_tokens: int,
     api_calls: int,
     tool_calls: int,
+    model_key: str = DEFAULT_MODEL,
     is_batch: bool = False,
 ) -> TokenUsage:
     return TokenUsage(
@@ -76,11 +103,13 @@ def _build_token_usage(
         api_calls=api_calls,
         tool_calls=tool_calls,
         is_batch=is_batch,
+        model=model_key,
         total_cost_usd=_compute_cost(
             input_tokens,
             output_tokens,
             cache_write_tokens,
             cache_read_tokens,
+            model_key,
             is_batch,
         ),
     )
@@ -115,13 +144,20 @@ def _log_token_usage(
     output_tokens: int,
     cache_write_tokens: int,
     cache_read_tokens: int,
+    model_key: str = DEFAULT_MODEL,
 ) -> None:
-    input_cost = input_tokens * _INPUT_COST_PER_MTOK / 1_000_000
-    output_cost = output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
-    cache_write_cost = cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
-    cache_read_cost = cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
+    pricing = MODELS[model_key]
+    input_cost = input_tokens * pricing["input"] / 1_000_000
+    output_cost = output_tokens * pricing["output"] / 1_000_000
+    cache_write_cost = cache_write_tokens * pricing["cache_write"] / 1_000_000
+    cache_read_cost = cache_read_tokens * pricing["cache_read"] / 1_000_000
     total_cost = _compute_cost(
-        input_tokens, output_tokens, cache_write_tokens, cache_read_tokens
+        input_tokens,
+        output_tokens,
+        cache_write_tokens,
+        cache_read_tokens,
+        model_key,
+        include_cache_savings=True,
     )
 
     parts = [f"input={input_tokens} (${input_cost:.4f})"]
@@ -140,9 +176,12 @@ def _log_token_usage(
     )
 
 
-# Scale the max tool call limit based on batch size (min 15, max 40).
+# Scale the max tool call limit based on batch size (min MAX_TOOL_CALLS, max _MAX_TOOL_CALLS_CAP).
 def _max_tool_calls(item_count: int) -> int:
-    return min(40, max(MAX_TOOL_CALLS, 5 + 3 * item_count))
+    return min(
+        _MAX_TOOL_CALLS_CAP,
+        max(MAX_TOOL_CALLS, _TOOL_CALLS_BASE + _TOOL_CALLS_PER_ITEM * item_count),
+    )
 
 
 # Build a truncated search query from item texts for pre-fetch discovery.
@@ -193,8 +232,8 @@ async def _init_agent(
         if results:
             search_context = format_search_results(results)
             logger.info("Pre-fetched %d search results for agent", len(results))
-    except Exception as e:
-        logger.warning("Pre-fetch search failed, agent will search manually: %s", e)
+    except Exception as err:
+        logger.warning("Pre-fetch search failed, agent will search manually: %s", err)
 
     messages: list[dict] = [
         {
@@ -231,8 +270,8 @@ async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
                 max_retries,
             )
             await asyncio.sleep(delay)
-        except anthropic.APIStatusError as e:
-            if e.status_code == 529 and attempt < max_retries:
+        except anthropic.APIStatusError as err:
+            if err.status_code == 529 and attempt < max_retries:
                 delay = base_delay * (2**attempt)
                 logger.warning(
                     "API overloaded (529), retrying in %.1fs (attempt %d/%d)",
@@ -243,6 +282,114 @@ async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
                 await asyncio.sleep(delay)
             else:
                 raise
+
+
+# Dispatch a single tool call and return (result_content, is_error, routing_info_update, proposed_change).
+#
+# Handles routing decisions, search, read, create, and update tool calls.
+# Write tools (create/update) operate on a virtual filesystem for dry-run mode.
+async def _dispatch_tool(
+    tool_name: str,
+    tool_input: dict,
+    config: AppConfig,
+    virtual_fs: dict[str, str],
+    search_results_count: int,
+) -> tuple[str, bool, RoutingInfo | None, ProposedChange | None, int]:
+    routing_info = None
+    proposed_change = None
+    is_error = False
+
+    try:
+        if tool_name == "report_routing_decision":
+            routing_info = RoutingInfo(
+                action=tool_input["action"],
+                target_path=tool_input.get("target_path"),
+                reasoning=tool_input["reasoning"],
+                confidence=tool_input["confidence"],
+                search_results_used=search_results_count,
+                duplicate_notes=tool_input.get("duplicate_notes"),
+            )
+            if routing_info.action == "skip":
+                result_content = (
+                    "Routing decision recorded: skip. No changes needed — "
+                    "this information is already in the vault. "
+                    "Summarize your reasoning and finish."
+                )
+            else:
+                result_content = (
+                    f"Routing decision recorded: {routing_info.action} "
+                    f"{'at ' + routing_info.target_path if routing_info.target_path else '(new note)'}. "
+                    f"Now proceed to make the changes."
+                )
+
+        elif tool_name == "search_vault":
+            result_content = await execute_tool(
+                config.vault_path, tool_name, tool_input, config=config
+            )
+            search_results_count = result_content.count("### Result ")
+
+        elif tool_name == "read_note":
+            note_path = tool_input["path"]
+            if note_path in virtual_fs:
+                result_content = virtual_fs[note_path]
+            else:
+                result_content = await execute_tool(
+                    config.vault_path, tool_name, tool_input, config=config
+                )
+
+        elif tool_name == "create_note":
+            inp = CreateNoteInput(**tool_input)
+            if inp.path in virtual_fs:
+                raise FileExistsError(
+                    f"Note already exists at {inp.path}. Use update_note to modify existing notes."
+                )
+            proposed_content = compute_create(config.vault_path, inp)
+            diff = generate_diff(inp.path, "", proposed_content)
+
+            proposed_change = ProposedChange(
+                id=str(uuid.uuid4()),
+                tool_name="create_note",
+                input=tool_input,
+                original_content=None,
+                proposed_content=proposed_content,
+                diff=diff,
+            )
+            virtual_fs[inp.path] = proposed_content
+            result_content = f"[Preview] Note would be created at {inp.path}"
+
+        elif tool_name == "update_note":
+            inp = UpdateNoteInput(**tool_input)
+            if inp.path in virtual_fs:
+                original = virtual_fs[inp.path]
+            else:
+                full_path = validate_path(config.vault_path, inp.path)
+                if not full_path.exists():
+                    raise FileNotFoundError(f"Note not found: {inp.path}")
+                original = full_path.read_text(encoding="utf-8")
+
+            result = compute_update(original, inp)
+            diff = generate_diff(inp.path, original, result)
+
+            proposed_change = ProposedChange(
+                id=str(uuid.uuid4()),
+                tool_name="update_note",
+                input=tool_input,
+                original_content=original,
+                proposed_content=result,
+                diff=diff,
+            )
+            virtual_fs[inp.path] = result
+            result_content = f"[Preview] Note would be updated at {inp.path}"
+
+        else:
+            raise ValueError(f"Unknown tool: {tool_name}")
+
+    except Exception as err:
+        logger.warning("Tool %s failed: %s", tool_name, err)
+        is_error = True
+        result_content = f"Error: {err}"
+
+    return result_content, is_error, routing_info, proposed_change, search_results_count
 
 
 # Run the core agent loop: search vault, decide placement, produce a dry-run changeset.
@@ -268,6 +415,7 @@ async def generate_changeset(
     feedback: str | None = None,
     previous_reasoning: str | None = None,
     parent_changeset_id: str | None = None,
+    model: str = DEFAULT_MODEL,
 ) -> Changeset:
 
     max_calls = _max_tool_calls(len(items))
@@ -296,7 +444,7 @@ async def generate_changeset(
     while tool_call_count < max_calls:
         response = await _create_with_retry(
             client,
-            model=MODEL,
+            model=MODELS[model]["id"],
             max_tokens=4096,
             system=[
                 {
@@ -333,108 +481,17 @@ async def generate_changeset(
                     continue
 
                 tool_call_count += 1
-                is_error = False
-                tool_name = block.name
-                tool_input = block.input
 
-                try:
-                    if tool_name == "report_routing_decision":
-                        routing_info = RoutingInfo(
-                            action=tool_input["action"],
-                            target_path=tool_input.get("target_path"),
-                            reasoning=tool_input["reasoning"],
-                            confidence=tool_input["confidence"],
-                            search_results_used=search_results_count,
-                            duplicate_notes=tool_input.get("duplicate_notes"),
-                        )
-                        if routing_info.action == "skip":
-                            result_content = (
-                                "Routing decision recorded: skip. No changes needed — "
-                                "this information is already in the vault. "
-                                "Summarize your reasoning and finish."
-                            )
-                        else:
-                            result_content = (
-                                f"Routing decision recorded: {routing_info.action} "
-                                f"{'at ' + routing_info.target_path if routing_info.target_path else '(new note)'}. "
-                                f"Now proceed to make the changes."
-                            )
-
-                    elif tool_name == "search_vault":
-                        result_content = await execute_tool(
-                            config.vault_path, tool_name, tool_input, config=config
-                        )
-                        # Count results from output
-                        search_results_count = result_content.count("### Result ")
-
-                    elif tool_name == "read_note":
-                        note_path = tool_input["path"]
-                        if note_path in virtual_fs:
-                            result_content = virtual_fs[note_path]
-                        else:
-                            result_content = await execute_tool(
-                                config.vault_path, tool_name, tool_input, config=config
-                            )
-
-                    elif tool_name == "create_note":
-                        inp = CreateNoteInput(**tool_input)
-                        if inp.path in virtual_fs:
-                            raise FileExistsError(
-                                f"Note already exists at {inp.path}. Use update_note to modify existing notes."
-                            )
-                        proposed_content = compute_create(config.vault_path, inp)
-                        diff = generate_diff(inp.path, "", proposed_content)
-
-                        change = ProposedChange(
-                            id=str(uuid.uuid4()),
-                            tool_name="create_note",
-                            input=tool_input,
-                            original_content=None,
-                            proposed_content=proposed_content,
-                            diff=diff,
-                        )
-                        proposed_changes.append(change)
-                        virtual_fs[inp.path] = proposed_content
-
-                        result_content = (
-                            f"[Preview] Note would be created at {inp.path}"
-                        )
-
-                    elif tool_name == "update_note":
-                        inp = UpdateNoteInput(**tool_input)
-                        if inp.path in virtual_fs:
-                            original = virtual_fs[inp.path]
-                        else:
-                            full_path = validate_path(config.vault_path, inp.path)
-                            if not full_path.exists():
-                                raise FileNotFoundError(f"Note not found: {inp.path}")
-                            original = full_path.read_text(encoding="utf-8")
-
-                        result = compute_update(original, inp)
-                        diff = generate_diff(inp.path, original, result)
-
-                        change = ProposedChange(
-                            id=str(uuid.uuid4()),
-                            tool_name="update_note",
-                            input=tool_input,
-                            original_content=original,
-                            proposed_content=result,
-                            diff=diff,
-                        )
-                        proposed_changes.append(change)
-                        virtual_fs[inp.path] = result
-
-                        result_content = (
-                            f"[Preview] Note would be updated at {inp.path}"
-                        )
-
-                    else:
-                        raise ValueError(f"Unknown tool: {tool_name}")
-
-                except Exception as err:
-                    logger.warning("Tool %s failed: %s", tool_name, err)
-                    is_error = True
-                    result_content = f"Error: {err}"
+                result_content, is_error, ri, change, search_results_count = (
+                    await _dispatch_tool(
+                        block.name, block.input, config, virtual_fs,
+                        search_results_count,
+                    )
+                )
+                if ri is not None:
+                    routing_info = ri
+                if change is not None:
+                    proposed_changes.append(change)
 
                 tool_results.append(
                     {
@@ -455,6 +512,7 @@ async def generate_changeset(
         total_output_tokens,
         total_cache_write_tokens,
         total_cache_read_tokens,
+        model,
     )
 
     # Fallback: infer routing from first proposed change if agent didn't call report_routing_decision
@@ -479,6 +537,7 @@ async def generate_changeset(
         total_cache_read_tokens,
         api_calls,
         tool_call_count,
+        model,
     )
 
     changeset = Changeset(
@@ -526,6 +585,7 @@ def _zotero_note_path(items: list[ContentItem]) -> str:
 async def generate_zotero_note(
     config: AppConfig,
     items: list[ContentItem],
+    model: str = DEFAULT_MODEL,
 ) -> Changeset:
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     metadata = items[0].source_metadata
@@ -534,7 +594,7 @@ async def generate_zotero_note(
 
     response = await _create_with_retry(
         client,
-        model=MODEL,
+        model=MODELS[model]["id"],
         max_tokens=8192,
         system=[
             {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
@@ -563,7 +623,9 @@ async def generate_zotero_note(
     )
 
     inp, out, cw, cr = _extract_usage(response)
-    usage = _build_token_usage(inp, out, cw, cr, api_calls=1, tool_calls=0)
+    usage = _build_token_usage(
+        inp, out, cw, cr, api_calls=1, tool_calls=0, model_key=model
+    )
 
     changeset = Changeset(
         id=str(uuid.uuid4()),
@@ -578,7 +640,7 @@ async def generate_zotero_note(
     )
     get_changeset_store().set(changeset)
 
-    _log_token_usage(len(items), 1, 0, inp, out, cw, cr)
+    _log_token_usage(len(items), 1, 0, inp, out, cw, cr, model)
 
     return changeset
 
@@ -599,6 +661,7 @@ async def submit_zotero_note_batch(
     config: AppConfig,
     items: list[ContentItem],
     paper_key: str,
+    model: str = DEFAULT_MODEL,
 ) -> str:
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     metadata = items[0].source_metadata
@@ -610,7 +673,7 @@ async def submit_zotero_note_batch(
             {
                 "custom_id": paper_key,
                 "params": {
-                    "model": MODEL,
+                    "model": MODELS[model]["id"],
                     "max_tokens": 8192,
                     "system": [{"type": "text", "text": system}],
                     "messages": [{"role": "user", "content": user}],

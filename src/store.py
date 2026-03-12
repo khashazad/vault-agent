@@ -117,7 +117,15 @@ class BatchJobStore:
         self._conn.commit()
 
     # Upsert a batch job record.
-    def set(self, paper_key: str, batch_id: str, status: str, items_json: str, created_at: str, changeset_id: str | None = None) -> None:
+    def set(
+        self,
+        paper_key: str,
+        batch_id: str,
+        status: str,
+        items_json: str,
+        created_at: str,
+        changeset_id: str | None = None,
+    ) -> None:
         self._conn.execute(
             """
             INSERT INTO zotero_batch_jobs (paper_key, batch_id, status, items_json, created_at, changeset_id)
@@ -144,7 +152,9 @@ class BatchJobStore:
         return dict(row)
 
     # Update status and optionally changeset_id for a batch job.
-    def update_status(self, paper_key: str, status: str, changeset_id: str | None = None) -> None:
+    def update_status(
+        self, paper_key: str, status: str, changeset_id: str | None = None
+    ) -> None:
         if changeset_id:
             self._conn.execute(
                 "UPDATE zotero_batch_jobs SET status = ?, changeset_id = ? WHERE paper_key = ?",

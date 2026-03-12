@@ -1,8 +1,6 @@
 import type {
   Changeset,
   TokenUsage,
-  ZoteroSyncRequest,
-  ZoteroSyncResponse,
   ZoteroStatus,
   ZoteroPapersResponse,
   ZoteroPaperAnnotationsResponse,
@@ -64,14 +62,6 @@ export function rejectChangeset(changesetId: string): Promise<void> {
   });
 }
 
-export function syncZotero(request?: ZoteroSyncRequest): Promise<ZoteroSyncResponse> {
-  return fetchJSON(`${BASE}/zotero/sync`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request ?? {}),
-  });
-}
-
 export function fetchZoteroStatus(): Promise<ZoteroStatus> {
   return fetchJSON(`${BASE}/zotero/status`);
 }
@@ -113,7 +103,8 @@ export function fetchZoteroPaperAnnotations(
 
 export function syncZoteroPaper(
   paperKey: string,
-  excludedAnnotationKeys?: string[]
+  excludedAnnotationKeys?: string[],
+  model?: string,
 ): Promise<Changeset> {
   return fetchJSON(`${BASE}/zotero/papers/${paperKey}/sync`, {
     method: "POST",
@@ -121,6 +112,7 @@ export function syncZoteroPaper(
     body: JSON.stringify({
       paper_key: paperKey,
       excluded_annotation_keys: excludedAnnotationKeys ?? null,
+      model: model ?? "haiku",
     }),
   });
 }
