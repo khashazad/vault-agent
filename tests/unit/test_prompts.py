@@ -27,7 +27,9 @@ class TestGetColorLabel:
 
 class TestBuildSystemPrompt:
     def test_vault_map_interpolation(self):
-        vault_map = "## Vault Summary (42 notes)\n\n### Folder Structure\n  Root/ (5 notes)"
+        vault_map = (
+            "## Vault Summary (42 notes)\n\n### Folder Structure\n  Root/ (5 notes)"
+        )
         prompt = build_system_prompt(vault_map, SOURCE_CONFIGS["web"])
         assert "42 notes" in prompt
         assert "Root/ (5 notes)" in prompt
@@ -37,7 +39,9 @@ class TestBuildSystemPrompt:
         assert "highlight" in prompt.lower()
 
     def test_source_type_terminology_zotero(self):
-        prompt = build_system_prompt("vault map", SOURCE_CONFIGS["zotero"], source_type="zotero")
+        prompt = build_system_prompt(
+            "vault map", SOURCE_CONFIGS["zotero"], source_type="zotero"
+        )
         assert "annotation" in prompt.lower()
         assert "Paper Note Template" in prompt
 
@@ -73,7 +77,8 @@ class TestBuildUserMessage:
     def test_feedback_section(self):
         item = make_content_item()
         msg = build_user_message(
-            item, SOURCE_CONFIGS["web"],
+            item,
+            SOURCE_CONFIGS["web"],
             feedback="Wrong note, put it elsewhere.",
             previous_reasoning="I chose to update Note X.",
         )
@@ -83,7 +88,8 @@ class TestBuildUserMessage:
     def test_search_context_included(self):
         item = make_content_item()
         msg = build_user_message(
-            item, SOURCE_CONFIGS["web"],
+            item,
+            SOURCE_CONFIGS["web"],
             search_context="### Result 1 (score: 0.85)\n**Note:** `test.md` > Heading\nSnippet...",
         )
         assert "Vault Search Results" in msg

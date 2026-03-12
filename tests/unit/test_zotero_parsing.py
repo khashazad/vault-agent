@@ -1,4 +1,8 @@
-from src.zotero.client import _extract_annotation, _extract_paper_metadata, _format_creators
+from src.zotero.client import (
+    _extract_annotation,
+    _extract_paper_metadata,
+    _format_creators,
+)
 
 
 class TestFormatCreators:

@@ -33,6 +33,9 @@ from src.store import get_changeset_store
 logger = logging.getLogger("vault-agent")
 
 MAX_TOOL_CALLS = 15
+_MAX_TOOL_CALLS_CAP = 40
+_TOOL_CALLS_BASE = 5
+_TOOL_CALLS_PER_ITEM = 3
 
 MODELS = {
     "haiku": {
@@ -173,9 +176,12 @@ def _log_token_usage(
     )
 
 
-# Scale the max tool call limit based on batch size (min 15, max 40).
+# Scale the max tool call limit based on batch size (min MAX_TOOL_CALLS, max _MAX_TOOL_CALLS_CAP).
 def _max_tool_calls(item_count: int) -> int:
-    return min(40, max(MAX_TOOL_CALLS, 5 + 3 * item_count))
+    return min(
+        _MAX_TOOL_CALLS_CAP,
+        max(MAX_TOOL_CALLS, _TOOL_CALLS_BASE + _TOOL_CALLS_PER_ITEM * item_count),
+    )
 
 
 # Build a truncated search query from item texts for pre-fetch discovery.
@@ -226,8 +232,8 @@ async def _init_agent(
         if results:
             search_context = format_search_results(results)
             logger.info("Pre-fetched %d search results for agent", len(results))
-    except Exception as e:
-        logger.warning("Pre-fetch search failed, agent will search manually: %s", e)
+    except Exception as err:
+        logger.warning("Pre-fetch search failed, agent will search manually: %s", err)
 
     messages: list[dict] = [
         {
@@ -264,8 +270,8 @@ async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
                 max_retries,
             )
             await asyncio.sleep(delay)
-        except anthropic.APIStatusError as e:
-            if e.status_code == 529 and attempt < max_retries:
+        except anthropic.APIStatusError as err:
+            if err.status_code == 529 and attempt < max_retries:
                 delay = base_delay * (2**attempt)
                 logger.warning(
                     "API overloaded (529), retrying in %.1fs (attempt %d/%d)",
@@ -276,6 +282,114 @@ async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
                 await asyncio.sleep(delay)
             else:
                 raise
+
+
+# Dispatch a single tool call and return (result_content, is_error, routing_info_update, proposed_change).
+#
+# Handles routing decisions, search, read, create, and update tool calls.
+# Write tools (create/update) operate on a virtual filesystem for dry-run mode.
+async def _dispatch_tool(
+    tool_name: str,
+    tool_input: dict,
+    config: AppConfig,
+    virtual_fs: dict[str, str],
+    search_results_count: int,
+) -> tuple[str, bool, RoutingInfo | None, ProposedChange | None, int]:
+    routing_info = None
+    proposed_change = None
+    is_error = False
+
+    try:
+        if tool_name == "report_routing_decision":
+            routing_info = RoutingInfo(
+                action=tool_input["action"],
+                target_path=tool_input.get("target_path"),
+                reasoning=tool_input["reasoning"],
+                confidence=tool_input["confidence"],
+                search_results_used=search_results_count,
+                duplicate_notes=tool_input.get("duplicate_notes"),
+            )
+            if routing_info.action == "skip":
+                result_content = (
+                    "Routing decision recorded: skip. No changes needed — "
+                    "this information is already in the vault. "
+                    "Summarize your reasoning and finish."
+                )
+            else:
+                result_content = (
+                    f"Routing decision recorded: {routing_info.action} "
+                    f"{'at ' + routing_info.target_path if routing_info.target_path else '(new note)'}. "
+                    f"Now proceed to make the changes."
+                )
+
+        elif tool_name == "search_vault":
+            result_content = await execute_tool(
+                config.vault_path, tool_name, tool_input, config=config
+            )
+            search_results_count = result_content.count("### Result ")
+
+        elif tool_name == "read_note":
+            note_path = tool_input["path"]
+            if note_path in virtual_fs:
+                result_content = virtual_fs[note_path]
+            else:
+                result_content = await execute_tool(
+                    config.vault_path, tool_name, tool_input, config=config
+                )
+
+        elif tool_name == "create_note":
+            inp = CreateNoteInput(**tool_input)
+            if inp.path in virtual_fs:
+                raise FileExistsError(
+                    f"Note already exists at {inp.path}. Use update_note to modify existing notes."
+                )
+            proposed_content = compute_create(config.vault_path, inp)
+            diff = generate_diff(inp.path, "", proposed_content)
+
+            proposed_change = ProposedChange(
+                id=str(uuid.uuid4()),
+                tool_name="create_note",
+                input=tool_input,
+                original_content=None,
+                proposed_content=proposed_content,
+                diff=diff,
+            )
+            virtual_fs[inp.path] = proposed_content
+            result_content = f"[Preview] Note would be created at {inp.path}"
+
+        elif tool_name == "update_note":
+            inp = UpdateNoteInput(**tool_input)
+            if inp.path in virtual_fs:
+                original = virtual_fs[inp.path]
+            else:
+                full_path = validate_path(config.vault_path, inp.path)
+                if not full_path.exists():
+                    raise FileNotFoundError(f"Note not found: {inp.path}")
+                original = full_path.read_text(encoding="utf-8")
+
+            result = compute_update(original, inp)
+            diff = generate_diff(inp.path, original, result)
+
+            proposed_change = ProposedChange(
+                id=str(uuid.uuid4()),
+                tool_name="update_note",
+                input=tool_input,
+                original_content=original,
+                proposed_content=result,
+                diff=diff,
+            )
+            virtual_fs[inp.path] = result
+            result_content = f"[Preview] Note would be updated at {inp.path}"
+
+        else:
+            raise ValueError(f"Unknown tool: {tool_name}")
+
+    except Exception as err:
+        logger.warning("Tool %s failed: %s", tool_name, err)
+        is_error = True
+        result_content = f"Error: {err}"
+
+    return result_content, is_error, routing_info, proposed_change, search_results_count
 
 
 # Run the core agent loop: search vault, decide placement, produce a dry-run changeset.
@@ -367,108 +481,17 @@ async def generate_changeset(
                     continue
 
                 tool_call_count += 1
-                is_error = False
-                tool_name = block.name
-                tool_input = block.input
 
-                try:
-                    if tool_name == "report_routing_decision":
-                        routing_info = RoutingInfo(
-                            action=tool_input["action"],
-                            target_path=tool_input.get("target_path"),
-                            reasoning=tool_input["reasoning"],
-                            confidence=tool_input["confidence"],
-                            search_results_used=search_results_count,
-                            duplicate_notes=tool_input.get("duplicate_notes"),
-                        )
-                        if routing_info.action == "skip":
-                            result_content = (
-                                "Routing decision recorded: skip. No changes needed — "
-                                "this information is already in the vault. "
-                                "Summarize your reasoning and finish."
-                            )
-                        else:
-                            result_content = (
-                                f"Routing decision recorded: {routing_info.action} "
-                                f"{'at ' + routing_info.target_path if routing_info.target_path else '(new note)'}. "
-                                f"Now proceed to make the changes."
-                            )
-
-                    elif tool_name == "search_vault":
-                        result_content = await execute_tool(
-                            config.vault_path, tool_name, tool_input, config=config
-                        )
-                        # Count results from output
-                        search_results_count = result_content.count("### Result ")
-
-                    elif tool_name == "read_note":
-                        note_path = tool_input["path"]
-                        if note_path in virtual_fs:
-                            result_content = virtual_fs[note_path]
-                        else:
-                            result_content = await execute_tool(
-                                config.vault_path, tool_name, tool_input, config=config
-                            )
-
-                    elif tool_name == "create_note":
-                        inp = CreateNoteInput(**tool_input)
-                        if inp.path in virtual_fs:
-                            raise FileExistsError(
-                                f"Note already exists at {inp.path}. Use update_note to modify existing notes."
-                            )
-                        proposed_content = compute_create(config.vault_path, inp)
-                        diff = generate_diff(inp.path, "", proposed_content)
-
-                        change = ProposedChange(
-                            id=str(uuid.uuid4()),
-                            tool_name="create_note",
-                            input=tool_input,
-                            original_content=None,
-                            proposed_content=proposed_content,
-                            diff=diff,
-                        )
-                        proposed_changes.append(change)
-                        virtual_fs[inp.path] = proposed_content
-
-                        result_content = (
-                            f"[Preview] Note would be created at {inp.path}"
-                        )
-
-                    elif tool_name == "update_note":
-                        inp = UpdateNoteInput(**tool_input)
-                        if inp.path in virtual_fs:
-                            original = virtual_fs[inp.path]
-                        else:
-                            full_path = validate_path(config.vault_path, inp.path)
-                            if not full_path.exists():
-                                raise FileNotFoundError(f"Note not found: {inp.path}")
-                            original = full_path.read_text(encoding="utf-8")
-
-                        result = compute_update(original, inp)
-                        diff = generate_diff(inp.path, original, result)
-
-                        change = ProposedChange(
-                            id=str(uuid.uuid4()),
-                            tool_name="update_note",
-                            input=tool_input,
-                            original_content=original,
-                            proposed_content=result,
-                            diff=diff,
-                        )
-                        proposed_changes.append(change)
-                        virtual_fs[inp.path] = result
-
-                        result_content = (
-                            f"[Preview] Note would be updated at {inp.path}"
-                        )
-
-                    else:
-                        raise ValueError(f"Unknown tool: {tool_name}")
-
-                except Exception as err:
-                    logger.warning("Tool %s failed: %s", tool_name, err)
-                    is_error = True
-                    result_content = f"Error: {err}"
+                result_content, is_error, ri, change, search_results_count = (
+                    await _dispatch_tool(
+                        block.name, block.input, config, virtual_fs,
+                        search_results_count,
+                    )
+                )
+                if ri is not None:
+                    routing_info = ri
+                if change is not None:
+                    proposed_changes.append(change)
 
                 tool_results.append(
                     {

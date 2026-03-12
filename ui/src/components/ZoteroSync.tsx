@@ -25,6 +25,8 @@ import { ChangesetReview } from "./ChangesetReview";
 type Step = "papers" | "annotations" | "processing";
 
 const PAGE_SIZE = 25;
+const POLL_INTERVAL_MS = 3000;
+const SEARCH_DEBOUNCE_MS = 300;
 
 const COLOR_NAMES: Record<string, string> = {
   "#ffd400": "Yellow",
@@ -214,7 +216,7 @@ export function ZoteroSync() {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery);
       setPage(0);
-    }, 300);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -316,7 +318,7 @@ export function ZoteroSync() {
         } catch {
           // Polling failure is non-fatal
         }
-      }, 3000);
+      }, POLL_INTERVAL_MS);
     } catch (err) {
       setError(formatError(err));
     }

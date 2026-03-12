@@ -6,6 +6,7 @@ import {
   applyChangeset,
   rejectChangeset,
 } from "../api/client";
+import { formatError } from "../utils";
 import { DiffViewer } from "./DiffViewer";
 import { MarkdownPreview } from "./MarkdownPreview";
 
@@ -27,6 +28,7 @@ export function ChangesetReview({
   const [applying, setApplying] = useState(false);
   const [loadingChangeset, setLoadingChangeset] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [result, setResult] = useState<{
     applied: string[];
     failed: { id: string; error: string }[];
@@ -42,7 +44,7 @@ export function ChangesetReview({
           const approvedChanges = cs.changes.map((c) => ({ ...c, status: "approved" as const }));
           setChanges(approvedChanges);
           approvedChanges.forEach((c) => {
-            updateChangeStatus(changesetId, c.id, "approved").catch(console.error);
+            updateChangeStatus(changesetId, c.id, "approved").catch((err) => setStatusError(formatError(err)));
           });
         })
         .catch((err) => setFetchError(String(err)))
@@ -50,7 +52,7 @@ export function ChangesetReview({
     } else {
       // Set all changes to approved by default on the server
       initialChanges.forEach((c) => {
-        updateChangeStatus(changesetId, c.id, "approved").catch(console.error);
+        updateChangeStatus(changesetId, c.id, "approved").catch((err) => setStatusError(formatError(err)));
       });
     }
   }, [changesetId, initialChanges]);
@@ -61,7 +63,7 @@ export function ChangesetReview({
         prev.map((c) => {
           if (c.id !== changeId) return c;
           const newStatus = c.status === "approved" ? "rejected" : "approved";
-          updateChangeStatus(changesetId, changeId, newStatus).catch(console.error);
+          updateChangeStatus(changesetId, changeId, newStatus).catch((err) => setStatusError(formatError(err)));
           return { ...c, status: newStatus };
         })
       );
@@ -73,7 +75,7 @@ export function ChangesetReview({
     (status: "approved" | "rejected") => {
       setChanges((prev) =>
         prev.map((c) => {
-          updateChangeStatus(changesetId, c.id, status).catch(console.error);
+          updateChangeStatus(changesetId, c.id, status).catch((err) => setStatusError(formatError(err)));
           return { ...c, status };
         })
       );
@@ -199,6 +201,10 @@ export function ChangesetReview({
           </button>
         </div>
       </div>
+
+      {statusError && (
+        <p className="text-red text-xs mb-2">Failed to update status: {statusError}</p>
+      )}
 
       <div className="flex flex-col gap-3 mb-4">
         {changes.map((change) => {
