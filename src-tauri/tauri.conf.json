@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicehash/json-schemas/refs/heads/master/tauri/tauri.conf.v2.schema.json",
+  "productName": "Vault Agent",
+  "version": "0.1.0",
+  "identifier": "com.vault-agent.app",
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "frontendDist": "http://localhost:3000"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "icon": [],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
+    "externalBin": [
+      "binaries/vault-agent-sidecar"
+    ]
+  }
+}

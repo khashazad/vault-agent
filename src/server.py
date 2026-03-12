@@ -1,4 +1,5 @@
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -40,7 +41,11 @@ from src.models import (
     ZoteroSyncResponse,
 )
 from src.vault.reader import build_vault_map
-from src.agent.agent import generate_zotero_note, submit_zotero_note_batch, poll_zotero_batch
+from src.agent.agent import (
+    generate_zotero_note,
+    submit_zotero_note_batch,
+    poll_zotero_batch,
+)
 from src.agent.changeset import apply_changeset
 from src.store import get_changeset_store, get_batch_job_store
 from src.rag.indexer import index_vault
@@ -564,7 +569,9 @@ async def zotero_paper_annotations(paper_key: str, request: Request):
     summary="Sync paper",
     description="Process a single paper's annotations through the agent and return a changeset. Optionally exclude specific annotations.",
 )
-async def zotero_paper_sync(paper_key: str, request: Request, body: ZoteroPaperSyncRequest):
+async def zotero_paper_sync(
+    paper_key: str, request: Request, body: ZoteroPaperSyncRequest
+):
     _require_zotero(request)
     config = _get_config(request)
     try:
@@ -593,7 +600,6 @@ async def zotero_paper_sync(paper_key: str, request: Request, body: ZoteroPaperS
 
         if body.batch:
             # Submit via Batch API for 50% cost reduction
-            from src.models import ContentItem
             import json
 
             batch_id = await submit_zotero_note_batch(config, items, paper_key)
@@ -716,8 +722,20 @@ async def zotero_status(request: Request):
 
 
 # Mount static files for the UI (must be last to not shadow API routes)
-ui_dist = Path(__file__).parent.parent / "ui" / "dist"
-if ui_dist.exists():
+def _find_ui_dist() -> Path | None:
+    """Check PyInstaller bundle path first, then dev path."""
+    if hasattr(sys, "_MEIPASS"):
+        bundled = Path(sys._MEIPASS) / "ui" / "dist"
+        if bundled.exists():
+            return bundled
+    dev = Path(__file__).parent.parent / "ui" / "dist"
+    if dev.exists():
+        return dev
+    return None
+
+
+ui_dist = _find_ui_dist()
+if ui_dist:
     app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")
 
 
