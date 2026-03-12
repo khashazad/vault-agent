@@ -23,7 +23,6 @@ from src.models import (
     ChangesetListResponse,
     ChangesetSummary,
     ChangeStatusResponse,
-    ChangeStatusUpdate,
     ChunkInfo,
     FeedbackRequest,
     HealthResponse,

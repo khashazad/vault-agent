@@ -84,26 +84,17 @@ class ChangesetStore:
         offset: int = 0,
         limit: int = 25,
     ) -> tuple[list[Changeset], int]:
-        if status:
-            count_row = self._conn.execute(
-                "SELECT COUNT(*) as cnt FROM changesets WHERE status = ?",
-                (status,),
-            ).fetchone()
-            rows = self._conn.execute(
-                "SELECT data FROM changesets WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (status, limit, offset),
-            ).fetchall()
-        else:
-            count_row = self._conn.execute(
-                "SELECT COUNT(*) as cnt FROM changesets"
-            ).fetchone()
-            rows = self._conn.execute(
-                "SELECT data FROM changesets ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (limit, offset),
-            ).fetchall()
-        total = count_row["cnt"]
-        changesets = [Changeset.model_validate_json(row["data"]) for row in rows]
-        return changesets, total
+        where = "WHERE status = ?" if status else ""
+        params = (status,) if status else ()
+
+        total = self._conn.execute(
+            f"SELECT COUNT(*) as cnt FROM changesets {where}", params
+        ).fetchone()["cnt"]
+        rows = self._conn.execute(
+            f"SELECT data FROM changesets {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        return [Changeset.model_validate_json(r["data"]) for r in rows], total
 
     # Retrieve all changesets ordered by created_at descending.
     #

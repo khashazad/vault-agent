@@ -6,7 +6,11 @@ from .content import ContentItem, SourceType
 
 # Valid changeset lifecycle statuses.
 ChangesetStatus = Literal[
-    "pending", "applied", "rejected", "partially_applied", "skipped",
+    "pending",
+    "applied",
+    "rejected",
+    "partially_applied",
+    "skipped",
     "revision_requested",
 ]
 

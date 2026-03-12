@@ -279,7 +279,6 @@ export function ChangesetHistory() {
   // --- Detail view ---
   const isInteractive =
     detail?.status === "pending" || detail?.status === "partially_applied";
-  const showFeedback = isInteractive;
   const showRegenerate = detail?.status === "revision_requested";
 
   return (
@@ -356,7 +355,7 @@ export function ChangesetHistory() {
           />
 
           {/* Feedback section */}
-          {showFeedback && (
+          {isInteractive && (
             <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
               <h4 className="text-sm font-medium m-0">Request Changes</h4>
               <textarea
