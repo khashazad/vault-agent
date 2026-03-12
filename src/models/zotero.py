@@ -12,6 +12,11 @@ class ZoteroSyncRequest(BaseModel):
         default=False,
         description="Re-sync all papers regardless of previous sync state",
     )
+    model: str = Field(
+        default="haiku",
+        pattern="^(haiku|sonnet)$",
+        description="LLM model to use: haiku or sonnet",
+    )
 
 
 class ZoteroSyncResponse(BaseModel):
@@ -89,6 +94,11 @@ class ZoteroPaperSyncRequest(BaseModel):
         default=False,
         description="Submit via Batch API for 50% cost reduction (async, poll for result)",
     )
+    model: str = Field(
+        default="haiku",
+        pattern="^(haiku|sonnet)$",
+        description="LLM model to use: haiku or sonnet",
+    )
 
 
 class ZoteroCollection(BaseModel):
@@ -135,7 +145,9 @@ class ZoteroStatusResponse(BaseModel):
 class BatchJobStatusResponse(BaseModel):
     paper_key: str = Field(description="Zotero paper key")
     batch_id: str = Field(description="Anthropic Batch API batch ID")
-    status: str = Field(description="Job status: pending, processing, completed, failed")
+    status: str = Field(
+        description="Job status: pending, processing, completed, failed"
+    )
     changeset_id: str | None = Field(
         default=None, description="Changeset ID once batch completes"
     )

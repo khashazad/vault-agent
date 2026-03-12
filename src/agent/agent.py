@@ -33,13 +33,26 @@ from src.store import get_changeset_store
 logger = logging.getLogger("vault-agent")
 
 MAX_TOOL_CALLS = 15
-MODEL = "claude-haiku-4-5-20251001"
 
-# Pricing per million tokens (USD)
-_INPUT_COST_PER_MTOK = 1.00
-_OUTPUT_COST_PER_MTOK = 5.00
-_CACHE_WRITE_COST_PER_MTOK = 1.25
-_CACHE_READ_COST_PER_MTOK = 0.10
+MODELS = {
+    "haiku": {
+        "id": "claude-haiku-4-5-20251001",
+        "label": "Haiku 4.5",
+        "input": 1.00,
+        "output": 5.00,
+        "cache_write": 1.25,
+        "cache_read": 0.10,
+    },
+    "sonnet": {
+        "id": "claude-sonnet-4-6-20250514",
+        "label": "Sonnet 4.6",
+        "input": 3.00,
+        "output": 15.00,
+        "cache_write": 3.75,
+        "cache_read": 0.30,
+    },
+}
+DEFAULT_MODEL = "haiku"
 _BATCH_DISCOUNT = 0.5
 
 
@@ -48,14 +61,24 @@ def _compute_cost(
     output_tokens: int,
     cache_write_tokens: int,
     cache_read_tokens: int,
+    model_key: str = DEFAULT_MODEL,
     is_batch: bool = False,
+    include_cache_savings: bool = False,
 ) -> float:
-    cost = (
-        input_tokens * _INPUT_COST_PER_MTOK / 1_000_000
-        + output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
-        + cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
-        + cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
-    )
+    pricing = MODELS[model_key]
+    if include_cache_savings:
+        cost = (
+            input_tokens * pricing["input"] / 1_000_000
+            + output_tokens * pricing["output"] / 1_000_000
+            + cache_write_tokens * pricing["cache_write"] / 1_000_000
+            + cache_read_tokens * pricing["cache_read"] / 1_000_000
+        )
+    else:
+        total_input = input_tokens + cache_write_tokens + cache_read_tokens
+        cost = (
+            total_input * pricing["input"] / 1_000_000
+            + output_tokens * pricing["output"] / 1_000_000
+        )
     return cost * _BATCH_DISCOUNT if is_batch else cost
 
 
@@ -66,6 +89,7 @@ def _build_token_usage(
     cache_read_tokens: int,
     api_calls: int,
     tool_calls: int,
+    model_key: str = DEFAULT_MODEL,
     is_batch: bool = False,
 ) -> TokenUsage:
     return TokenUsage(
@@ -76,11 +100,13 @@ def _build_token_usage(
         api_calls=api_calls,
         tool_calls=tool_calls,
         is_batch=is_batch,
+        model=model_key,
         total_cost_usd=_compute_cost(
             input_tokens,
             output_tokens,
             cache_write_tokens,
             cache_read_tokens,
+            model_key,
             is_batch,
         ),
     )
@@ -115,13 +141,20 @@ def _log_token_usage(
     output_tokens: int,
     cache_write_tokens: int,
     cache_read_tokens: int,
+    model_key: str = DEFAULT_MODEL,
 ) -> None:
-    input_cost = input_tokens * _INPUT_COST_PER_MTOK / 1_000_000
-    output_cost = output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
-    cache_write_cost = cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
-    cache_read_cost = cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
+    pricing = MODELS[model_key]
+    input_cost = input_tokens * pricing["input"] / 1_000_000
+    output_cost = output_tokens * pricing["output"] / 1_000_000
+    cache_write_cost = cache_write_tokens * pricing["cache_write"] / 1_000_000
+    cache_read_cost = cache_read_tokens * pricing["cache_read"] / 1_000_000
     total_cost = _compute_cost(
-        input_tokens, output_tokens, cache_write_tokens, cache_read_tokens
+        input_tokens,
+        output_tokens,
+        cache_write_tokens,
+        cache_read_tokens,
+        model_key,
+        include_cache_savings=True,
     )
 
     parts = [f"input={input_tokens} (${input_cost:.4f})"]
@@ -268,6 +301,7 @@ async def generate_changeset(
     feedback: str | None = None,
     previous_reasoning: str | None = None,
     parent_changeset_id: str | None = None,
+    model: str = DEFAULT_MODEL,
 ) -> Changeset:
 
     max_calls = _max_tool_calls(len(items))
@@ -296,7 +330,7 @@ async def generate_changeset(
     while tool_call_count < max_calls:
         response = await _create_with_retry(
             client,
-            model=MODEL,
+            model=MODELS[model]["id"],
             max_tokens=4096,
             system=[
                 {
@@ -455,6 +489,7 @@ async def generate_changeset(
         total_output_tokens,
         total_cache_write_tokens,
         total_cache_read_tokens,
+        model,
     )
 
     # Fallback: infer routing from first proposed change if agent didn't call report_routing_decision
@@ -479,6 +514,7 @@ async def generate_changeset(
         total_cache_read_tokens,
         api_calls,
         tool_call_count,
+        model,
     )
 
     changeset = Changeset(
@@ -526,6 +562,7 @@ def _zotero_note_path(items: list[ContentItem]) -> str:
 async def generate_zotero_note(
     config: AppConfig,
     items: list[ContentItem],
+    model: str = DEFAULT_MODEL,
 ) -> Changeset:
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     metadata = items[0].source_metadata
@@ -534,7 +571,7 @@ async def generate_zotero_note(
 
     response = await _create_with_retry(
         client,
-        model=MODEL,
+        model=MODELS[model]["id"],
         max_tokens=8192,
         system=[
             {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
@@ -563,7 +600,9 @@ async def generate_zotero_note(
     )
 
     inp, out, cw, cr = _extract_usage(response)
-    usage = _build_token_usage(inp, out, cw, cr, api_calls=1, tool_calls=0)
+    usage = _build_token_usage(
+        inp, out, cw, cr, api_calls=1, tool_calls=0, model_key=model
+    )
 
     changeset = Changeset(
         id=str(uuid.uuid4()),
@@ -578,7 +617,7 @@ async def generate_zotero_note(
     )
     get_changeset_store().set(changeset)
 
-    _log_token_usage(len(items), 1, 0, inp, out, cw, cr)
+    _log_token_usage(len(items), 1, 0, inp, out, cw, cr, model)
 
     return changeset
 
@@ -599,6 +638,7 @@ async def submit_zotero_note_batch(
     config: AppConfig,
     items: list[ContentItem],
     paper_key: str,
+    model: str = DEFAULT_MODEL,
 ) -> str:
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     metadata = items[0].source_metadata
@@ -610,7 +650,7 @@ async def submit_zotero_note_batch(
             {
                 "custom_id": paper_key,
                 "params": {
-                    "model": MODEL,
+                    "model": MODELS[model]["id"],
                     "max_tokens": 8192,
                     "system": [{"type": "text", "text": system}],
                     "messages": [{"role": "user", "content": user}],

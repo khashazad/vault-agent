@@ -113,7 +113,8 @@ export function fetchZoteroPaperAnnotations(
 
 export function syncZoteroPaper(
   paperKey: string,
-  excludedAnnotationKeys?: string[]
+  excludedAnnotationKeys?: string[],
+  model?: string,
 ): Promise<Changeset> {
   return fetchJSON(`${BASE}/zotero/papers/${paperKey}/sync`, {
     method: "POST",
@@ -121,6 +122,7 @@ export function syncZoteroPaper(
     body: JSON.stringify({
       paper_key: paperKey,
       excluded_annotation_keys: excludedAnnotationKeys ?? null,
+      model: model ?? "haiku",
     }),
   });
 }

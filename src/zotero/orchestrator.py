@@ -113,7 +113,9 @@ def _paper_to_content_items(paper: ZoteroPaper) -> list[ContentItem]:
 # Raises:
 #     ValueError: When Zotero API key or library ID is not configured.
 async def sync_zotero(
-    config: AppConfig, request: ZoteroSyncRequest | None = None
+    config: AppConfig,
+    request: ZoteroSyncRequest | None = None,
+    model: str = "haiku",
 ) -> ZoteroSyncResponse:
     if not config.zotero_api_key or not config.zotero_library_id:
         raise ValueError("Zotero API key and library ID must be configured")
@@ -162,7 +164,7 @@ async def sync_zotero(
             continue
 
         try:
-            changeset = await generate_zotero_note(config, items)
+            changeset = await generate_zotero_note(config, items, model=model)
             changeset_ids.append(changeset.id)
             logger.info(
                 "Generated changeset %s for paper '%s' (%d items)",

@@ -55,6 +55,7 @@ export interface TokenUsage {
   api_calls: number;
   tool_calls: number;
   is_batch: boolean;
+  model: string;
   total_cost_usd: number;
 }
 
