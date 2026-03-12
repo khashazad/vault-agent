@@ -51,3 +51,11 @@ logs
 .python-version
 
 tsconfig.tsbuildinfo
+
+# Tauri
+src-tauri/binaries/
+src-tauri/target/
+
+# PyInstaller
+build/
+*.spec.bak

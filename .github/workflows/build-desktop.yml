@@ -1,0 +1,55 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14  # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Python deps
+        run: uv sync --dev
+
+      - name: Build UI
+        run: cd ui && bun install && bun run build
+
+      - name: Build PyInstaller sidecar
+        run: uv run pyinstaller vault-agent.spec --noconfirm --clean
+
+      - name: Copy sidecar to Tauri binaries
+        run: |
+          mkdir -p src-tauri/binaries
+          cp -R dist/vault-agent-sidecar src-tauri/binaries/vault-agent-sidecar-aarch64-apple-darwin
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build Tauri app
+        run: cd src-tauri && cargo tauri build --target aarch64-apple-darwin
+
+      - name: Upload .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-agent-macos-arm64
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error

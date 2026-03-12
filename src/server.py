@@ -1,4 +1,5 @@
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -723,8 +724,20 @@ async def zotero_status(request: Request):
 
 
 # Mount static files for the UI (must be last to not shadow API routes)
-ui_dist = Path(__file__).parent.parent / "ui" / "dist"
-if ui_dist.exists():
+def _find_ui_dist() -> Path | None:
+    """Check PyInstaller bundle path first, then dev path."""
+    if hasattr(sys, "_MEIPASS"):
+        bundled = Path(sys._MEIPASS) / "ui" / "dist"
+        if bundled.exists():
+            return bundled
+    dev = Path(__file__).parent.parent / "ui" / "dist"
+    if dev.exists():
+        return dev
+    return None
+
+
+ui_dist = _find_ui_dist()
+if ui_dist:
     app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")
 
 
