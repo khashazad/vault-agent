@@ -1,0 +1,58 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --dev
+
+      - name: Run backend tests
+        run: uv run pytest tests/ --tb=short -q --cov=src --cov-report=xml
+        env:
+          VAULT_PATH: /tmp/test-vault
+          ANTHROPIC_API_KEY: sk-test
+          VOYAGE_API_KEY: pa-test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: cd ui && bun install
+
+      - name: Run frontend tests
+        run: cd ui && bun run test
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build UI
+        run: cd ui && bun install && bun run build
+
+      - name: Install E2E deps
+        run: cd tests/e2e && bun install
+
+      - name: Install Playwright browsers
+        run: cd tests/e2e && bunx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: cd tests/e2e && bunx playwright test
