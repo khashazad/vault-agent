@@ -1,8 +1,6 @@
 import type {
   Changeset,
   TokenUsage,
-  ZoteroSyncRequest,
-  ZoteroSyncResponse,
   ZoteroStatus,
   ZoteroPapersResponse,
   ZoteroPaperAnnotationsResponse,
@@ -61,14 +59,6 @@ export function applyChangeset(
 export function rejectChangeset(changesetId: string): Promise<void> {
   return fetchVoid(`${BASE}/changesets/${changesetId}/reject`, {
     method: "POST",
-  });
-}
-
-export function syncZotero(request?: ZoteroSyncRequest): Promise<ZoteroSyncResponse> {
-  return fetchJSON(`${BASE}/zotero/sync`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request ?? {}),
   });
 }
 

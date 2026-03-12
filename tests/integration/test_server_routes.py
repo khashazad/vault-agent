@@ -1,7 +1,6 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 
-from src.config import AppConfig
 from src.server import app
 from tests.factories import make_changeset
 import src.store as store_module
@@ -50,6 +49,7 @@ class TestChangesetRoutes:
 
     async def test_changeset_crud(self, client):
         from src.store import get_changeset_store
+
         cs = make_changeset()
         get_changeset_store().set(cs)
 
@@ -59,6 +59,7 @@ class TestChangesetRoutes:
 
     async def test_reject_changeset(self, client):
         from src.store import get_changeset_store
+
         cs = make_changeset()
         get_changeset_store().set(cs)
 
@@ -68,6 +69,7 @@ class TestChangesetRoutes:
 
     async def test_update_change_status(self, client):
         from src.store import get_changeset_store
+
         cs = make_changeset()
         change_id = cs.changes[0].id
         get_changeset_store().set(cs)

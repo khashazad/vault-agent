@@ -1,5 +1,3 @@
-import pytest
-
 from src.agent.changeset import apply_changeset
 from tests.factories import make_changeset, make_proposed_change
 

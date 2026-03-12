@@ -209,8 +209,6 @@ export function ZoteroSync() {
   );
 
   const [costPopoverKey, setCostPopoverKey] = useState<string | null>(null);
-  const lastCacheUpdatedAtRef = useRef<string | null>(null);
-
   // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -240,7 +238,6 @@ export function ZoteroSync() {
         setPapers(res.papers);
         setTotalPapers(res.total);
         setCacheUpdatedAt(res.cache_updated_at);
-        lastCacheUpdatedAtRef.current = res.cache_updated_at;
       } catch (err) {
         setError(formatError(err));
       } finally {
@@ -306,7 +303,6 @@ export function ZoteroSync() {
             clearInterval(pollInterval);
             setSyncInProgress(false);
             if (cacheStatus.cache_updated_at) {
-              lastCacheUpdatedAtRef.current = cacheStatus.cache_updated_at;
               setCacheUpdatedAt(cacheStatus.cache_updated_at);
             }
             loadPapers({

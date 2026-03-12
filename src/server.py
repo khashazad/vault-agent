@@ -599,7 +599,6 @@ async def zotero_paper_sync(
 
         if body.batch:
             # Submit via Batch API for 50% cost reduction
-            from src.models import ContentItem
             import json
 
             batch_id = await submit_zotero_note_batch(
