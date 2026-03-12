@@ -367,8 +367,7 @@ async def zotero_sync(request: Request, body: ZoteroSyncRequest | None = None):
     config = _get_config(request)
     from src.zotero.orchestrator import sync_zotero
 
-    model = body.model if body else "haiku"
-    return await sync_zotero(config, body, model=model)
+    return await sync_zotero(config, body)
 
 
 # List all Zotero collections from cache or live API.
