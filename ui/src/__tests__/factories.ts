@@ -47,6 +47,7 @@ export function makeChangeset(overrides?: Partial<Changeset>): Changeset {
       additional_targets: null,
       duplicate_notes: null,
     },
+    usage: null,
     feedback: null,
     parent_changeset_id: null,
     ...overrides,

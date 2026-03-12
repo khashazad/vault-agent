@@ -5,6 +5,17 @@ from pydantic import BaseModel, Field, model_validator
 from .content import ContentItem, SourceType
 
 
+class TokenUsage(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    cache_write_tokens: int = 0
+    cache_read_tokens: int = 0
+    api_calls: int = 1
+    tool_calls: int = 0
+    is_batch: bool = False
+    total_cost_usd: float
+
+
 class RoutingInfo(BaseModel):
     action: Literal["update", "create", "skip"] = Field(
         description="Whether to update existing note, create new, or skip"
@@ -58,6 +69,9 @@ class Changeset(BaseModel):
     )
     routing: RoutingInfo | None = Field(
         default=None, description="Agent's routing decision for note placement"
+    )
+    usage: TokenUsage | None = Field(
+        default=None, description="LLM token usage and cost"
     )
     feedback: str | None = Field(
         default=None, description="User feedback for regeneration"

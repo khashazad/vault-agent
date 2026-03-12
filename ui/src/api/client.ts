@@ -1,5 +1,6 @@
 import type {
   Changeset,
+  TokenUsage,
   ZoteroSyncRequest,
   ZoteroSyncResponse,
   ZoteroStatus,
@@ -24,6 +25,11 @@ async function fetchVoid(url: string, options?: RequestInit): Promise<void> {
 
 export function fetchChangeset(id: string): Promise<Changeset> {
   return fetchJSON(`${BASE}/changesets/${id}`);
+}
+
+export async function fetchChangesetCost(id: string): Promise<TokenUsage | null> {
+  const cs = await fetchJSON<Changeset>(`${BASE}/changesets/${id}`);
+  return cs.usage ?? null;
 }
 
 export function updateChangeStatus(
