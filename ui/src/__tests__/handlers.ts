@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { makeChangeset, makePaper, makeAnnotation } from "./factories";
+import { makeChangeset, makeChangesetSummary, makePaper, makeAnnotation } from "./factories";
 
 export const handlers = [
   // Health
@@ -12,14 +12,22 @@ export const handlers = [
     })
   ),
 
-  // Changesets
+  // Changesets list
+  http.get("/changesets", () =>
+    HttpResponse.json({
+      changesets: [makeChangesetSummary()],
+      total: 1,
+    })
+  ),
+
+  // Changeset detail
   http.get("/changesets/:id", ({ params }) =>
     HttpResponse.json(makeChangeset({ id: params.id as string }))
   ),
 
   http.patch("/changesets/:changesetId/changes/:changeId", async ({ request }) => {
-    const body = (await request.json()) as { status: string };
-    return HttpResponse.json({ id: "change-1", status: body.status });
+    const body = (await request.json()) as { status?: string; proposed_content?: string };
+    return HttpResponse.json({ id: "change-1", status: body.status ?? "pending" });
   }),
 
   http.post("/changesets/:id/apply", () =>
@@ -28,6 +36,19 @@ export const handlers = [
 
   http.post("/changesets/:id/reject", ({ params }) =>
     HttpResponse.json({ id: params.id, status: "rejected" })
+  ),
+
+  http.post("/changesets/:id/request-changes", async ({ params, request }) => {
+    const body = (await request.json()) as { feedback: string };
+    return HttpResponse.json({
+      id: params.id,
+      status: "revision_requested",
+      feedback: body.feedback,
+    });
+  }),
+
+  http.post("/changesets/:id/regenerate", () =>
+    HttpResponse.json(makeChangeset({ id: "cs-regenerated" }))
   ),
 
   // Zotero
@@ -55,9 +76,7 @@ export const handlers = [
     })
   ),
 
-  http.post("/zotero/papers/refresh", () =>
-    HttpResponse.json({ status: "sync_triggered" })
-  ),
+  http.post("/zotero/papers/refresh", () => HttpResponse.json({ status: "sync_triggered" })),
 
   http.get("/zotero/collections", () =>
     HttpResponse.json({
@@ -77,9 +96,7 @@ export const handlers = [
     })
   ),
 
-  http.post("/zotero/papers/:key/sync", () =>
-    HttpResponse.json(makeChangeset())
-  ),
+  http.post("/zotero/papers/:key/sync", () => HttpResponse.json(makeChangeset())),
 
   http.post("/zotero/sync", () =>
     HttpResponse.json({

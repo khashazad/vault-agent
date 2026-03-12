@@ -1,5 +1,6 @@
 import type {
   Changeset,
+  ChangesetSummary,
   ProposedChange,
   ContentItem,
   ZoteroPaperSummary,
@@ -48,6 +49,28 @@ export function makeChangeset(overrides?: Partial<Changeset>): Changeset {
       duplicate_notes: null,
     },
     usage: null,
+    feedback: null,
+    parent_changeset_id: null,
+    ...overrides,
+  };
+}
+
+export function makeChangesetSummary(overrides?: Partial<ChangesetSummary>): ChangesetSummary {
+  return {
+    id: "cs-test-1",
+    status: "pending",
+    created_at: "2024-01-01T00:00:00Z",
+    source_type: "web",
+    change_count: 1,
+    routing: {
+      action: "create",
+      target_path: "Papers/Test.md",
+      reasoning: "New topic.",
+      confidence: 0.9,
+      search_results_used: 3,
+      additional_targets: null,
+      duplicate_notes: null,
+    },
     feedback: null,
     parent_changeset_id: null,
     ...overrides,

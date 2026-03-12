@@ -64,7 +64,13 @@ export interface Changeset {
   items: ContentItem[];
   changes: ProposedChange[];
   reasoning: string;
-  status: "pending" | "applied" | "rejected" | "partially_applied" | "skipped";
+  status:
+    | "pending"
+    | "applied"
+    | "rejected"
+    | "partially_applied"
+    | "skipped"
+    | "revision_requested";
   created_at: string;
   source_type: SourceType;
   routing: RoutingInfo | null;
@@ -143,5 +149,21 @@ export interface ZoteroCollection {
 
 export interface ZoteroCollectionsResponse {
   collections: ZoteroCollection[];
+  total: number;
+}
+
+export interface ChangesetSummary {
+  id: string;
+  status: Changeset["status"];
+  created_at: string;
+  source_type: SourceType;
+  change_count: number;
+  routing: RoutingInfo | null;
+  feedback: string | null;
+  parent_changeset_id: string | null;
+}
+
+export interface ChangesetListResponse {
+  changesets: ChangesetSummary[];
   total: number;
 }
