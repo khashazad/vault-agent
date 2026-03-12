@@ -12,6 +12,7 @@ from src.models import (
     CreateNoteInput,
     ProposedChange,
     RoutingInfo,
+    TokenUsage,
     UpdateNoteInput,
 )
 from src.config import AppConfig
@@ -39,6 +40,50 @@ _INPUT_COST_PER_MTOK = 1.00
 _OUTPUT_COST_PER_MTOK = 5.00
 _CACHE_WRITE_COST_PER_MTOK = 1.25
 _CACHE_READ_COST_PER_MTOK = 0.10
+_BATCH_DISCOUNT = 0.5
+
+
+def _compute_cost(
+    input_tokens: int,
+    output_tokens: int,
+    cache_write_tokens: int,
+    cache_read_tokens: int,
+    is_batch: bool = False,
+) -> float:
+    cost = (
+        input_tokens * _INPUT_COST_PER_MTOK / 1_000_000
+        + output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
+        + cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
+        + cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
+    )
+    return cost * _BATCH_DISCOUNT if is_batch else cost
+
+
+def _build_token_usage(
+    input_tokens: int,
+    output_tokens: int,
+    cache_write_tokens: int,
+    cache_read_tokens: int,
+    api_calls: int,
+    tool_calls: int,
+    is_batch: bool = False,
+) -> TokenUsage:
+    return TokenUsage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_write_tokens=cache_write_tokens,
+        cache_read_tokens=cache_read_tokens,
+        api_calls=api_calls,
+        tool_calls=tool_calls,
+        is_batch=is_batch,
+        total_cost_usd=_compute_cost(
+            input_tokens,
+            output_tokens,
+            cache_write_tokens,
+            cache_read_tokens,
+            is_batch,
+        ),
+    )
 
 
 # Extract token counts from an Anthropic API response.
@@ -75,7 +120,9 @@ def _log_token_usage(
     output_cost = output_tokens * _OUTPUT_COST_PER_MTOK / 1_000_000
     cache_write_cost = cache_write_tokens * _CACHE_WRITE_COST_PER_MTOK / 1_000_000
     cache_read_cost = cache_read_tokens * _CACHE_READ_COST_PER_MTOK / 1_000_000
-    total_cost = input_cost + output_cost + cache_write_cost + cache_read_cost
+    total_cost = _compute_cost(
+        input_tokens, output_tokens, cache_write_tokens, cache_read_tokens
+    )
 
     parts = [f"input={input_tokens} (${input_cost:.4f})"]
     if cache_write_tokens or cache_read_tokens:
@@ -425,6 +472,15 @@ async def generate_changeset(
     if routing_info and routing_info.action == "skip":
         changeset_status = "skipped"
 
+    usage = _build_token_usage(
+        total_input_tokens,
+        total_output_tokens,
+        total_cache_write_tokens,
+        total_cache_read_tokens,
+        api_calls,
+        tool_call_count,
+    )
+
     changeset = Changeset(
         id=str(uuid.uuid4()),
         items=items,
@@ -434,6 +490,7 @@ async def generate_changeset(
         created_at=datetime.now(timezone.utc).isoformat(),
         source_type=items[0].source_type,
         routing=routing_info,
+        usage=usage,
         feedback=feedback,
         parent_changeset_id=parent_changeset_id,
     )
@@ -479,7 +536,9 @@ async def generate_zotero_note(
         client,
         model=MODEL,
         max_tokens=8192,
-        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+        system=[
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ],
         messages=[{"role": "user", "content": user}],
     )
 
@@ -503,6 +562,9 @@ async def generate_zotero_note(
         confidence=1.0,
     )
 
+    inp, out, cw, cr = _extract_usage(response)
+    usage = _build_token_usage(inp, out, cw, cr, api_calls=1, tool_calls=0)
+
     changeset = Changeset(
         id=str(uuid.uuid4()),
         items=items,
@@ -512,10 +574,11 @@ async def generate_zotero_note(
         created_at=datetime.now(timezone.utc).isoformat(),
         source_type="zotero",
         routing=routing,
+        usage=usage,
     )
     get_changeset_store().set(changeset)
 
-    _log_token_usage(len(items), 1, 0, *_extract_usage(response))
+    _log_token_usage(len(items), 1, 0, inp, out, cw, cr)
 
     return changeset
 
@@ -586,9 +649,21 @@ async def poll_zotero_batch(
 
     # Fetch results
     note_content = None
+    batch_usage: TokenUsage | None = None
     async for result in client.messages.batches.results(batch_id):
         if result.custom_id == paper_key and result.result.type == "succeeded":
-            note_content = result.result.message.content[0].text
+            msg = result.result.message
+            note_content = msg.content[0].text
+            inp, out, cw, cr = _extract_usage(msg)
+            batch_usage = _build_token_usage(
+                inp,
+                out,
+                cw,
+                cr,
+                api_calls=1,
+                tool_calls=0,
+                is_batch=True,
+            )
             break
 
     if note_content is None:
@@ -622,6 +697,7 @@ async def poll_zotero_batch(
         created_at=datetime.now(timezone.utc).isoformat(),
         source_type="zotero",
         routing=routing,
+        usage=batch_usage,
     )
     get_changeset_store().set(changeset)
 

@@ -75,9 +75,27 @@ cd ui && bun run dev
 
 The backend runs on port 3000 and the UI dev server on port 5173.
 
+### Running Tests
+
+```bash
+# Backend (pytest — 110 tests)
+uv sync --dev
+uv run pytest tests/ -v
+
+# Frontend (vitest — 46 tests)
+cd ui && bun run test
+
+# E2E (Playwright — 14 tests, requires built UI)
+cd ui && bun run build
+cd ../tests/e2e && bun install && bunx playwright install chromium
+bunx playwright test
+```
+
+CI runs all three suites on push/PR to `main` via GitHub Actions.
+
 ### Detailed Reference
 
-See [CLAUDE.md](./CLAUDE.md) for full API documentation, agent tool definitions, file structure, and internal architecture details.
+See [CLAUDE.md](./CLAUDE.md) for full API documentation, agent tool definitions, testing architecture, file structure, and internal architecture details.
 
 ## Local Only
 

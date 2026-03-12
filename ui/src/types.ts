@@ -47,6 +47,17 @@ export interface RoutingInfo {
   duplicate_notes: string[] | null;
 }
 
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_write_tokens: number;
+  cache_read_tokens: number;
+  api_calls: number;
+  tool_calls: number;
+  is_batch: boolean;
+  total_cost_usd: number;
+}
+
 export interface Changeset {
   id: string;
   items: ContentItem[];
@@ -56,6 +67,7 @@ export interface Changeset {
   created_at: string;
   source_type: SourceType;
   routing: RoutingInfo | null;
+  usage: TokenUsage | null;
   feedback: string | null;
   parent_changeset_id: string | null;
 }

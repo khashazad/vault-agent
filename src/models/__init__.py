@@ -8,6 +8,7 @@ from .changesets import (
     ProposedChange,
     RejectResponse,
     RoutingInfo,
+    TokenUsage,
 )
 from .content import ContentItem, SourceMetadata, SourceType
 from .search import ChunkInfo, IndexResponse, SearchResponse, SearchType
@@ -60,6 +61,7 @@ __all__ = [
     "ApplyFailure",
     "ApplyResponse",
     "RejectResponse",
+    "TokenUsage",
     # search
     "SearchType",
     "ChunkInfo",

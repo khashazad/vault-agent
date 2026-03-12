@@ -59,16 +59,34 @@ Zotero Sync Flow:
 - **Filesystem**: `pathlib.Path.rglob()` for vault traversal, `Path.read_text()` / `.write_text()` for I/O
 - **Zotero integration**: `pyzotero` for Zotero API access, background sync with local paper cache
 - **UI**: React 19, TypeScript 5.6, Vite 6, Tailwind CSS 4
+- **Backend testing**: pytest + pytest-asyncio + httpx + pytest-cov
+- **Frontend testing**: vitest + @testing-library/react + MSW (Mock Service Worker)
+- **E2E testing**: Playwright (Chromium)
+- **CI**: GitHub Actions (`.github/workflows/test.yml`)
 
 ## Commands
 
 ```bash
 uv sync                                            # Install dependencies
+uv sync --dev                                      # Install with test dependencies
 uv run python -m src.server                        # Start server with hot reload (port 3000)
 uv run uvicorn src.server:app --reload --port 3000 # Alternative start command
 cd ui && bun install                               # Install UI dependencies
 cd ui && bun run dev                               # Start UI dev server (port 5173)
 cd ui && bun run build                             # Build UI for production → ui/dist/
+```
+
+### Test commands
+
+```bash
+uv run pytest tests/ -v                            # Run all backend tests
+uv run pytest tests/unit -v                        # Run backend unit tests only
+uv run pytest tests/integration -v                 # Run backend integration tests only
+uv run pytest tests/ --cov=src --cov-report=term   # Backend tests with coverage
+cd ui && bun run test                              # Run frontend tests (vitest)
+cd ui && bun run test:watch                        # Frontend tests in watch mode
+cd tests/e2e && bunx playwright test               # Run E2E tests (requires ui build)
+cd tests/e2e && bunx playwright test --headed      # E2E tests with visible browser
 ```
 
 ## UI
@@ -244,6 +262,57 @@ Commentary about the highlight.
 - **Output**: Confirmation that routing decision was recorded
 - **Constraint**: Must be called exactly once before any `create_note` or `update_note` calls
 
+## Testing
+
+### Testability design
+
+Two refactors enable test imports without side effects:
+- **Lazy store singletons** (`src/store.py`): `get_changeset_store()` / `get_batch_job_store()` replace module-level instantiation. Tests reset the global to inject `:memory:` SQLite.
+- **Deferred config** (`src/server.py`): `load_config()` runs inside `lifespan()`, stored on `app.state`. Route handlers access config via `request.app.state.config`. Tests set `app.state.config` directly.
+
+### Backend tests (pytest)
+
+110 tests in `tests/`. Config in `pyproject.toml` under `[tool.pytest.ini_options]`.
+
+**Root fixtures** (`tests/conftest.py`):
+- `tmp_vault` — temp dir with sample `.md` notes and `.obsidian/` marker
+- `app_config` — `AppConfig` with fake API keys pointing at `tmp_vault`
+
+**Factories** (`tests/factories.py`): `make_content_item()`, `make_zotero_content_item()`, `make_proposed_change()`, `make_routing_info()`, `make_changeset()` — all accept `**overrides`.
+
+**Unit tests** (`tests/unit/`): Pure functions, no mocks. Covers vault reader/writer, chunker, diff, prompts, models, agent tools, zotero parsing.
+
+**Integration tests** (`tests/integration/`): Uses `:memory:` SQLite stores (via `tests/integration/conftest.py`), `tmp_path` filesystem, and `httpx.AsyncClient` with `ASGITransport` for server route tests. Covers store CRUD, vault I/O, changeset apply, vault map, server routes.
+
+### Frontend tests (vitest)
+
+46 tests in `ui/src/__tests__/`. Config in `ui/vitest.config.ts` (jsdom environment).
+
+**MSW setup** (`ui/src/__tests__/setup.ts`, `handlers.ts`): Mock Service Worker intercepts all API fetch calls with canned responses. Tests override specific handlers via `server.use()` for error/edge cases.
+
+**Factories** (`ui/src/__tests__/factories.ts`): `makeContentItem()`, `makeProposedChange()`, `makeChangeset()`, `makePaper()`, `makeAnnotation()`, `makeCollection()`.
+
+**Test files**: `utils/obsidian.test.ts`, `utils/diff.test.ts`, `components/ErrorAlert.test.tsx`, `components/CollectionTree.test.tsx`, `components/DiffViewer.test.tsx`, `api/client.test.ts`.
+
+**Extracted module**: `ui/src/utils/diff.ts` — `computeLines()` and `groupLines()` extracted from `DiffViewer.tsx` for direct unit testing.
+
+### E2E tests (Playwright)
+
+14 tests in `tests/e2e/specs/`. Config in `tests/e2e/playwright.config.ts`.
+
+Uses Playwright's `page.route()` for API mocking (no real backend needed). Serves the built UI via `vite preview`. Mock data defined in `tests/e2e/mock-api.ts`.
+
+**Specs**: `health.spec.ts` (page load, header, Zotero config), `papers.spec.ts` (paper list, search, filters, sidebar), `sync-flow.spec.ts` (full paper → annotations → process → review flow).
+
+**Prerequisite**: `cd ui && bun run build` before running E2E tests.
+
+### CI pipeline
+
+`.github/workflows/test.yml` runs on push/PR to `main`:
+- **backend** job: `uv sync --dev` → `pytest` with coverage
+- **frontend** job: `bun install` → `vitest`
+- **e2e** job (depends on frontend): build UI → install Playwright → run specs
+
 ## File Structure
 
 ```
@@ -260,7 +329,7 @@ vault-agent/
 │   ├── __init__.py
 │   ├── server.py
 │   ├── config.py
-│   ├── store.py               # SQLite changeset store
+│   ├── store.py               # SQLite changeset + batch job store (lazy singletons)
 │   ├── models/
 │   │   ├── __init__.py        # Re-exports all models
 │   │   ├── content.py         # ContentItem, SourceMetadata, SourceType
@@ -279,7 +348,8 @@ vault-agent/
 │   │   ├── tools.py
 │   │   ├── prompts.py
 │   │   ├── changeset.py       # Applies approved changes to vault
-│   │   └── diff.py            # Unified diff generation
+│   │   ├── diff.py            # Unified diff generation
+│   │   └── wikify.py          # Post-processing wikilink auto-linker
 │   ├── rag/
 │   │   ├── __init__.py
 │   │   ├── chunker.py
@@ -293,10 +363,40 @@ vault-agent/
 │       ├── sync.py            # Annotation → ContentItem conversion
 │       ├── orchestrator.py    # Sync coordination
 │       └── background.py     # Background cache refresh
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py            # Root fixtures: tmp_vault, app_config
+│   ├── factories.py           # Test data builders
+│   ├── unit/
+│   │   ├── test_vault_reader.py
+│   │   ├── test_vault_writer.py
+│   │   ├── test_vault_init.py
+│   │   ├── test_chunker.py
+│   │   ├── test_diff.py
+│   │   ├── test_prompts.py
+│   │   ├── test_models.py
+│   │   ├── test_agent_tools.py
+│   │   └── test_zotero_parsing.py
+│   ├── integration/
+│   │   ├── conftest.py        # :memory: store fixtures
+│   │   ├── test_store.py
+│   │   ├── test_vault_io.py
+│   │   ├── test_changeset_apply.py
+│   │   ├── test_vault_map.py
+│   │   └── test_server_routes.py
+│   └── e2e/
+│       ├── package.json       # Playwright dependency
+│       ├── playwright.config.ts
+│       ├── mock-api.ts        # Route interception helpers
+│       └── specs/
+│           ├── health.spec.ts
+│           ├── papers.spec.ts
+│           └── sync-flow.spec.ts
 ├── ui/
 │   ├── index.html
 │   ├── package.json
 │   ├── vite.config.ts
+│   ├── vitest.config.ts       # Test config (jsdom, MSW setup)
 │   ├── tsconfig.json
 │   └── src/
 │       ├── main.tsx           # Entry point
@@ -314,12 +414,27 @@ vault-agent/
 │       │   ├── MarkdownPreview.tsx
 │       │   ├── CollectionTree.tsx
 │       │   └── ErrorAlert.tsx
-│       └── utils/
-│           └── obsidian.ts    # Wikilink/tag/embed preprocessing
+│       ├── utils/
+│       │   ├── obsidian.ts    # Wikilink/tag/embed preprocessing
+│       │   └── diff.ts        # Diff computation (extracted from DiffViewer)
+│       └── __tests__/
+│           ├── setup.ts       # MSW server lifecycle
+│           ├── handlers.ts    # MSW request handlers
+│           ├── factories.ts   # TS test data builders
+│           ├── utils/
+│           │   ├── obsidian.test.ts
+│           │   └── diff.test.ts
+│           ├── components/
+│           │   ├── ErrorAlert.test.tsx
+│           │   ├── CollectionTree.test.tsx
+│           │   └── DiffViewer.test.tsx
+│           └── api/
+│               └── client.test.ts
 ├── .github/
 │   └── workflows/
 │       ├── claude.yml
-│       └── claude-code-review.yml
+│       ├── claude-code-review.yml
+│       └── test.yml           # CI: backend + frontend + e2e
 ├── test-highlights/
 │   └── highlights.json
 └── .claude/

@@ -7,6 +7,7 @@ import {
   fetchZoteroPapersCacheStatus,
   triggerZoteroPapersRefresh,
   syncZoteroPaper,
+  fetchChangesetCost,
 } from "../api/client";
 import type {
   ZoteroStatus,
@@ -14,6 +15,7 @@ import type {
   ZoteroAnnotationItem,
   ZoteroCollection,
   Changeset,
+  TokenUsage,
 } from "../types";
 import { ErrorAlert } from "./ErrorAlert";
 import { formatError } from "../utils";
@@ -77,6 +79,86 @@ function StepIndicator({
   );
 }
 
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function CostPopover({
+  changesetId,
+  onClose,
+}: {
+  changesetId: string;
+  onClose: () => void;
+}) {
+  const [usage, setUsage] = useState<TokenUsage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchChangesetCost(changesetId)
+      .then(setUsage)
+      .finally(() => setLoading(false));
+  }, [changesetId]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className="absolute right-0 top-full mt-1 z-10 bg-surface border border-border rounded p-3 shadow-lg min-w-[180px] text-xs"
+    >
+      {loading ? (
+        <span className="text-muted animate-pulse">Loading...</span>
+      ) : !usage ? (
+        <span className="text-muted">No cost data</span>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex justify-between">
+            <span className="text-muted">Total cost</span>
+            <span className="font-medium">
+              ${usage.total_cost_usd.toFixed(4)}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted">Tokens</span>
+            <span>
+              {formatTokens(usage.input_tokens)} in &middot;{" "}
+              {formatTokens(usage.output_tokens)} out
+              {(usage.cache_write_tokens > 0 ||
+                usage.cache_read_tokens > 0) && (
+                <>
+                  {" "}
+                  &middot;{" "}
+                  {formatTokens(
+                    usage.cache_write_tokens + usage.cache_read_tokens,
+                  )}{" "}
+                  cache
+                </>
+              )}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted">API calls</span>
+            <span>{usage.api_calls}</span>
+          </div>
+          {usage.is_batch && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent self-start">
+              Batch (50% off)
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ZoteroSync() {
   const [status, setStatus] = useState<ZoteroStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -118,6 +200,7 @@ export function ZoteroSync() {
     null,
   );
 
+  const [costPopoverKey, setCostPopoverKey] = useState<string | null>(null);
   const lastCacheUpdatedAtRef = useRef<string | null>(null);
 
   // Debounce search input
@@ -490,12 +573,35 @@ export function ZoteroSync() {
                               {paper.year ? ` (${paper.year})` : ""}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex items-center gap-2 flex-shrink-0 relative">
                             {paper.annotation_count != null &&
                               paper.annotation_count > 0 && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent">
                                   {paper.annotation_count}
                                 </span>
+                              )}
+                            {paper.changeset_id && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCostPopoverKey(
+                                    costPopoverKey === paper.key
+                                      ? null
+                                      : paper.key,
+                                  );
+                                }}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-muted hover:text-accent hover:border-accent cursor-pointer"
+                                title="View LLM cost"
+                              >
+                                $
+                              </button>
+                            )}
+                            {costPopoverKey === paper.key &&
+                              paper.changeset_id && (
+                                <CostPopover
+                                  changesetId={paper.changeset_id}
+                                  onClose={() => setCostPopoverKey(null)}
+                                />
                               )}
                             <span
                               className={`text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap ${
