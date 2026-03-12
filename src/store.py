@@ -158,5 +158,19 @@ class BatchJobStore:
         self._conn.commit()
 
 
-changeset_store = ChangesetStore()
-batch_job_store = BatchJobStore()
+_changeset_store: ChangesetStore | None = None
+_batch_job_store: BatchJobStore | None = None
+
+
+def get_changeset_store() -> ChangesetStore:
+    global _changeset_store
+    if _changeset_store is None:
+        _changeset_store = ChangesetStore()
+    return _changeset_store
+
+
+def get_batch_job_store() -> BatchJobStore:
+    global _batch_job_store
+    if _batch_job_store is None:
+        _batch_job_store = BatchJobStore()
+    return _batch_job_store

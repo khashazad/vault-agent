@@ -27,7 +27,7 @@ from src.agent.diff import generate_diff
 from src.vault import validate_path
 from src.vault.reader import build_vault_map
 from src.vault.writer import compute_create, compute_update
-from src.store import changeset_store
+from src.store import get_changeset_store
 
 logger = logging.getLogger("vault-agent")
 
@@ -437,7 +437,7 @@ async def generate_changeset(
         feedback=feedback,
         parent_changeset_id=parent_changeset_id,
     )
-    changeset_store.set(changeset)
+    get_changeset_store().set(changeset)
 
     return changeset
 
@@ -513,7 +513,7 @@ async def generate_zotero_note(
         source_type="zotero",
         routing=routing,
     )
-    changeset_store.set(changeset)
+    get_changeset_store().set(changeset)
 
     _log_token_usage(len(items), 1, 0, *_extract_usage(response))
 
@@ -623,6 +623,6 @@ async def poll_zotero_batch(
         source_type="zotero",
         routing=routing,
     )
-    changeset_store.set(changeset)
+    get_changeset_store().set(changeset)
 
     return "completed", changeset

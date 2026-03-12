@@ -7,7 +7,7 @@ from pathlib import Path
 
 import anthropic
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -42,7 +42,7 @@ from src.models import (
 from src.vault.reader import build_vault_map
 from src.agent.agent import generate_zotero_note, submit_zotero_note_batch, poll_zotero_batch
 from src.agent.changeset import apply_changeset
-from src.store import changeset_store, batch_job_store
+from src.store import get_changeset_store, get_batch_job_store
 from src.rag.indexer import index_vault
 from src.rag.search import search_vault
 from src.rag.embedder import MODEL as EMBEDDING_MODEL
@@ -52,21 +52,26 @@ from src.zotero.background import ZoteroPaperCacheSyncer
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vault-agent")
 
-config = load_config()
-
 paper_cache_syncer: ZoteroPaperCacheSyncer | None = None
 
 
-# Manage app lifecycle: start/stop the Zotero paper cache syncer.
+# Manage app lifecycle: load config, start/stop the Zotero paper cache syncer.
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global paper_cache_syncer
+    if not hasattr(app.state, "config"):
+        app.state.config = load_config()
+    config = app.state.config
     if config.zotero_api_key and config.zotero_library_id:
         paper_cache_syncer = ZoteroPaperCacheSyncer(config)
         paper_cache_syncer.start()
     yield
     if paper_cache_syncer is not None:
         paper_cache_syncer.stop()
+
+
+def _get_config(request: Request):
+    return request.app.state.config
 
 
 app = FastAPI(
@@ -134,7 +139,7 @@ def _handle_anthropic_error(err: Exception, context: str) -> JSONResponse:
 # Raises:
 #     HTTPException: When changeset ID does not exist in the store.
 def _get_changeset_or_404(changeset_id: str):
-    cs = changeset_store.get(changeset_id)
+    cs = get_changeset_store().get(changeset_id)
     if not cs:
         raise HTTPException(status_code=404, detail="Changeset not found")
     return cs
@@ -148,14 +153,15 @@ def _reject_changeset(cs):
     cs.status = "rejected"
     for change in cs.changes:
         change.status = "rejected"
-    changeset_store.set(cs)
+    get_changeset_store().set(cs)
 
 
 # Raise HTTP 400 if Zotero API key or library ID is not configured.
 #
 # Raises:
 #     HTTPException: When Zotero credentials are missing.
-def _require_zotero():
+def _require_zotero(request: Request):
+    config = _get_config(request)
     if not config.zotero_api_key or not config.zotero_library_id:
         raise HTTPException(
             status_code=400,
@@ -167,9 +173,10 @@ def _require_zotero():
 #
 # Returns:
 #     Configured ZoteroClient instance.
-def _create_zotero_client():
+def _create_zotero_client(request: Request):
     from src.zotero.client import ZoteroClient
 
+    config = _get_config(request)
     return ZoteroClient(
         library_id=config.zotero_library_id,
         library_type=config.zotero_library_type,
@@ -185,7 +192,8 @@ def _create_zotero_client():
     summary="Health check",
     description="Returns server status, whether a vault is configured, and the current UTC timestamp.",
 )
-async def health():
+async def health(request: Request):
+    config = _get_config(request)
     return {
         "status": "ok",
         "vaultConfigured": bool(config.vault_path),
@@ -201,7 +209,8 @@ async def health():
     summary="Get vault map",
     description="Returns the vault structure including total note count and per-note summaries with paths, titles, wikilinks, and headings.",
 )
-async def vault_map():
+async def vault_map(request: Request):
+    config = _get_config(request)
     vm = build_vault_map(config.vault_path)
     return {"totalNotes": vm.total_notes, "notes": vm.notes}
 
@@ -238,7 +247,7 @@ async def update_change_status(
     for change in cs.changes:
         if change.id == change_id:
             change.status = body.status
-            changeset_store.set(cs)
+            get_changeset_store().set(cs)
             return {"id": change_id, "status": change.status}
 
     return JSONResponse({"error": "Change not found"}, status_code=404)
@@ -252,7 +261,7 @@ async def update_change_status(
     summary="Apply changeset",
     description="Write approved changes to the vault filesystem. Optionally pass specific change_ids; otherwise all approved changes are applied.",
 )
-async def apply(changeset_id: str, body: ApplyRequest | None = None):
+async def apply(changeset_id: str, request: Request, body: ApplyRequest | None = None):
     cs = _get_changeset_or_404(changeset_id)
 
     if cs.status in ("applied", "rejected", "skipped"):
@@ -260,6 +269,7 @@ async def apply(changeset_id: str, body: ApplyRequest | None = None):
             {"error": f"Changeset already {cs.status}"}, status_code=400
         )
 
+    config = _get_config(request)
     approved_ids = body.change_ids if body else None
     result = apply_changeset(config.vault_path, cs, approved_ids)
 
@@ -267,7 +277,7 @@ async def apply(changeset_id: str, body: ApplyRequest | None = None):
         cs.status = "partially_applied"
     else:
         cs.status = "applied"
-    changeset_store.set(cs)
+    get_changeset_store().set(cs)
 
     return result
 
@@ -297,7 +307,8 @@ async def reject(changeset_id: str):
     summary="Index vault",
     description="Scan the vault, chunk notes by heading, embed via Voyage AI, and upsert into LanceDB. Incremental — only re-embeds changed chunks.",
 )
-async def vault_index():
+async def vault_index(request: Request):
+    config = _get_config(request)
     stats = await index_vault(
         config.vault_path, config.voyage_api_key, config.lancedb_path
     )
@@ -312,7 +323,8 @@ async def vault_index():
     summary="Search vault",
     description="Hybrid semantic + full-text search across indexed vault chunks. Returns ranked results with similarity scores.",
 )
-async def vault_search(q: str, n: int = 10):
+async def vault_search(q: str, request: Request, n: int = 10):
+    config = _get_config(request)
     n = min(n, 100)
     results = await search_vault(q, config.voyage_api_key, config.lancedb_path, n=n)
     overall_search_type = results[0].search_type if results else "hybrid"
@@ -346,8 +358,9 @@ async def vault_search(q: str, n: int = 10):
     summary="Sync Zotero library",
     description="Sync papers from Zotero, process annotations through the agent, and create changesets. Supports filtering by collection or paper keys.",
 )
-async def zotero_sync(body: ZoteroSyncRequest | None = None):
-    _require_zotero()
+async def zotero_sync(request: Request, body: ZoteroSyncRequest | None = None):
+    _require_zotero(request)
+    config = _get_config(request)
     from src.zotero.orchestrator import sync_zotero
 
     return await sync_zotero(config, body)
@@ -361,8 +374,8 @@ async def zotero_sync(body: ZoteroSyncRequest | None = None):
     summary="List collections",
     description="List all Zotero collections. Uses cached data when available, falls back to live API fetch.",
 )
-async def zotero_collections():
-    _require_zotero()
+async def zotero_collections(request: Request):
+    _require_zotero(request)
     from src.zotero.sync import ZoteroSyncState
 
     sync_state = ZoteroSyncState()
@@ -371,7 +384,7 @@ async def zotero_collections():
         items = [ZoteroCollection(**c) for c in cached]
         return ZoteroCollectionsResponse(collections=items, total=len(items))
     # Cache empty — fetch live
-    client = _create_zotero_client()
+    client = _create_zotero_client(request)
     collections = client.fetch_collections()
     items = [ZoteroCollection(**asdict(c)) for c in collections]
     return ZoteroCollectionsResponse(collections=items, total=len(items))
@@ -385,8 +398,8 @@ async def zotero_collections():
     summary="Paper cache status",
     description="Returns the number of cached papers, when the cache was last updated, and whether a background sync is in progress.",
 )
-async def zotero_papers_cache_status():
-    _require_zotero()
+async def zotero_papers_cache_status(request: Request):
+    _require_zotero(request)
     from src.zotero.sync import ZoteroSyncState
 
     sync_state = ZoteroSyncState()
@@ -407,8 +420,8 @@ async def zotero_papers_cache_status():
     summary="Refresh paper cache",
     description="Trigger a background sync of the Zotero paper cache. Returns immediately; sync runs asynchronously.",
 )
-async def zotero_papers_refresh():
-    _require_zotero()
+async def zotero_papers_refresh(request: Request):
+    _require_zotero(request)
     if paper_cache_syncer is None:
         return JSONResponse(
             {"error": "Paper cache syncer is not running."},
@@ -449,13 +462,14 @@ def _to_paper_summary(p: dict, syncs: dict) -> ZoteroPaperSummary:
     description="List Zotero papers with pagination, optional collection filter, text search, and sync status filter.",
 )
 async def zotero_papers(
+    request: Request,
     collection_key: str | None = None,
     offset: int = 0,
     limit: int = 25,
     search: str | None = None,
     sync_status: str | None = None,
 ):
-    _require_zotero()
+    _require_zotero(request)
     from src.zotero.sync import ZoteroSyncState
 
     sync_state = ZoteroSyncState()
@@ -463,7 +477,7 @@ async def zotero_papers(
 
     if collection_key:
         # Live fetch from Zotero, slice in memory
-        client = _create_zotero_client()
+        client = _create_zotero_client(request)
         papers = client.fetch_papers(collection_key)
         # Enrich with cached annotation counts (API doesn't return them)
         cached_papers = {p["key"]: p for p in sync_state.get_all_cached_papers()}
@@ -514,11 +528,11 @@ async def zotero_papers(
     summary="Get paper annotations",
     description="Fetch all annotations (highlights, notes) for a specific paper from Zotero.",
 )
-async def zotero_paper_annotations(paper_key: str):
-    _require_zotero()
+async def zotero_paper_annotations(paper_key: str, request: Request):
+    _require_zotero(request)
     from src.zotero.client import _extract_paper_metadata
 
-    client = _create_zotero_client()
+    client = _create_zotero_client(request)
     paper_item = client.fetch_item(paper_key)
     metadata = _extract_paper_metadata(paper_item, paper_key)
     annotations = client.fetch_paper_annotations(paper_key)
@@ -550,14 +564,15 @@ async def zotero_paper_annotations(paper_key: str):
     summary="Sync paper",
     description="Process a single paper's annotations through the agent and return a changeset. Optionally exclude specific annotations.",
 )
-async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
-    _require_zotero()
+async def zotero_paper_sync(paper_key: str, request: Request, body: ZoteroPaperSyncRequest):
+    _require_zotero(request)
+    config = _get_config(request)
     try:
         from src.zotero.client import ZoteroPaper, _extract_paper_metadata
         from src.zotero.orchestrator import _paper_to_content_items
         from src.zotero.sync import ZoteroSyncState
 
-        client = _create_zotero_client()
+        client = _create_zotero_client(request)
         paper_item = client.fetch_item(paper_key)
         metadata = _extract_paper_metadata(paper_item, paper_key)
         annotations = client.fetch_paper_annotations(paper_key)
@@ -583,7 +598,7 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
 
             batch_id = await submit_zotero_note_batch(config, items, paper_key)
             items_json = json.dumps([item.model_dump() for item in items])
-            batch_job_store.set(
+            get_batch_job_store().set(
                 paper_key=paper_key,
                 batch_id=batch_id,
                 status="pending",
@@ -618,9 +633,10 @@ async def zotero_paper_sync(paper_key: str, body: ZoteroPaperSyncRequest):
     summary="Batch job status",
     description="Poll the Anthropic Batch API for a paper's async synthesis job. When complete, creates the changeset.",
 )
-async def zotero_paper_batch_status(paper_key: str):
-    _require_zotero()
-    job = batch_job_store.get(paper_key)
+async def zotero_paper_batch_status(paper_key: str, request: Request):
+    _require_zotero(request)
+    config = _get_config(request)
+    job = get_batch_job_store().get(paper_key)
     if not job:
         raise HTTPException(status_code=404, detail="No batch job found for this paper")
 
@@ -646,17 +662,17 @@ async def zotero_paper_batch_status(paper_key: str):
         changeset_id = None
         if status == "completed" and changeset:
             changeset_id = changeset.id
-            batch_job_store.update_status(paper_key, "completed", changeset_id)
+            get_batch_job_store().update_status(paper_key, "completed", changeset_id)
             meta = items[0].source_metadata
             title = meta.title if meta else "Unknown"
             sync_state = ZoteroSyncState()
             sync_state.set_paper_sync(paper_key, title, changeset.id)
         elif status == "ended":
             # Ended but no result for this paper
-            batch_job_store.update_status(paper_key, "failed")
+            get_batch_job_store().update_status(paper_key, "failed")
             status = "failed"
         else:
-            batch_job_store.update_status(paper_key, status)
+            get_batch_job_store().update_status(paper_key, status)
 
         return BatchJobStatusResponse(
             paper_key=paper_key,
@@ -678,7 +694,8 @@ async def zotero_paper_batch_status(paper_key: str):
     summary="Zotero status",
     description="Check whether Zotero is configured and return the last sync version and timestamp.",
 )
-async def zotero_status():
+async def zotero_status(request: Request):
+    config = _get_config(request)
     configured = bool(config.zotero_api_key and config.zotero_library_id)
     last_version = None
     last_synced = None
@@ -705,9 +722,10 @@ if ui_dist.exists():
 
 
 if __name__ == "__main__":
+    _config = load_config()
     uvicorn.run(
         "src.server:app",
         host="127.0.0.1",
-        port=config.port,
+        port=_config.port,
         reload=True,
     )
