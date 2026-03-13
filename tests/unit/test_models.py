@@ -1,8 +1,16 @@
 import pytest
 from pydantic import ValidationError
 
-from src.models import Changeset, ContentItem, UpdateNoteInput
-from tests.factories import make_content_item
+from src.models import (
+    Changeset,
+    ChangeContentUpdate,
+    ChangesetListResponse,
+    ChangesetSummary,
+    ContentItem,
+    FeedbackRequest,
+    UpdateNoteInput,
+)
+from tests.factories import make_content_item, make_routing_info
 
 
 class TestChangesetMigration:
@@ -46,6 +54,83 @@ class TestContentItem:
     def test_invalid_source_type(self):
         with pytest.raises(ValidationError):
             ContentItem(text="test", source="test", source_type="invalid")
+
+
+class TestChangesetStatus:
+    def test_revision_requested_status_accepted(self):
+        data = {
+            "id": "test-id",
+            "items": [make_content_item().model_dump()],
+            "changes": [],
+            "reasoning": "test",
+            "status": "revision_requested",
+            "created_at": "2024-01-01T00:00:00Z",
+        }
+        cs = Changeset.model_validate(data)
+        assert cs.status == "revision_requested"
+
+
+class TestFeedbackRequest:
+    def test_valid(self):
+        req = FeedbackRequest(feedback="Please change the heading")
+        assert req.feedback == "Please change the heading"
+
+    def test_empty_allowed(self):
+        req = FeedbackRequest(feedback="")
+        assert req.feedback == ""
+
+
+class TestChangeContentUpdate:
+    def test_status_only(self):
+        update = ChangeContentUpdate(status="approved")
+        assert update.status == "approved"
+        assert update.proposed_content is None
+
+    def test_content_only(self):
+        update = ChangeContentUpdate(proposed_content="# New content")
+        assert update.proposed_content == "# New content"
+        assert update.status is None
+
+    def test_both(self):
+        update = ChangeContentUpdate(status="approved", proposed_content="# New")
+        assert update.status == "approved"
+        assert update.proposed_content == "# New"
+
+
+class TestChangesetSummary:
+    def test_valid(self):
+        summary = ChangesetSummary(
+            id="cs-1",
+            status="pending",
+            created_at="2024-01-01T00:00:00Z",
+            source_type="web",
+            change_count=2,
+            routing=make_routing_info(),
+            feedback=None,
+            parent_changeset_id=None,
+        )
+        assert summary.change_count == 2
+
+    def test_with_feedback(self):
+        summary = ChangesetSummary(
+            id="cs-1",
+            status="revision_requested",
+            created_at="2024-01-01T00:00:00Z",
+            source_type="zotero",
+            change_count=1,
+            routing=None,
+            feedback="Fix the heading",
+            parent_changeset_id="cs-0",
+        )
+        assert summary.feedback == "Fix the heading"
+        assert summary.parent_changeset_id == "cs-0"
+
+
+class TestChangesetListResponse:
+    def test_valid(self):
+        resp = ChangesetListResponse(changesets=[], total=0)
+        assert resp.total == 0
+        assert resp.changesets == []
 
 
 class TestUpdateNoteInput:

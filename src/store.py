@@ -69,6 +69,33 @@ class ChangesetStore:
             return None
         return Changeset.model_validate_json(row["data"])
 
+    # Retrieve changesets with optional status filter and pagination.
+    #
+    # Args:
+    #     status: Filter by changeset status (None = all).
+    #     offset: Number of rows to skip.
+    #     limit: Max rows to return.
+    #
+    # Returns:
+    #     Tuple of (matching changesets, total count).
+    def get_all_filtered(
+        self,
+        status: str | None = None,
+        offset: int = 0,
+        limit: int = 25,
+    ) -> tuple[list[Changeset], int]:
+        where = "WHERE status = ?" if status else ""
+        params = (status,) if status else ()
+
+        total = self._conn.execute(
+            f"SELECT COUNT(*) as cnt FROM changesets {where}", params
+        ).fetchone()["cnt"]
+        rows = self._conn.execute(
+            f"SELECT data FROM changesets {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        return [Changeset.model_validate_json(r["data"]) for r in rows], total
+
     # Retrieve all changesets ordered by created_at descending.
     #
     # Returns:

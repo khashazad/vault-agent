@@ -18,10 +18,13 @@ from src.models import (
     ApplyRequest,
     ApplyResponse,
     BatchJobStatusResponse,
+    ChangeContentUpdate,
     Changeset,
+    ChangesetListResponse,
+    ChangesetSummary,
     ChangeStatusResponse,
-    ChangeStatusUpdate,
     ChunkInfo,
+    FeedbackRequest,
     HealthResponse,
     IndexResponse,
     PaperCacheStatusResponse,
@@ -223,6 +226,36 @@ async def vault_map(request: Request):
 # --- Changeset routes ---
 
 
+# List changesets with optional status filter and pagination.
+@app.get(
+    "/changesets",
+    response_model=ChangesetListResponse,
+    tags=["Changesets"],
+    summary="List changesets",
+    description="List all changesets with optional status filter and pagination.",
+)
+async def list_changesets(
+    status: str | None = None,
+    offset: int = 0,
+    limit: int = 25,
+):
+    changesets, total = get_changeset_store().get_all_filtered(status, offset, limit)
+    summaries = [
+        ChangesetSummary(
+            id=cs.id,
+            status=cs.status,
+            created_at=cs.created_at,
+            source_type=cs.source_type,
+            change_count=len(cs.changes),
+            routing=cs.routing,
+            feedback=cs.feedback,
+            parent_changeset_id=cs.parent_changeset_id,
+        )
+        for cs in changesets
+    ]
+    return ChangesetListResponse(changesets=summaries, total=total)
+
+
 # Retrieve a changeset by ID.
 @app.get(
     "/changesets/{changeset_id}",
@@ -236,22 +269,32 @@ async def get_changeset(changeset_id: str):
     return cs.model_dump()
 
 
-# Set an individual proposed change to approved or rejected.
+# Update an individual proposed change: status, content, or both.
 @app.patch(
     "/changesets/{changeset_id}/changes/{change_id}",
     response_model=ChangeStatusResponse,
     tags=["Changesets"],
-    summary="Update change status",
-    description="Set an individual proposed change to approved or rejected.",
+    summary="Update change",
+    description="Update a proposed change's status and/or content. When content is updated, the diff is recalculated.",
 )
 async def update_change_status(
-    changeset_id: str, change_id: str, body: ChangeStatusUpdate
+    changeset_id: str, change_id: str, body: ChangeContentUpdate
 ):
     cs = _get_changeset_or_404(changeset_id)
 
     for change in cs.changes:
         if change.id == change_id:
-            change.status = body.status
+            if body.proposed_content is not None:
+                from src.agent.diff import generate_diff
+
+                change.proposed_content = body.proposed_content
+                change.diff = generate_diff(
+                    change.input.get("path", ""),
+                    change.original_content or "",
+                    body.proposed_content,
+                )
+            if body.status is not None:
+                change.status = body.status
             get_changeset_store().set(cs)
             return {"id": change_id, "status": change.status}
 
@@ -299,6 +342,57 @@ async def reject(changeset_id: str):
     cs = _get_changeset_or_404(changeset_id)
     _reject_changeset(cs)
     return {"id": cs.id, "status": "rejected"}
+
+
+# Submit feedback on a changeset and request revision.
+@app.post(
+    "/changesets/{changeset_id}/request-changes",
+    tags=["Changesets"],
+    summary="Request changes",
+    description="Submit feedback and mark a changeset for revision. Status must be pending or partially_applied.",
+)
+async def request_changes(changeset_id: str, body: FeedbackRequest):
+    cs = _get_changeset_or_404(changeset_id)
+    if cs.status not in ("pending", "partially_applied"):
+        return JSONResponse(
+            {"error": f"Cannot request changes on a {cs.status} changeset"},
+            status_code=400,
+        )
+    cs.status = "revision_requested"
+    cs.feedback = body.feedback
+    get_changeset_store().set(cs)
+    return {"id": cs.id, "status": cs.status, "feedback": cs.feedback}
+
+
+# Regenerate a changeset using stored feedback.
+@app.post(
+    "/changesets/{changeset_id}/regenerate",
+    response_model=Changeset,
+    tags=["Changesets"],
+    summary="Regenerate changeset",
+    description="Re-run the agent with stored feedback from request-changes. Status must be revision_requested.",
+)
+async def regenerate(changeset_id: str, request: Request):
+    cs = _get_changeset_or_404(changeset_id)
+    if cs.status != "revision_requested":
+        return JSONResponse(
+            {"error": f"Cannot regenerate a {cs.status} changeset"},
+            status_code=400,
+        )
+    config = _get_config(request)
+    try:
+        from src.agent.agent import generate_changeset
+
+        new_cs = await generate_changeset(
+            config,
+            cs.items,
+            feedback=cs.feedback,
+            previous_reasoning=cs.reasoning,
+            parent_changeset_id=cs.id,
+        )
+        return new_cs.model_dump()
+    except Exception as err:
+        return _handle_anthropic_error(err, "Error regenerating changeset")
 
 
 # --- RAG routes ---

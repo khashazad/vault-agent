@@ -1,5 +1,6 @@
 import type {
   Changeset,
+  ChangesetListResponse,
   TokenUsage,
   ZoteroStatus,
   ZoteroPapersResponse,
@@ -19,6 +20,19 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 async function fetchVoid(url: string, options?: RequestInit): Promise<void> {
   const res = await fetch(url, options);
   if (!res.ok) throw new Error(await res.text());
+}
+
+export function fetchChangesets(opts?: {
+  status?: string;
+  offset?: number;
+  limit?: number;
+}): Promise<ChangesetListResponse> {
+  const params = new URLSearchParams();
+  if (opts?.status) params.set("status", opts.status);
+  if (opts?.offset) params.set("offset", String(opts.offset));
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return fetchJSON(`${BASE}/changesets${qs ? `?${qs}` : ""}`);
 }
 
 export function fetchChangeset(id: string): Promise<Changeset> {
@@ -113,5 +127,36 @@ export function syncZoteroPaper(
       excluded_annotation_keys: excludedAnnotationKeys ?? null,
       model: model ?? "haiku",
     }),
+  });
+}
+
+export function requestChanges(
+  changesetId: string,
+  feedback: string,
+): Promise<{ id: string; status: string; feedback: string }> {
+  return fetchJSON(`${BASE}/changesets/${changesetId}/request-changes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ feedback }),
+  });
+}
+
+export function regenerateChangeset(
+  changesetId: string,
+): Promise<Changeset> {
+  return fetchJSON(`${BASE}/changesets/${changesetId}/regenerate`, {
+    method: "POST",
+  });
+}
+
+export function updateChangeContent(
+  changesetId: string,
+  changeId: string,
+  proposedContent: string,
+): Promise<void> {
+  return fetchVoid(`${BASE}/changesets/${changesetId}/changes/${changeId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ proposed_content: proposedContent }),
   });
 }

@@ -1,8 +1,10 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 
 from src.server import app
-from tests.factories import make_changeset
+from tests.factories import make_changeset, make_proposed_change
 import src.store as store_module
 from src.store import ChangesetStore
 
@@ -83,7 +85,6 @@ class TestChangesetRoutes:
 
     async def test_apply_changeset(self, client, tmp_vault):
         from src.store import get_changeset_store
-        from tests.factories import make_proposed_change
 
         change = make_proposed_change(
             tool_name="create_note",
@@ -97,3 +98,134 @@ class TestChangesetRoutes:
         assert resp.status_code == 200
         data = resp.json()
         assert change.id in data["applied"]
+
+
+class TestChangesetHistoryRoutes:
+    async def test_list_changesets_empty(self, client):
+        resp = await client.get("/changesets")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["changesets"] == []
+        assert data["total"] == 0
+
+    async def test_list_changesets_with_data(self, client):
+        from src.store import get_changeset_store
+
+        store = get_changeset_store()
+        store.set(make_changeset(status="pending"))
+        store.set(make_changeset(status="applied"))
+
+        resp = await client.get("/changesets")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        assert len(data["changesets"]) == 2
+        # Should have change_count field
+        assert "change_count" in data["changesets"][0]
+
+    async def test_list_changesets_filtered(self, client):
+        from src.store import get_changeset_store
+
+        store = get_changeset_store()
+        store.set(make_changeset(status="pending"))
+        store.set(make_changeset(status="applied"))
+
+        resp = await client.get("/changesets?status=applied")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["changesets"][0]["status"] == "applied"
+
+    async def test_list_changesets_paginated(self, client):
+        from src.store import get_changeset_store
+
+        store = get_changeset_store()
+        for _ in range(3):
+            store.set(make_changeset())
+
+        resp = await client.get("/changesets?offset=1&limit=1")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 3
+        assert len(data["changesets"]) == 1
+
+    async def test_update_change_content(self, client):
+        from src.store import get_changeset_store
+
+        cs = make_changeset()
+        change_id = cs.changes[0].id
+        get_changeset_store().set(cs)
+
+        resp = await client.patch(
+            f"/changesets/{cs.id}/changes/{change_id}",
+            json={"proposed_content": "# Updated\n\nNew content."},
+        )
+        assert resp.status_code == 200
+
+        # Verify content was updated
+        updated = get_changeset_store().get(cs.id)
+        assert updated.changes[0].proposed_content == "# Updated\n\nNew content."
+        assert "Updated" in updated.changes[0].diff
+
+    async def test_request_changes(self, client):
+        from src.store import get_changeset_store
+
+        cs = make_changeset(status="pending")
+        get_changeset_store().set(cs)
+
+        resp = await client.post(
+            f"/changesets/{cs.id}/request-changes",
+            json={"feedback": "Use a different heading"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "revision_requested"
+        assert data["feedback"] == "Use a different heading"
+
+    async def test_request_changes_wrong_status(self, client):
+        from src.store import get_changeset_store
+
+        cs = make_changeset(status="applied")
+        get_changeset_store().set(cs)
+
+        resp = await client.post(
+            f"/changesets/{cs.id}/request-changes",
+            json={"feedback": "test"},
+        )
+        assert resp.status_code == 400
+
+    async def test_request_changes_404(self, client):
+        resp = await client.post(
+            "/changesets/nonexistent/request-changes",
+            json={"feedback": "test"},
+        )
+        assert resp.status_code == 404
+
+    async def test_regenerate_wrong_status(self, client):
+        from src.store import get_changeset_store
+
+        cs = make_changeset(status="pending")
+        get_changeset_store().set(cs)
+
+        resp = await client.post(f"/changesets/{cs.id}/regenerate")
+        assert resp.status_code == 400
+
+    @patch("src.agent.agent.generate_changeset", new_callable=AsyncMock)
+    async def test_regenerate_success(self, mock_gen, client):
+        from src.store import get_changeset_store
+
+        cs = make_changeset(status="revision_requested", feedback="Fix heading")
+        get_changeset_store().set(cs)
+
+        new_cs = make_changeset(parent_changeset_id=cs.id)
+        mock_gen.return_value = new_cs
+
+        resp = await client.post(f"/changesets/{cs.id}/regenerate")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["parent_changeset_id"] == cs.id
+
+        mock_gen.assert_called_once()
+        call_kwargs = mock_gen.call_args
+        assert call_kwargs.kwargs["feedback"] == "Fix heading"
+        assert call_kwargs.kwargs["parent_changeset_id"] == cs.id

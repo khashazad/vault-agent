@@ -4,6 +4,16 @@ from pydantic import BaseModel, Field, model_validator
 
 from .content import ContentItem, SourceType
 
+# Valid changeset lifecycle statuses.
+ChangesetStatus = Literal[
+    "pending",
+    "applied",
+    "rejected",
+    "partially_applied",
+    "skipped",
+    "revision_requested",
+]
+
 
 class TokenUsage(BaseModel):
     input_tokens: int
@@ -61,9 +71,9 @@ class Changeset(BaseModel):
     )
     changes: list[ProposedChange] = Field(description="Proposed vault changes")
     reasoning: str = Field(description="Agent's overall reasoning for the changes")
-    status: Literal[
-        "pending", "applied", "rejected", "partially_applied", "skipped"
-    ] = Field(default="pending", description="Current changeset status")
+    status: ChangesetStatus = Field(
+        default="pending", description="Current changeset status"
+    )
     created_at: str = Field(description="ISO 8601 creation timestamp")
     source_type: SourceType = Field(
         default="web", description="Origin type of the content items"
@@ -127,3 +137,30 @@ class ApplyResponse(BaseModel):
 class RejectResponse(BaseModel):
     id: str = Field(description="Changeset identifier")
     status: str = Field(description="New status (rejected)")
+
+
+class FeedbackRequest(BaseModel):
+    feedback: str = Field(description="User feedback for regeneration")
+
+
+class ChangeContentUpdate(BaseModel):
+    status: Literal["approved", "rejected"] | None = None
+    proposed_content: str | None = None
+
+
+class ChangesetSummary(BaseModel):
+    """Lightweight changeset for list view — no diffs/content."""
+
+    id: str
+    status: str
+    created_at: str
+    source_type: SourceType
+    change_count: int
+    routing: RoutingInfo | None
+    feedback: str | None
+    parent_changeset_id: str | None
+
+
+class ChangesetListResponse(BaseModel):
+    changesets: list[ChangesetSummary]
+    total: int

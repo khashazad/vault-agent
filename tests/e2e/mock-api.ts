@@ -1,6 +1,48 @@
 import type { Page } from "@playwright/test";
 
 /** Canned API responses for E2E route interception */
+const MOCK_CHANGESET_SUMMARIES = {
+  changesets: [
+    {
+      id: "cs-hist-1",
+      status: "applied",
+      created_at: "2025-01-15T10:30:00Z",
+      source_type: "zotero",
+      change_count: 1,
+      routing: {
+        action: "create",
+        target_path: "Papers/Attention.md",
+        reasoning: "New paper note",
+        confidence: 0.95,
+        search_results_used: 3,
+        additional_targets: null,
+        duplicate_notes: null,
+      },
+      feedback: null,
+      parent_changeset_id: null,
+    },
+    {
+      id: "cs-hist-2",
+      status: "pending",
+      created_at: "2025-01-14T08:00:00Z",
+      source_type: "web",
+      change_count: 2,
+      routing: {
+        action: "update",
+        target_path: "Notes/ML.md",
+        reasoning: "Appending to existing note",
+        confidence: 0.8,
+        search_results_used: 5,
+        additional_targets: null,
+        duplicate_notes: null,
+      },
+      feedback: null,
+      parent_changeset_id: null,
+    },
+  ],
+  total: 2,
+};
+
 const MOCK_RESPONSES: Record<string, unknown> = {
   "/health": { status: "ok", vault_path: "/mock/vault" },
   "/zotero/status": {
@@ -174,6 +216,37 @@ export async function mockApi(page: Page) {
   await page.route("**/zotero/papers/refresh", (route) => {
     if (route.request().method() === "POST") {
       return route.fulfill({ status: 204 });
+    }
+    return route.fallback();
+  });
+
+  // Changeset list
+  await page.route("**/changesets?*", (route) =>
+    route.fulfill({ json: MOCK_CHANGESET_SUMMARIES })
+  );
+  await page.route("**/changesets", (route) => {
+    if (route.request().url().includes("?")) return route.fallback();
+    // Bare /changesets with no query string (list all)
+    if (route.request().method() === "GET" && !route.request().url().includes("/changesets/")) {
+      return route.fulfill({ json: MOCK_CHANGESET_SUMMARIES });
+    }
+    return route.fallback();
+  });
+
+  // Request changes
+  await page.route("**/changesets/*/request-changes", (route) => {
+    if (route.request().method() === "POST") {
+      return route.fulfill({
+        json: { id: "cs-hist-2", status: "revision_requested", feedback: "Fix heading" },
+      });
+    }
+    return route.fallback();
+  });
+
+  // Regenerate
+  await page.route("**/changesets/*/regenerate", (route) => {
+    if (route.request().method() === "POST") {
+      return route.fulfill({ json: MOCK_CHANGESET });
     }
     return route.fallback();
   });

@@ -36,6 +36,47 @@ class TestChangesetStore:
         assert memory_changeset_store.get(cs.id) is None
 
 
+class TestChangesetStoreFiltered:
+    def test_no_filter(self, memory_changeset_store):
+        cs1 = make_changeset(status="pending")
+        cs2 = make_changeset(status="applied")
+        memory_changeset_store.set(cs1)
+        memory_changeset_store.set(cs2)
+        results, total = memory_changeset_store.get_all_filtered()
+        assert total == 2
+        assert len(results) == 2
+
+    def test_status_filter(self, memory_changeset_store):
+        cs1 = make_changeset(status="pending")
+        cs2 = make_changeset(status="applied")
+        cs3 = make_changeset(status="pending")
+        memory_changeset_store.set(cs1)
+        memory_changeset_store.set(cs2)
+        memory_changeset_store.set(cs3)
+        results, total = memory_changeset_store.get_all_filtered(status="pending")
+        assert total == 2
+        assert len(results) == 2
+        assert all(r.status == "pending" for r in results)
+
+    def test_pagination(self, memory_changeset_store):
+        for _ in range(5):
+            memory_changeset_store.set(make_changeset())
+        results, total = memory_changeset_store.get_all_filtered(offset=2, limit=2)
+        assert total == 5
+        assert len(results) == 2
+
+    def test_empty_results(self, memory_changeset_store):
+        results, total = memory_changeset_store.get_all_filtered()
+        assert total == 0
+        assert results == []
+
+    def test_offset_beyond_total(self, memory_changeset_store):
+        memory_changeset_store.set(make_changeset())
+        results, total = memory_changeset_store.get_all_filtered(offset=100)
+        assert total == 1
+        assert results == []
+
+
 class TestBatchJobStore:
     def test_set_and_get(self, memory_batch_job_store):
         memory_batch_job_store.set(

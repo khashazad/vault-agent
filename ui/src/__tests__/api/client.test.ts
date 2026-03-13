@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   fetchChangeset,
+  fetchChangesets,
   applyChangeset,
   rejectChangeset,
   updateChangeStatus,
+  requestChanges,
+  regenerateChangeset,
+  updateChangeContent,
   fetchZoteroStatus,
   fetchZoteroPapers,
   fetchZoteroCollections,
@@ -70,5 +74,28 @@ describe("API client", () => {
 
   it("triggerZoteroPapersRefresh completes", async () => {
     await expect(triggerZoteroPapersRefresh()).resolves.toBeUndefined();
+  });
+
+  it("fetchChangesets returns list", async () => {
+    const resp = await fetchChangesets();
+    expect(resp.changesets.length).toBeGreaterThan(0);
+    expect(resp.total).toBe(1);
+  });
+
+  it("requestChanges returns updated status", async () => {
+    const resp = await requestChanges("cs-123", "Fix heading");
+    expect(resp.status).toBe("revision_requested");
+    expect(resp.feedback).toBe("Fix heading");
+  });
+
+  it("regenerateChangeset returns new changeset", async () => {
+    const cs = await regenerateChangeset("cs-123");
+    expect(cs.id).toBe("cs-regenerated");
+  });
+
+  it("updateChangeContent completes", async () => {
+    await expect(
+      updateChangeContent("cs-123", "change-1", "# Updated"),
+    ).resolves.toBeUndefined();
   });
 });

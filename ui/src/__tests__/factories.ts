@@ -1,7 +1,9 @@
 import type {
   Changeset,
+  ChangesetSummary,
   ProposedChange,
   ContentItem,
+  PassageAnnotation,
   ZoteroPaperSummary,
   ZoteroAnnotationItem,
   ZoteroCollection,
@@ -56,6 +58,30 @@ export function makeChangeset(overrides?: Partial<Changeset>): Changeset {
   };
 }
 
+export function makeChangesetSummary(
+  overrides?: Partial<ChangesetSummary>,
+): ChangesetSummary {
+  return {
+    id: "cs-test-1",
+    status: "pending",
+    created_at: "2024-01-01T00:00:00Z",
+    source_type: "web",
+    change_count: 1,
+    routing: {
+      action: "create",
+      target_path: "Papers/Test.md",
+      reasoning: "New topic.",
+      confidence: 0.9,
+      search_results_used: 3,
+      additional_targets: null,
+      duplicate_notes: null,
+    },
+    feedback: null,
+    parent_changeset_id: null,
+    ...overrides,
+  };
+}
+
 export function makePaper(
   overrides?: Partial<ZoteroPaperSummary>,
 ): ZoteroPaperSummary {
@@ -83,6 +109,17 @@ export function makeAnnotation(
     page_label: "42",
     annotation_type: "highlight",
     date_added: "2024-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+export function makePassageAnnotation(
+  overrides?: Partial<PassageAnnotation>,
+): PassageAnnotation {
+  return {
+    id: "ann-1",
+    selectedText: "Neural networks are universal approximators.",
+    comment: "Clarify which theorem this refers to",
     ...overrides,
   };
 }
