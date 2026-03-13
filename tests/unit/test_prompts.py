@@ -51,7 +51,7 @@ class TestBuildSystemPrompt:
 
     def test_contains_tool_descriptions(self):
         prompt = build_system_prompt("vault map", SOURCE_CONFIGS["web"])
-        assert "search_vault" in prompt
+        assert "search_vault" not in prompt
         assert "report_routing_decision" in prompt
         assert "create_note" in prompt
         assert "update_note" in prompt
@@ -85,15 +85,6 @@ class TestBuildUserMessage:
         assert "Previous Attempt" in msg
         assert "Wrong note" in msg
 
-    def test_search_context_included(self):
-        item = make_content_item()
-        msg = build_user_message(
-            item,
-            SOURCE_CONFIGS["web"],
-            search_context="### Result 1 (score: 0.85)\n**Note:** `test.md` > Heading\nSnippet...",
-        )
-        assert "Vault Search Results" in msg
-        assert "score: 0.85" in msg
 
 
 class TestBuildBatchUserMessage:
@@ -118,3 +109,20 @@ class TestBuildZoteroSynthesisPrompt:
         assert "research note synthesizer" in system
         assert "Paper Context" in user
         assert meta.title in user
+
+    def test_synthesis_framing(self):
+        items = [make_zotero_content_item()]
+        meta = items[0].source_metadata
+        system, user = build_zotero_synthesis_prompt(items, meta)
+        assert "analytical summary" in system
+        assert "synthesize" in system.lower()
+        assert "analytical summary" in user
+
+    def test_no_old_formatting(self):
+        items = [make_zotero_content_item()]
+        meta = items[0].source_metadata
+        system, _ = build_zotero_synthesis_prompt(items, meta)
+        assert "ad-abstract" not in system
+        assert "ad-quote" not in system
+        assert "- !" not in system
+        assert "- =" not in system

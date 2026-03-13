@@ -36,9 +36,6 @@ class RoutingInfo(BaseModel):
     )
     reasoning: str = Field(description="Agent's explanation for the routing decision")
     confidence: float = Field(description="Confidence score 0-1")
-    search_results_used: int = Field(
-        default=0, description="Number of search results considered"
-    )
     additional_targets: list[str] | None = Field(
         default=None, description="Extra note paths affected"
     )

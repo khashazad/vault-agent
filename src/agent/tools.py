@@ -1,17 +1,8 @@
-from __future__ import annotations
-
 import json
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from src.config import AppConfig
 
 from src.models import ReadNoteInput, CreateNoteInput, UpdateNoteInput
 from src.vault.reader import read_note
 from src.vault.writer import create_note, update_note
-from src.rag.search import search_vault
-
-MAX_SEARCH_RESULTS = 20
 
 TOOL_DEFINITIONS: list[dict] = [
     {
@@ -93,30 +84,6 @@ TOOL_DEFINITIONS: list[dict] = [
     },
 ]
 
-SEARCH_VAULT_TOOL = {
-    "name": "search_vault",
-    "description": (
-        "Semantic search across the vault's note contents. Returns the most relevant "
-        "note sections ranked by similarity to the query. Use this BEFORE reading notes "
-        "to find which notes are most relevant to the content topic."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "Natural language search query describing the topic to find",
-            },
-            "n": {
-                "type": "integer",
-                "description": "Number of results to return (default 10, max 20)",
-                "default": 10,
-            },
-        },
-        "required": ["query"],
-    },
-}
-
 REPORT_ROUTING_DECISION_TOOL = {
     "name": "report_routing_decision",
     "description": (
@@ -158,22 +125,10 @@ REPORT_ROUTING_DECISION_TOOL = {
 }
 
 
-# Format search results into an LLM-readable string with scores and snippets.
-def format_search_results(results) -> str:
-    lines = []
-    for i, r in enumerate(results, 1):
-        lines.append(f"### Result {i} (score: {r.score:.4f})")
-        lines.append(f"**Note:** `{r.note_path}` > {r.heading}")
-        lines.append(r.content[:200])
-        lines.append("")
-    return "\n".join(lines)
-
-
-# Build the full tool definitions list with search and routing prepended.
+# Build the full tool definitions list with routing prepended.
 def get_tool_definitions() -> list[dict]:
     tools = list(TOOL_DEFINITIONS)
     tools.insert(0, REPORT_ROUTING_DECISION_TOOL)
-    tools.insert(0, SEARCH_VAULT_TOOL)
     return tools
 
 
@@ -183,7 +138,6 @@ def get_tool_definitions() -> list[dict]:
 #     vault_path: Absolute path to the Obsidian vault root.
 #     tool_name: Name of the tool to execute (read_note, create_note, etc.).
 #     tool_input: Tool input parameters parsed from the LLM tool_use block.
-#     config: App config, required for search_vault (Voyage API key, LanceDB path).
 #
 # Returns:
 #     String result to send back as tool_result content.
@@ -191,7 +145,7 @@ def get_tool_definitions() -> list[dict]:
 # Raises:
 #     ValueError: When tool_name is not recognized.
 async def execute_tool(
-    vault_path: str, tool_name: str, tool_input: dict, config: AppConfig | None = None
+    vault_path: str, tool_name: str, tool_input: dict
 ) -> str:
     if tool_name == "read_note":
         inp = ReadNoteInput(**tool_input)
@@ -208,15 +162,5 @@ async def execute_tool(
     if tool_name == "update_note":
         inp = UpdateNoteInput(**tool_input)
         return update_note(vault_path, inp)
-
-    if tool_name == "search_vault":
-        query = tool_input.get("query", "")
-        n = min(tool_input.get("n", 7), MAX_SEARCH_RESULTS)
-        results = await search_vault(
-            query, config.voyage_api_key, config.lancedb_path, n=n
-        )
-        if not results:
-            return "No results found."
-        return format_search_results(results)
 
     raise ValueError(f"Unknown tool: {tool_name}")

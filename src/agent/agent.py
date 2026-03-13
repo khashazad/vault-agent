@@ -16,14 +16,13 @@ from src.models import (
     UpdateNoteInput,
 )
 from src.config import AppConfig
-from src.agent.tools import get_tool_definitions, execute_tool, format_search_results
+from src.agent.tools import get_tool_definitions, execute_tool
 from src.agent.prompts import (
     build_system_prompt,
     build_batch_user_message,
     build_zotero_synthesis_prompt,
     SOURCE_CONFIGS,
 )
-from src.rag.search import search_vault
 from src.agent.diff import generate_diff
 from src.vault import validate_path
 from src.vault.reader import build_vault_map
@@ -39,7 +38,7 @@ _TOOL_CALLS_PER_ITEM = 3
 
 MODELS = {
     "haiku": {
-        "id": "claude-haiku-4-5-20251001",
+        "id": "claude-haiku-4-5",
         "label": "Haiku 4.5",
         "input": 1.00,
         "output": 5.00,
@@ -47,7 +46,7 @@ MODELS = {
         "cache_read": 0.10,
     },
     "sonnet": {
-        "id": "claude-sonnet-4-6-20250514",
+        "id": "claude-sonnet-4-6",
         "label": "Sonnet 4.6",
         "input": 3.00,
         "output": 15.00,
@@ -55,7 +54,7 @@ MODELS = {
         "cache_read": 0.30,
     },
 }
-DEFAULT_MODEL = "haiku"
+DEFAULT_MODEL = "sonnet"
 _BATCH_DISCOUNT = 0.5
 
 
@@ -184,17 +183,7 @@ def _max_tool_calls(item_count: int) -> int:
     )
 
 
-# Build a truncated search query from item texts for pre-fetch discovery.
-def _build_search_query(items: list[ContentItem]) -> str:
-    if len(items) == 1:
-        return items[0].text[:300]
-    return " ".join(item.text[:100] for item in items)[:500]
-
-
 # Initialize the agent: build client, system prompt, tools, and opening message.
-#
-# Pre-fetches search results for the items and injects them into the user
-# message so the agent starts with relevant vault context.
 #
 # Args:
 #     config: App configuration (API keys, vault path, etc.).
@@ -222,19 +211,6 @@ async def _init_agent(
     )
     tool_defs = get_tool_definitions()
 
-    # Pre-fetch search results
-    search_context = None
-    try:
-        query = _build_search_query(items)
-        results = await search_vault(
-            query, config.voyage_api_key, config.lancedb_path, n=7
-        )
-        if results:
-            search_context = format_search_results(results)
-            logger.info("Pre-fetched %d search results for agent", len(results))
-    except Exception as err:
-        logger.warning("Pre-fetch search failed, agent will search manually: %s", err)
-
     messages: list[dict] = [
         {
             "role": "user",
@@ -243,7 +219,6 @@ async def _init_agent(
                 source_config,
                 feedback,
                 previous_reasoning,
-                search_context,
             ),
         },
     ]
@@ -286,15 +261,14 @@ async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
 
 # Dispatch a single tool call and return (result_content, is_error, routing_info_update, proposed_change).
 #
-# Handles routing decisions, search, read, create, and update tool calls.
+# Handles routing decisions, read, create, and update tool calls.
 # Write tools (create/update) operate on a virtual filesystem for dry-run mode.
 async def _dispatch_tool(
     tool_name: str,
     tool_input: dict,
     config: AppConfig,
     virtual_fs: dict[str, str],
-    search_results_count: int,
-) -> tuple[str, bool, RoutingInfo | None, ProposedChange | None, int]:
+) -> tuple[str, bool, RoutingInfo | None, ProposedChange | None]:
     routing_info = None
     proposed_change = None
     is_error = False
@@ -306,7 +280,6 @@ async def _dispatch_tool(
                 target_path=tool_input.get("target_path"),
                 reasoning=tool_input["reasoning"],
                 confidence=tool_input["confidence"],
-                search_results_used=search_results_count,
                 duplicate_notes=tool_input.get("duplicate_notes"),
             )
             if routing_info.action == "skip":
@@ -322,19 +295,13 @@ async def _dispatch_tool(
                     f"Now proceed to make the changes."
                 )
 
-        elif tool_name == "search_vault":
-            result_content = await execute_tool(
-                config.vault_path, tool_name, tool_input, config=config
-            )
-            search_results_count = result_content.count("### Result ")
-
         elif tool_name == "read_note":
             note_path = tool_input["path"]
             if note_path in virtual_fs:
                 result_content = virtual_fs[note_path]
             else:
                 result_content = await execute_tool(
-                    config.vault_path, tool_name, tool_input, config=config
+                    config.vault_path, tool_name, tool_input
                 )
 
         elif tool_name == "create_note":
@@ -389,7 +356,7 @@ async def _dispatch_tool(
         is_error = True
         result_content = f"Error: {err}"
 
-    return result_content, is_error, routing_info, proposed_change, search_results_count
+    return result_content, is_error, routing_info, proposed_change
 
 
 # Run the core agent loop: search vault, decide placement, produce a dry-run changeset.
@@ -430,7 +397,6 @@ async def generate_changeset(
     proposed_changes: list[ProposedChange] = []
     reasoning_parts: list[str] = []
     routing_info: RoutingInfo | None = None
-    search_results_count = 0
     tool_call_count = 0
     total_input_tokens = 0
     total_output_tokens = 0
@@ -482,10 +448,9 @@ async def generate_changeset(
 
                 tool_call_count += 1
 
-                result_content, is_error, ri, change, search_results_count = (
+                result_content, is_error, ri, change = (
                     await _dispatch_tool(
                         block.name, block.input, config, virtual_fs,
-                        search_results_count,
                     )
                 )
                 if ri is not None:
@@ -523,7 +488,6 @@ async def generate_changeset(
             target_path=first.input.get("path"),
             reasoning="Inferred from agent actions (no explicit routing decision reported).",
             confidence=0.5,
-            search_results_used=search_results_count,
         )
 
     changeset_status = "pending"

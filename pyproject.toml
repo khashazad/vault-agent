@@ -9,9 +9,6 @@ dependencies = [
     "anthropic",
     "python-frontmatter",
     "python-dotenv",
-    "voyageai",
-    "lancedb",
-    "pandas",
     "pyzotero",
 ]
 

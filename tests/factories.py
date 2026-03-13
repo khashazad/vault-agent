@@ -64,7 +64,6 @@ def make_routing_info(**overrides) -> RoutingInfo:
         "target_path": "Papers/Test Note.md",
         "reasoning": "No existing note covers this topic.",
         "confidence": 0.9,
-        "search_results_used": 5,
     }
     defaults.update(overrides)
     return RoutingInfo(**defaults)

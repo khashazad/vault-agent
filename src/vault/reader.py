@@ -58,20 +58,20 @@ def parse_note_summary(file_path: str, raw: str) -> VaultNoteSummary:
     )
 
 
-# Produce a compact vault summary (~500-800 tokens) with folder tree and note count.
+# Produce a vault summary with folder tree, note titles, and top headings.
 #
-# Used when RAG is enabled so the agent relies on search_vault for discovery
-# instead of a full listing.
+# For vaults with <=200 notes, lists each note with its headings so the agent
+# can discover relevant notes without semantic search. For larger vaults,
+# shows only the folder tree with note counts.
 #
 # Args:
 #     summaries: List of all note summaries in the vault.
 #
 # Returns:
-#     Formatted string with folder structure and usage instructions.
-def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
+#     Formatted string with folder structure and note listings.
+def format_vault_summary(summaries: list[VaultNoteSummary]) -> str:
     total = len(summaries)
 
-    # Folder tree with note counts
     folder_counts: Counter[str] = Counter()
     for note in summaries:
         folder = str(PurePosixPath(note.path).parent)
@@ -90,10 +90,20 @@ def format_compact_vault_summary(summaries: list[VaultNoteSummary]) -> str:
         "",
     ]
 
-    lines.append(
-        "Use `search_vault` to find notes by content. "
-        "Use `read_note` to inspect specific notes by path."
-    )
+    if total > 200:
+        lines.append(
+            "Large vault — use `read_note` with a specific path."
+        )
+    else:
+        lines.append("### Notes")
+        for note in summaries:
+            entry = f"- `{note.path}` — {note.title}"
+            if note.headings:
+                h_list = ", ".join(note.headings[:5])
+                entry += f" [h: {h_list}]"
+            lines.append(entry)
+        lines.append("")
+        lines.append("Use `read_note` to inspect specific notes by path.")
 
     return "\n".join(lines)
 
@@ -113,7 +123,7 @@ def build_vault_map(vault_path: str) -> VaultMap:
         summaries.append(parse_note_summary(file_path, raw))
 
     total_notes = len(summaries)
-    as_string = format_compact_vault_summary(summaries)
+    as_string = format_vault_summary(summaries)
 
     return VaultMap(total_notes=total_notes, notes=summaries, as_string=as_string)
 
