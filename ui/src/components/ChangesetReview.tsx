@@ -20,7 +20,12 @@ interface Props {
   readOnly?: boolean;
 }
 
-export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly = false }: Props) {
+export function ChangesetReview({
+  changesetId,
+  initialChanges,
+  onDone,
+  readOnly = false,
+}: Props) {
   const [changes, setChanges] = useState<ProposedChange[]>(
     readOnly
       ? initialChanges
@@ -37,7 +42,9 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
     failed: { id: string; error: string }[];
   } | null>(null);
 
-  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>(
+    {},
+  );
 
   // If no initial changes provided, fetch from server
   useEffect(() => {
@@ -55,8 +62,8 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
             }));
             setChanges(approvedChanges);
             approvedChanges.forEach((c) => {
-              updateChangeStatus(changesetId, c.id, "approved").catch(
-                (err) => setStatusError(formatError(err)),
+              updateChangeStatus(changesetId, c.id, "approved").catch((err) =>
+                setStatusError(formatError(err)),
               );
             });
           }
@@ -133,7 +140,9 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
   );
 
   const handleApply = useCallback(async () => {
-    const approvedIds = changes.filter((c) => c.status === "approved").map((c) => c.id);
+    const approvedIds = changes
+      .filter((c) => c.status === "approved")
+      .map((c) => c.id);
 
     if (approvedIds.length === 0) return;
 
@@ -170,7 +179,10 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
     return (
       <div className="bg-surface border border-border rounded p-5 text-center">
         <p className="text-red mb-3">Failed to load changeset: {fetchError}</p>
-        <button onClick={onDone} className="bg-accent text-crust border-none py-2 px-5 rounded text-sm">
+        <button
+          onClick={onDone}
+          className="bg-accent text-crust border-none py-2 px-5 rounded text-sm"
+        >
           Back
         </button>
       </div>
@@ -180,8 +192,13 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
   if (changes.length === 0) {
     return (
       <div className="bg-surface border border-border rounded p-5 text-center">
-        <p className="text-muted mb-3">The agent completed without proposing any changes.</p>
-        <button onClick={onDone} className="bg-accent text-crust border-none py-2 px-5 rounded text-sm">
+        <p className="text-muted mb-3">
+          The agent completed without proposing any changes.
+        </p>
+        <button
+          onClick={onDone}
+          className="bg-accent text-crust border-none py-2 px-5 rounded text-sm"
+        >
           Done
         </button>
       </div>
@@ -193,7 +210,9 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
       <div className="bg-surface border border-border rounded p-5 text-center">
         <h3>Changes Applied</h3>
         {result.applied.length > 0 && (
-          <p className="text-green mb-3">{result.applied.length} change(s) applied successfully.</p>
+          <p className="text-green mb-3">
+            {result.applied.length} change(s) applied successfully.
+          </p>
         )}
         {result.failed.length > 0 && (
           <div>
@@ -205,7 +224,10 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
             </ul>
           </div>
         )}
-        <button onClick={onDone} className="mt-4 bg-accent text-crust border-none py-2 px-5 rounded text-sm">
+        <button
+          onClick={onDone}
+          className="mt-4 bg-accent text-crust border-none py-2 px-5 rounded text-sm"
+        >
           Start New
         </button>
       </div>
@@ -246,7 +268,9 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
 
       <div className="flex flex-col gap-3 mb-4">
         {changes.map((change) => {
-          const mode = viewModes[change.id] ?? (change.tool_name === "create_note" ? "preview" : "diff");
+          const mode =
+            viewModes[change.id] ??
+            (change.tool_name === "create_note" ? "preview" : "diff");
           return (
             <div key={change.id} className="relative">
               <div className="flex items-center gap-2 mb-1">
@@ -265,9 +289,13 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
                   </button>
                 ) : null}
                 {!isSingle && (
-                  <span className="text-xs text-muted uppercase">{change.status}</span>
+                  <span className="text-xs text-muted uppercase">
+                    {change.status}
+                  </span>
                 )}
-                <div className={`${isSingle ? "" : "ml-auto "}flex border border-border rounded overflow-hidden`}>
+                <div
+                  className={`${isSingle ? "" : "ml-auto "}flex border border-border rounded overflow-hidden`}
+                >
                   <button
                     onClick={() =>
                       setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))
@@ -289,7 +317,12 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
                   </button>
                   {!readOnly && (
                     <button
-                      onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "edit" }))}
+                      onClick={() =>
+                        setViewModes((prev) => ({
+                          ...prev,
+                          [change.id]: "edit",
+                        }))
+                      }
                       className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "edit" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                     >
                       Edit
@@ -326,7 +359,11 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
             disabled={applying || approvedCount === 0}
             className="bg-green text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {applying ? "Applying..." : isSingle ? "Approve" : `Apply ${approvedCount} Change${approvedCount !== 1 ? "s" : ""}`}
+            {applying
+              ? "Applying..."
+              : isSingle
+                ? "Approve"
+                : `Apply ${approvedCount} Change${approvedCount !== 1 ? "s" : ""}`}
           </button>
           <button
             onClick={handleReject}

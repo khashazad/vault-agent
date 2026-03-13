@@ -1,6 +1,11 @@
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { makeChangeset, makeChangesetSummary, makePaper, makeAnnotation } from "./factories";
+import {
+  makeChangeset,
+  makeChangesetSummary,
+  makePaper,
+  makeAnnotation,
+} from "./factories";
 
 export const handlers = [
   // Health
@@ -17,7 +22,7 @@ export const handlers = [
     HttpResponse.json({
       changesets: [makeChangesetSummary()],
       total: 1,
-    })
+    }),
   ),
 
   // Changeset detail
@@ -57,7 +62,7 @@ export const handlers = [
   }),
 
   http.post("/changesets/:id/regenerate", () =>
-    HttpResponse.json(makeChangeset({ id: "cs-regenerated" }))
+    HttpResponse.json(makeChangeset({ id: "cs-regenerated" })),
   ),
 
   // Zotero

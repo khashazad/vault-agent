@@ -15,7 +15,13 @@ export function formatAnnotations(annotations: PassageAnnotation[]): string {
     .join("\n\n");
 }
 
-export function AnnotationFeedback({ annotations, onAdd, onRemove, onSubmit, submitting }: Props) {
+export function AnnotationFeedback({
+  annotations,
+  onAdd,
+  onRemove,
+  onSubmit,
+  submitting,
+}: Props) {
   const [comment, setComment] = useState("");
   const [selectedText, setSelectedText] = useState("");
   const [hint, setHint] = useState<string | null>(null);
