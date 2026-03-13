@@ -51,8 +51,7 @@ function DiffRow({ line }: { line: DiffLine }) {
       : line.type === "remove"
         ? "text-red"
         : "";
-  const prefix =
-    line.type === "add" ? "+" : line.type === "remove" ? "-" : " ";
+  const prefix = line.type === "add" ? "+" : line.type === "remove" ? "-" : " ";
 
   return (
     <tr className={bgClass}>
@@ -81,7 +80,7 @@ export function DiffViewer({
 }: Props) {
   const { lines, additions, deletions } = useMemo(
     () => computeLines(originalContent, proposedContent, diff, isNew),
-    [originalContent, proposedContent, diff, isNew]
+    [originalContent, proposedContent, diff, isNew],
   );
 
   const groups = useMemo(() => groupLines(lines), [lines]);
@@ -97,9 +96,7 @@ export function DiffViewer({
           </span>
           <span className="font-mono text-[13px] text-muted">{filePath}</span>
         </div>
-        <div className="p-4 text-muted text-center text-[13px]">
-          No changes
-        </div>
+        <div className="p-4 text-muted text-center text-[13px]">No changes</div>
       </div>
     );
   }
@@ -123,9 +120,7 @@ export function DiffViewer({
           <tbody>
             {groups.map((group, gi) => {
               if (group.type === "collapsed") {
-                return (
-                  <CollapsedSection key={`c-${gi}`} lines={group.lines} />
-                );
+                return <CollapsedSection key={`c-${gi}`} lines={group.lines} />;
               }
               return group.lines.map((line, li) => (
                 <DiffRow key={`${gi}-${li}`} line={line} />

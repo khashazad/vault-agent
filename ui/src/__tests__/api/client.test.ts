@@ -37,7 +37,7 @@ describe("API client", () => {
   it("updateChangeStatus sends PATCH", async () => {
     // Should not throw
     await expect(
-      updateChangeStatus("cs-123", "change-1", "approved")
+      updateChangeStatus("cs-123", "change-1", "approved"),
     ).resolves.toBeUndefined();
   });
 

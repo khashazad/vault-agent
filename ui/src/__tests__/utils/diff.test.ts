@@ -8,7 +8,7 @@ describe("computeLines", () => {
       null,
       "# Title\n\nContent.",
       "",
-      true
+      true,
     );
     expect(lines.every((l) => l.type === "add")).toBe(true);
     expect(additions).toBe(3); // 3 lines
@@ -22,7 +22,7 @@ describe("computeLines", () => {
       original,
       proposed,
       "",
-      false
+      false,
     );
     expect(additions).toBeGreaterThan(0);
     expect(deletions).toBeGreaterThan(0);
@@ -38,7 +38,7 @@ describe("computeLines", () => {
       undefined,
       undefined,
       diff,
-      false
+      false,
     );
     expect(additions).toBe(1);
     expect(deletions).toBe(1);
@@ -93,10 +93,7 @@ describe("groupLines", () => {
   });
 
   it("keeps add/remove lines in 'lines' groups", () => {
-    const lines: DiffLine[] = [
-      makeLine("remove", 1),
-      makeLine("add", 1),
-    ];
+    const lines: DiffLine[] = [makeLine("remove", 1), makeLine("add", 1)];
     const groups = groupLines(lines);
     expect(groups.length).toBe(1);
     expect(groups[0].type).toBe("lines");
@@ -109,7 +106,7 @@ describe("groupLines", () => {
 
   it("preserves head and tail context around collapsed section", () => {
     const lines: DiffLine[] = Array.from({ length: 12 }, (_, i) =>
-      makeLine("context", i)
+      makeLine("context", i),
     );
     const groups = groupLines(lines);
     // Should be: head(3) + collapsed(6) + tail(3)

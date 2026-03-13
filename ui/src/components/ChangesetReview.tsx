@@ -22,7 +22,9 @@ interface Props {
 
 export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly = false }: Props) {
   const [changes, setChanges] = useState<ProposedChange[]>(
-    readOnly ? initialChanges : initialChanges.map((c) => ({ ...c, status: "approved" }))
+    readOnly
+      ? initialChanges
+      : initialChanges.map((c) => ({ ...c, status: "approved" })),
   );
   const [viewModes, setViewModes] = useState<Record<string, ViewMode>>({});
   const [editBuffers, setEditBuffers] = useState<Record<string, string>>({});
@@ -47,11 +49,14 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
           if (readOnly) {
             setChanges(cs.changes);
           } else {
-            const approvedChanges = cs.changes.map((c) => ({ ...c, status: "approved" as const }));
+            const approvedChanges = cs.changes.map((c) => ({
+              ...c,
+              status: "approved" as const,
+            }));
             setChanges(approvedChanges);
             approvedChanges.forEach((c) => {
-              updateChangeStatus(changesetId, c.id, "approved").catch((err) =>
-                setStatusError(formatError(err))
+              updateChangeStatus(changesetId, c.id, "approved").catch(
+                (err) => setStatusError(formatError(err)),
               );
             });
           }
@@ -61,7 +66,9 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
     } else if (!readOnly) {
       // Set all changes to approved by default on the server
       initialChanges.forEach((c) => {
-        updateChangeStatus(changesetId, c.id, "approved").catch((err) => setStatusError(formatError(err)));
+        updateChangeStatus(changesetId, c.id, "approved").catch((err) =>
+          setStatusError(formatError(err)),
+        );
       });
     }
   }, [changesetId, initialChanges, readOnly]);
@@ -73,12 +80,14 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
         prev.map((c) => {
           if (c.id !== changeId) return c;
           const newStatus = c.status === "approved" ? "rejected" : "approved";
-          updateChangeStatus(changesetId, changeId, newStatus).catch((err) => setStatusError(formatError(err)));
+          updateChangeStatus(changesetId, changeId, newStatus).catch((err) =>
+            setStatusError(formatError(err)),
+          );
           return { ...c, status: newStatus };
-        })
+        }),
       );
     },
-    [changesetId, readOnly]
+    [changesetId, readOnly],
   );
 
   const setAllStatuses = useCallback(
@@ -86,12 +95,14 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
       if (readOnly) return;
       setChanges((prev) =>
         prev.map((c) => {
-          updateChangeStatus(changesetId, c.id, status).catch((err) => setStatusError(formatError(err)));
+          updateChangeStatus(changesetId, c.id, status).catch((err) =>
+            setStatusError(formatError(err)),
+          );
           return { ...c, status };
-        })
+        }),
       );
     },
-    [changesetId, readOnly]
+    [changesetId, readOnly],
   );
 
   const handleEditChange = useCallback(
@@ -111,14 +122,14 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
             prev.map((c) => {
               const updated = cs.changes.find((uc) => uc.id === c.id);
               return updated ? { ...updated, status: c.status } : c;
-            })
+            }),
           );
         } catch (err) {
           setStatusError(formatError(err));
         }
       }, 500);
     },
-    [changesetId]
+    [changesetId],
   );
 
   const handleApply = useCallback(async () => {
@@ -223,7 +234,11 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
         )}
       </div>
 
-      {statusError && <p className="text-red text-xs mb-2">Failed to update status: {statusError}</p>}
+      {statusError && (
+        <p className="text-red text-xs mb-2">
+          Failed to update status: {statusError}
+        </p>
+      )}
 
       <div className="flex flex-col gap-3 mb-4">
         {changes.map((change) => {
@@ -248,13 +263,20 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
                 <span className="text-xs text-muted uppercase">{change.status}</span>
                 <div className="ml-auto flex border border-border rounded overflow-hidden">
                   <button
-                    onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))}
+                    onClick={() =>
+                      setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))
+                    }
                     className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Diff
                   </button>
                   <button
-                    onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "preview" }))}
+                    onClick={() =>
+                      setViewModes((prev) => ({
+                        ...prev,
+                        [change.id]: "preview",
+                      }))
+                    }
                     className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Preview

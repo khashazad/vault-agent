@@ -155,15 +155,19 @@ pub fn run() {
 
             Ok(())
         })
-        .on_event(|app, event| {
+        .build(tauri::generate_context!())
+        .expect("error building tauri application")
+        .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                let state = app.state::<Mutex<SidecarState>>();
-                if let Some(pid) = SidecarState::lock_or_recover(&state).pid.take() {
+                let pid = {
+                    let state = app.state::<Mutex<SidecarState>>();
+                    let pid = SidecarState::lock_or_recover(&state).pid.take();
+                    pid
+                };
+                if let Some(pid) = pid {
                     log::info!("Shutting down sidecar (PID {})", pid);
                     graceful_kill(pid);
                 }
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error running tauri application");
+        });
 }

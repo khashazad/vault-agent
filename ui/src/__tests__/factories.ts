@@ -18,7 +18,9 @@ export function makeContentItem(overrides?: Partial<ContentItem>): ContentItem {
   };
 }
 
-export function makeProposedChange(overrides?: Partial<ProposedChange>): ProposedChange {
+export function makeProposedChange(
+  overrides?: Partial<ProposedChange>,
+): ProposedChange {
   return {
     id: "change-1",
     tool_name: "create_note",
@@ -56,7 +58,9 @@ export function makeChangeset(overrides?: Partial<Changeset>): Changeset {
   };
 }
 
-export function makeChangesetSummary(overrides?: Partial<ChangesetSummary>): ChangesetSummary {
+export function makeChangesetSummary(
+  overrides?: Partial<ChangesetSummary>,
+): ChangesetSummary {
   return {
     id: "cs-test-1",
     status: "pending",
@@ -78,7 +82,9 @@ export function makeChangesetSummary(overrides?: Partial<ChangesetSummary>): Cha
   };
 }
 
-export function makePaper(overrides?: Partial<ZoteroPaperSummary>): ZoteroPaperSummary {
+export function makePaper(
+  overrides?: Partial<ZoteroPaperSummary>,
+): ZoteroPaperSummary {
   return {
     key: "PAPER1",
     title: "Test Paper Title",
@@ -92,7 +98,9 @@ export function makePaper(overrides?: Partial<ZoteroPaperSummary>): ZoteroPaperS
   };
 }
 
-export function makeAnnotation(overrides?: Partial<ZoteroAnnotationItem>): ZoteroAnnotationItem {
+export function makeAnnotation(
+  overrides?: Partial<ZoteroAnnotationItem>,
+): ZoteroAnnotationItem {
   return {
     key: "ANN1",
     text: "Important finding about neural networks.",
@@ -105,7 +113,9 @@ export function makeAnnotation(overrides?: Partial<ZoteroAnnotationItem>): Zoter
   };
 }
 
-export function makePassageAnnotation(overrides?: Partial<PassageAnnotation>): PassageAnnotation {
+export function makePassageAnnotation(
+  overrides?: Partial<PassageAnnotation>,
+): PassageAnnotation {
   return {
     id: "ann-1",
     selectedText: "Neural networks are universal approximators.",
@@ -114,7 +124,9 @@ export function makePassageAnnotation(overrides?: Partial<PassageAnnotation>): P
   };
 }
 
-export function makeCollection(overrides?: Partial<ZoteroCollection>): ZoteroCollection {
+export function makeCollection(
+  overrides?: Partial<ZoteroCollection>,
+): ZoteroCollection {
   return {
     key: "COL1",
     name: "My Collection",
