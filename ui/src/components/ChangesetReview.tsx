@@ -227,7 +227,7 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
 
       <div className="flex flex-col gap-3 mb-4">
         {changes.map((change) => {
-          const mode = viewModes[change.id] ?? "diff";
+          const mode = viewModes[change.id] ?? (change.tool_name === "create_note" ? "preview" : "diff");
           return (
             <div key={change.id} className="relative">
               <div className="flex items-center gap-2 mb-1">

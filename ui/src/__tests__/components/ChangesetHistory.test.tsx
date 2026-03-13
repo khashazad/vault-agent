@@ -82,6 +82,26 @@ describe("ChangesetHistory", () => {
     });
   });
 
+  it("detail view shows annotation feedback for pending changesets", async () => {
+    server.use(
+      http.get("/changesets/:id", () =>
+        HttpResponse.json(makeChangeset({ id: "cs-1", status: "pending" })),
+      ),
+    );
+
+    render(<ChangesetHistory />);
+    await waitFor(() => {
+      expect(screen.getByText(/cs-1/)).toBeDefined();
+    });
+
+    const card = screen.getByText(/cs-1/).closest("button");
+    if (card) fireEvent.click(card);
+
+    await waitFor(() => {
+      expect(screen.getByText("Annotate Selection")).toBeDefined();
+    });
+  });
+
   it("filter tabs change displayed results", async () => {
     let lastUrl = "";
     server.use(

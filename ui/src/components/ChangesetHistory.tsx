@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { ChangesetSummary, Changeset, TokenUsage } from "../types";
+import type { ChangesetSummary, Changeset, TokenUsage, PassageAnnotation } from "../types";
 import {
   fetchChangesets,
   fetchChangeset,
@@ -10,6 +10,7 @@ import {
 import { formatError } from "../utils";
 import { ErrorAlert } from "./ErrorAlert";
 import { ChangesetReview } from "./ChangesetReview";
+import { AnnotationFeedback, formatAnnotations } from "./AnnotationFeedback";
 
 type View = "list" | "detail";
 type StatusFilter = "all" | "pending" | "applied" | "rejected" | "revision_requested";
@@ -74,7 +75,7 @@ export function ChangesetHistory() {
   const [detail, setDetail] = useState<Changeset | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [usage, setUsage] = useState<TokenUsage | null>(null);
-  const [feedbackText, setFeedbackText] = useState("");
+  const [annotations, setAnnotations] = useState<PassageAnnotation[]>([]);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
@@ -105,7 +106,7 @@ export function ChangesetHistory() {
     setView("detail");
     setDetailLoading(true);
     setError(null);
-    setFeedbackText("");
+    setAnnotations([]);
     setUsage(null);
     try {
       const [cs, cost] = await Promise.all([
@@ -126,25 +127,24 @@ export function ChangesetHistory() {
     setSelectedId(null);
     setDetail(null);
     setUsage(null);
-    setFeedbackText("");
+    setAnnotations([]);
   }, []);
 
   const handleRequestChanges = useCallback(async () => {
-    if (!selectedId || !feedbackText.trim()) return;
+    if (!selectedId || annotations.length === 0) return;
     setSubmittingFeedback(true);
     setError(null);
     try {
-      await requestChanges(selectedId, feedbackText.trim());
-      // Reload detail
+      await requestChanges(selectedId, formatAnnotations(annotations));
       const cs = await fetchChangeset(selectedId);
       setDetail(cs);
-      setFeedbackText("");
+      setAnnotations([]);
     } catch (err) {
       setError(formatError(err));
     } finally {
       setSubmittingFeedback(false);
     }
-  }, [selectedId, feedbackText]);
+  }, [selectedId, annotations]);
 
   const handleRegenerate = useCallback(async () => {
     if (!selectedId) return;
@@ -322,7 +322,11 @@ export function ChangesetHistory() {
                 )}
               </span>
             )}
-            {usage && <CostDisplay usage={usage} />}
+            {usage && (
+              <div className="ml-auto">
+                <CostDisplay usage={usage} />
+              </div>
+            )}
           </div>
 
           {/* Parent link */}
@@ -356,22 +360,13 @@ export function ChangesetHistory() {
 
           {/* Feedback section */}
           {isInteractive && (
-            <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
-              <h4 className="text-sm font-medium m-0">Request Changes</h4>
-              <textarea
-                className="w-full h-24 bg-bg border border-border rounded p-3 text-sm text-foreground resize-y outline-none focus:border-accent"
-                placeholder="Describe what should be different..."
-                value={feedbackText}
-                onChange={(e) => setFeedbackText(e.target.value)}
-              />
-              <button
-                onClick={handleRequestChanges}
-                disabled={submittingFeedback || !feedbackText.trim()}
-                className="self-start bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submittingFeedback ? "Submitting..." : "Request Changes"}
-              </button>
-            </div>
+            <AnnotationFeedback
+              annotations={annotations}
+              onAdd={(a) => setAnnotations((prev) => [...prev, a])}
+              onRemove={(id) => setAnnotations((prev) => prev.filter((a) => a.id !== id))}
+              onSubmit={handleRequestChanges}
+              submitting={submittingFeedback}
+            />
           )}
 
           {/* Regenerate section */}

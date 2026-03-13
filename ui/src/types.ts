@@ -1,5 +1,11 @@
 export type SourceType = "web" | "zotero" | "book";
 
+export interface PassageAnnotation {
+  id: string;
+  selectedText: string;
+  comment: string;
+}
+
 export interface SourceMetadata {
   title?: string;
   // zotero

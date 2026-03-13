@@ -3,6 +3,7 @@ import type {
   ChangesetSummary,
   ProposedChange,
   ContentItem,
+  PassageAnnotation,
   ZoteroPaperSummary,
   ZoteroAnnotationItem,
   ZoteroCollection,
@@ -100,6 +101,15 @@ export function makeAnnotation(overrides?: Partial<ZoteroAnnotationItem>): Zoter
     page_label: "42",
     annotation_type: "highlight",
     date_added: "2024-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+export function makePassageAnnotation(overrides?: Partial<PassageAnnotation>): PassageAnnotation {
+  return {
+    id: "ann-1",
+    selectedText: "Neural networks are universal approximators.",
+    comment: "Clarify which theorem this refers to",
     ...overrides,
   };
 }
