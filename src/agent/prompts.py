@@ -110,7 +110,7 @@ created: YYYY-MM-DD
 aliases:
   - "Paper - {ZOTERO_ITEM_KEY}"
 tags:
-  - source/paper
+  - paper
 ---
 
 # Paper Title
@@ -120,8 +120,8 @@ tags:
 
 ## Key Findings
 
-- ! Critical findings from the annotations (use `- !` for emphasis)
-- = Important supporting points (use `- =` for notable items)
+- Critical findings from the annotations
+- Important supporting points
 - General context and background details
 
 ## Detailed Notes
@@ -130,7 +130,7 @@ tags:
 
 > Quoted annotation text
 
-Commentary linking this to broader themes. Use [[wikilinks]] to connect to existing vault notes.
+Commentary linking this to broader themes.
 
 ## References
 

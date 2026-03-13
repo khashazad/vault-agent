@@ -55,6 +55,14 @@ tsconfig.tsbuildinfo
 # Tauri
 src-tauri/binaries/
 src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock
+
+# AI artifacts
+.ai/
+
+# Playwright test results
+tests/e2e/test-results/
 
 # PyInstaller
 build/

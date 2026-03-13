@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ChangesetSummary, Changeset, TokenUsage, PassageAnnotation } from "../types";
 import {
   fetchChangesets,
@@ -78,6 +78,9 @@ export function ChangesetHistory() {
   const [annotations, setAnnotations] = useState<PassageAnnotation[]>([]);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [splitPercent, setSplitPercent] = useState(72);
+  const dragging = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const loadList = useCallback(async () => {
     setListLoading(true);
@@ -160,6 +163,31 @@ export function ChangesetHistory() {
       setRegenerating(false);
     }
   }, [selectedId, openDetail]);
+
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setSplitPercent(Math.min(85, Math.max(40, pct)));
+    };
+
+    const onUp = () => {
+      dragging.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
@@ -300,7 +328,7 @@ export function ChangesetHistory() {
         <div className="text-muted text-sm">Loading changeset...</div>
       ) : detail ? (
         <div className="flex flex-col gap-4">
-          {/* Metadata bar */}
+          {/* Metadata bar — full width */}
           <div className="bg-surface border border-border rounded p-3 flex flex-wrap items-center gap-3 text-sm">
             <StatusBadge status={detail.status} />
             <span className="text-xs text-muted">
@@ -350,42 +378,65 @@ export function ChangesetHistory() {
             </div>
           )}
 
-          {/* Changeset review */}
-          <ChangesetReview
-            changesetId={detail.id}
-            initialChanges={detail.changes}
-            onDone={backToList}
-            readOnly={!isInteractive}
-          />
+          {/* Resizable split: review + annotations */}
+          <div ref={containerRef} className="flex items-start w-full">
+            {/* Left: review */}
+            <div
+              className="flex flex-col gap-4 min-w-0 overflow-auto"
+              style={{ width: isInteractive ? `${splitPercent}%` : "100%" }}
+            >
+              <ChangesetReview
+                changesetId={detail.id}
+                initialChanges={detail.changes}
+                onDone={backToList}
+                readOnly={!isInteractive}
+              />
 
-          {/* Feedback section */}
-          {isInteractive && (
-            <AnnotationFeedback
-              annotations={annotations}
-              onAdd={(a) => setAnnotations((prev) => [...prev, a])}
-              onRemove={(id) => setAnnotations((prev) => prev.filter((a) => a.id !== id))}
-              onSubmit={handleRequestChanges}
-              submitting={submittingFeedback}
-            />
-          )}
-
-          {/* Regenerate section */}
-          {showRegenerate && (
-            <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
-              <h4 className="text-sm font-medium m-0">Regenerate</h4>
-              <p className="text-xs text-muted m-0">
-                Re-run the agent with the feedback above to produce a new
-                changeset.
-              </p>
-              <button
-                onClick={handleRegenerate}
-                disabled={regenerating}
-                className="self-start bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {regenerating ? "Regenerating..." : "Regenerate"}
-              </button>
+              {/* Regenerate section */}
+              {showRegenerate && (
+                <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
+                  <h4 className="text-sm font-medium m-0">Regenerate</h4>
+                  <p className="text-xs text-muted m-0">
+                    Re-run the agent with the feedback above to produce a new
+                    changeset.
+                  </p>
+                  <button
+                    onClick={handleRegenerate}
+                    disabled={regenerating}
+                    className="self-start bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {regenerating ? "Regenerating..." : "Regenerate"}
+                  </button>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Drag handle + annotation sidebar */}
+            {isInteractive && (
+              <>
+                <div
+                  onMouseDown={onDragStart}
+                  className="w-1.5 mx-1 self-stretch cursor-col-resize rounded-full bg-border hover:bg-accent transition-colors flex-shrink-0"
+                />
+                <div
+                  className="min-w-0 overflow-auto sticky top-4 flex-shrink-0"
+                  style={{ width: `${100 - splitPercent}%` }}
+                >
+                  <AnnotationFeedback
+                    annotations={annotations}
+                    onAdd={(a) => setAnnotations((prev) => [...prev, a])}
+                    onRemove={(id) =>
+                      setAnnotations((prev) =>
+                        prev.filter((a) => a.id !== id),
+                      )
+                    }
+                    onSubmit={handleRequestChanges}
+                    submitting={submittingFeedback}
+                  />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       ) : (
         <div className="text-muted text-sm">Changeset not found.</div>

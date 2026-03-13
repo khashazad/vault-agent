@@ -212,11 +212,15 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
     );
   }
 
+  const isSingle = changes.length === 1;
+
   return (
     <div className="bg-surface border border-border rounded p-4">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-sm">Review Changes ({changes.length})</h3>
-        {!readOnly && (
+        <h3 className="text-sm">
+          {isSingle ? "Review Change" : `Review Changes (${changes.length})`}
+        </h3>
+        {!readOnly && !isSingle && (
           <div className="flex gap-2">
             <button
               onClick={() => setAllStatuses("approved")}
@@ -246,7 +250,7 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
           return (
             <div key={change.id} className="relative">
               <div className="flex items-center gap-2 mb-1">
-                {!readOnly ? (
+                {!readOnly && !isSingle ? (
                   <button
                     onClick={() => toggleChange(change.id)}
                     className={`w-7 h-7 rounded-full border-2 bg-bg text-muted flex items-center justify-center text-sm ${
@@ -260,8 +264,10 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
                     {change.status === "approved" ? "\u2713" : "\u2717"}
                   </button>
                 ) : null}
-                <span className="text-xs text-muted uppercase">{change.status}</span>
-                <div className="ml-auto flex border border-border rounded overflow-hidden">
+                {!isSingle && (
+                  <span className="text-xs text-muted uppercase">{change.status}</span>
+                )}
+                <div className={`${isSingle ? "" : "ml-auto "}flex border border-border rounded overflow-hidden`}>
                   <button
                     onClick={() =>
                       setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))
@@ -320,14 +326,14 @@ export function ChangesetReview({ changesetId, initialChanges, onDone, readOnly 
             disabled={applying || approvedCount === 0}
             className="bg-green text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {applying ? "Applying..." : `Apply ${approvedCount} Change${approvedCount !== 1 ? "s" : ""}`}
+            {applying ? "Applying..." : isSingle ? "Approve" : `Apply ${approvedCount} Change${approvedCount !== 1 ? "s" : ""}`}
           </button>
           <button
             onClick={handleReject}
             className="bg-transparent text-red border border-red py-2 px-5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={applying}
           >
-            Reject All & Discard
+            Reject
           </button>
         </div>
       )}
