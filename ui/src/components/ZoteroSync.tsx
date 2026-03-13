@@ -205,7 +205,7 @@ export function ZoteroSync() {
   const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
 
   // Model selection
-  const [model, setModel] = useState<"haiku" | "sonnet">("haiku");
+  const [model, setModel] = useState<"haiku" | "sonnet">("sonnet");
 
   // Processing step
   const [processing, setProcessing] = useState(false);

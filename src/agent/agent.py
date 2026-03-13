@@ -368,7 +368,7 @@ async def _dispatch_tool(
 # changeset is persisted to SQLite for later approval.
 #
 # Args:
-#     config: App configuration (API keys, vault path, LanceDB path).
+#     config: App configuration (API keys, vault path).
 #     items: Content items (highlights/annotations) to integrate into the vault.
 #     feedback: Optional user feedback to incorporate from a prior attempt.
 #     previous_reasoning: Optional agent reasoning from a prior run for context.

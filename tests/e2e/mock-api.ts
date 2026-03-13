@@ -14,7 +14,7 @@ const MOCK_CHANGESET_SUMMARIES = {
         target_path: "Papers/Attention.md",
         reasoning: "New paper note",
         confidence: 0.95,
-        search_results_used: 3,
+
         additional_targets: null,
         duplicate_notes: null,
       },
@@ -32,7 +32,7 @@ const MOCK_CHANGESET_SUMMARIES = {
         target_path: "Notes/ML.md",
         reasoning: "Appending to existing note",
         confidence: 0.8,
-        search_results_used: 5,
+
         additional_targets: null,
         duplicate_notes: null,
       },
@@ -169,7 +169,7 @@ const MOCK_CHANGESET = {
     target_path: "Papers/Attention Is All You Need.md",
     reasoning: "No existing note found for this paper",
     confidence: 0.95,
-    search_results_used: 3,
+
     additional_targets: null,
     duplicate_notes: null,
   },

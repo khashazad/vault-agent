@@ -13,7 +13,7 @@ class ZoteroSyncRequest(BaseModel):
         description="Re-sync all papers regardless of previous sync state",
     )
     model: str = Field(
-        default="haiku",
+        default="sonnet",
         pattern="^(haiku|sonnet)$",
         description="LLM model to use: haiku or sonnet",
     )
@@ -95,7 +95,7 @@ class ZoteroPaperSyncRequest(BaseModel):
         description="Submit via Batch API for 50% cost reduction (async, poll for result)",
     )
     model: str = Field(
-        default="haiku",
+        default="sonnet",
         pattern="^(haiku|sonnet)$",
         description="LLM model to use: haiku or sonnet",
     )
