@@ -25,7 +25,9 @@ export function fetchChangeset(id: string): Promise<Changeset> {
   return fetchJSON(`${BASE}/changesets/${id}`);
 }
 
-export async function fetchChangesetCost(id: string): Promise<TokenUsage | null> {
+export async function fetchChangesetCost(
+  id: string,
+): Promise<TokenUsage | null> {
   const cs = await fetchJSON<Changeset>(`${BASE}/changesets/${id}`);
   return cs.usage ?? null;
 }
@@ -33,21 +35,18 @@ export async function fetchChangesetCost(id: string): Promise<TokenUsage | null>
 export function updateChangeStatus(
   changesetId: string,
   changeId: string,
-  status: "approved" | "rejected"
+  status: "approved" | "rejected",
 ): Promise<void> {
-  return fetchVoid(
-    `${BASE}/changesets/${changesetId}/changes/${changeId}`,
-    {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    }
-  );
+  return fetchVoid(`${BASE}/changesets/${changesetId}/changes/${changeId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
 }
 
 export function applyChangeset(
   changesetId: string,
-  changeIds?: string[]
+  changeIds?: string[],
 ): Promise<{ applied: string[]; failed: { id: string; error: string }[] }> {
   return fetchJSON(`${BASE}/changesets/${changesetId}/apply`, {
     method: "POST",
@@ -96,7 +95,7 @@ export function fetchZoteroCollections(): Promise<ZoteroCollectionsResponse> {
 }
 
 export function fetchZoteroPaperAnnotations(
-  paperKey: string
+  paperKey: string,
 ): Promise<ZoteroPaperAnnotationsResponse> {
   return fetchJSON(`${BASE}/zotero/papers/${paperKey}/annotations`);
 }

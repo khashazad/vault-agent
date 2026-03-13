@@ -22,9 +22,11 @@ export function ChangesetReview({
   onDone,
 }: Props) {
   const [changes, setChanges] = useState<ProposedChange[]>(
-    initialChanges.map((c) => ({ ...c, status: "approved" }))
+    initialChanges.map((c) => ({ ...c, status: "approved" })),
   );
-  const [viewModes, setViewModes] = useState<Record<string, "diff" | "preview">>({});
+  const [viewModes, setViewModes] = useState<
+    Record<string, "diff" | "preview">
+  >({});
   const [applying, setApplying] = useState(false);
   const [loadingChangeset, setLoadingChangeset] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -41,10 +43,15 @@ export function ChangesetReview({
       setFetchError(null);
       fetchChangeset(changesetId)
         .then((cs) => {
-          const approvedChanges = cs.changes.map((c) => ({ ...c, status: "approved" as const }));
+          const approvedChanges = cs.changes.map((c) => ({
+            ...c,
+            status: "approved" as const,
+          }));
           setChanges(approvedChanges);
           approvedChanges.forEach((c) => {
-            updateChangeStatus(changesetId, c.id, "approved").catch((err) => setStatusError(formatError(err)));
+            updateChangeStatus(changesetId, c.id, "approved").catch((err) =>
+              setStatusError(formatError(err)),
+            );
           });
         })
         .catch((err) => setFetchError(String(err)))
@@ -52,7 +59,9 @@ export function ChangesetReview({
     } else {
       // Set all changes to approved by default on the server
       initialChanges.forEach((c) => {
-        updateChangeStatus(changesetId, c.id, "approved").catch((err) => setStatusError(formatError(err)));
+        updateChangeStatus(changesetId, c.id, "approved").catch((err) =>
+          setStatusError(formatError(err)),
+        );
       });
     }
   }, [changesetId, initialChanges]);
@@ -63,24 +72,28 @@ export function ChangesetReview({
         prev.map((c) => {
           if (c.id !== changeId) return c;
           const newStatus = c.status === "approved" ? "rejected" : "approved";
-          updateChangeStatus(changesetId, changeId, newStatus).catch((err) => setStatusError(formatError(err)));
+          updateChangeStatus(changesetId, changeId, newStatus).catch((err) =>
+            setStatusError(formatError(err)),
+          );
           return { ...c, status: newStatus };
-        })
+        }),
       );
     },
-    [changesetId]
+    [changesetId],
   );
 
   const setAllStatuses = useCallback(
     (status: "approved" | "rejected") => {
       setChanges((prev) =>
         prev.map((c) => {
-          updateChangeStatus(changesetId, c.id, status).catch((err) => setStatusError(formatError(err)));
+          updateChangeStatus(changesetId, c.id, status).catch((err) =>
+            setStatusError(formatError(err)),
+          );
           return { ...c, status };
-        })
+        }),
       );
     },
-    [changesetId]
+    [changesetId],
   );
 
   const handleApply = useCallback(async () => {
@@ -109,9 +122,7 @@ export function ChangesetReview({
     onDone();
   }, [changesetId, onDone]);
 
-  const approvedCount = changes.filter(
-    (c) => c.status === "approved"
-  ).length;
+  const approvedCount = changes.filter((c) => c.status === "approved").length;
 
   if (loadingChangeset) {
     return (
@@ -162,9 +173,7 @@ export function ChangesetReview({
         )}
         {result.failed.length > 0 && (
           <div>
-            <p className="text-red">
-              {result.failed.length} change(s) failed:
-            </p>
+            <p className="text-red">{result.failed.length} change(s) failed:</p>
             <ul>
               {result.failed.map((f) => (
                 <li key={f.id}>{f.error}</li>
@@ -203,7 +212,9 @@ export function ChangesetReview({
       </div>
 
       {statusError && (
-        <p className="text-red text-xs mb-2">Failed to update status: {statusError}</p>
+        <p className="text-red text-xs mb-2">
+          Failed to update status: {statusError}
+        </p>
       )}
 
       <div className="flex flex-col gap-3 mb-4">
@@ -229,13 +240,20 @@ export function ChangesetReview({
                 </span>
                 <div className="ml-auto flex border border-border rounded overflow-hidden">
                   <button
-                    onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))}
+                    onClick={() =>
+                      setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))
+                    }
                     className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Diff
                   </button>
                   <button
-                    onClick={() => setViewModes((prev) => ({ ...prev, [change.id]: "preview" }))}
+                    onClick={() =>
+                      setViewModes((prev) => ({
+                        ...prev,
+                        [change.id]: "preview",
+                      }))
+                    }
                     className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Preview

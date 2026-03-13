@@ -25,7 +25,9 @@ describe("preprocessObsidian", () => {
   it("converts inline tags", () => {
     const result = preprocessObsidian("Tagged #project and #ml/deep-learning.");
     expect(result).toContain('<span class="obsidian-tag">#project</span>');
-    expect(result).toContain('<span class="obsidian-tag">#ml/deep-learning</span>');
+    expect(result).toContain(
+      '<span class="obsidian-tag">#ml/deep-learning</span>',
+    );
   });
 
   it("does not convert headings as tags", () => {
@@ -48,7 +50,8 @@ describe("preprocessObsidian", () => {
 
 describe("extractFrontmatter", () => {
   it("parses valid YAML frontmatter", () => {
-    const content = "---\ntags: [ml, paper]\ncreated: 2024-01-01\n---\n\n# Body";
+    const content =
+      "---\ntags: [ml, paper]\ncreated: 2024-01-01\n---\n\n# Body";
     const { frontmatter, body } = extractFrontmatter(content);
     expect(frontmatter).not.toBeNull();
     expect(frontmatter!.tags).toEqual(["ml", "paper"]);

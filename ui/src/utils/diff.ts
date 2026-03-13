@@ -14,7 +14,7 @@ export function computeLines(
   originalContent: string | null | undefined,
   proposedContent: string | undefined,
   fallbackDiff: string,
-  isNew: boolean
+  isNew: boolean,
 ): { lines: DiffLine[]; additions: number; deletions: number } {
   // If we have structured content, use diffLines
   if (proposedContent !== undefined) {
