@@ -4,7 +4,7 @@ import type { Page } from "@playwright/test";
 const MOCK_CHANGESET_SUMMARIES = {
   changesets: [
     {
-      id: "cs-hist-1",
+      id: "cshist01-abcd-1234",
       status: "applied",
       created_at: "2025-01-15T10:30:00Z",
       source_type: "zotero",
@@ -14,7 +14,6 @@ const MOCK_CHANGESET_SUMMARIES = {
         target_path: "Papers/Attention.md",
         reasoning: "New paper note",
         confidence: 0.95,
-
         additional_targets: null,
         duplicate_notes: null,
       },
@@ -22,7 +21,7 @@ const MOCK_CHANGESET_SUMMARIES = {
       parent_changeset_id: null,
     },
     {
-      id: "cs-hist-2",
+      id: "cshist02-efgh-5678",
       status: "pending",
       created_at: "2025-01-14T08:00:00Z",
       source_type: "web",
@@ -32,7 +31,6 @@ const MOCK_CHANGESET_SUMMARIES = {
         target_path: "Notes/ML.md",
         reasoning: "Appending to existing note",
         confidence: 0.8,
-
         additional_targets: null,
         duplicate_notes: null,
       },
@@ -169,7 +167,6 @@ const MOCK_CHANGESET = {
     target_path: "Papers/Attention Is All You Need.md",
     reasoning: "No existing note found for this paper",
     confidence: 0.95,
-
     additional_targets: null,
     duplicate_notes: null,
   },
@@ -237,7 +234,7 @@ export async function mockApi(page: Page) {
   await page.route("**/changesets/*/request-changes", (route) => {
     if (route.request().method() === "POST") {
       return route.fulfill({
-        json: { id: "cs-hist-2", status: "revision_requested", feedback: "Fix heading" },
+        json: { id: "cshist02-efgh-5678", status: "revision_requested", feedback: "Fix heading" },
       });
     }
     return route.fallback();
