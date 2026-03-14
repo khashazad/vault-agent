@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { AnnotationFeedback, formatAnnotations } from "../../components/AnnotationFeedback";
+import {
+  AnnotationFeedback,
+  formatAnnotations,
+} from "../../components/AnnotationFeedback";
 import { makePassageAnnotation } from "../factories";
 
 describe("AnnotationFeedback", () => {
@@ -19,7 +22,9 @@ describe("AnnotationFeedback", () => {
   it("renders empty state with annotate button", () => {
     render(<AnnotationFeedback {...defaultProps} />);
     expect(screen.getByText("Annotate Selection")).toBeDefined();
-    expect(screen.getByRole("button", { name: /Request Changes/ })).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: /Request Changes/ }),
+    ).toBeDefined();
   });
 
   it("shows hint when clicking annotate with no selection", () => {
@@ -51,7 +56,9 @@ describe("AnnotationFeedback", () => {
     } as Selection);
 
     // Mock crypto.randomUUID
-    vi.spyOn(crypto, "randomUUID").mockReturnValue("test-uuid" as `${string}-${string}-${string}-${string}-${string}`);
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
+    );
 
     render(<AnnotationFeedback {...defaultProps} onAdd={onAdd} />);
     fireEvent.click(screen.getByText("Annotate Selection"));
@@ -70,12 +77,24 @@ describe("AnnotationFeedback", () => {
   it("renders annotations with remove buttons", () => {
     const onRemove = vi.fn();
     const annotations = [
-      makePassageAnnotation({ id: "a1", selectedText: "first passage", comment: "fix A" }),
-      makePassageAnnotation({ id: "a2", selectedText: "second passage", comment: "fix B" }),
+      makePassageAnnotation({
+        id: "a1",
+        selectedText: "first passage",
+        comment: "fix A",
+      }),
+      makePassageAnnotation({
+        id: "a2",
+        selectedText: "second passage",
+        comment: "fix B",
+      }),
     ];
 
     render(
-      <AnnotationFeedback {...defaultProps} annotations={annotations} onRemove={onRemove} />,
+      <AnnotationFeedback
+        {...defaultProps}
+        annotations={annotations}
+        onRemove={onRemove}
+      />,
     );
 
     expect(screen.getByText(/first passage/)).toBeDefined();
@@ -91,7 +110,10 @@ describe("AnnotationFeedback", () => {
   });
 
   it("submit button shows annotation count", () => {
-    const annotations = [makePassageAnnotation(), makePassageAnnotation({ id: "a2" })];
+    const annotations = [
+      makePassageAnnotation(),
+      makePassageAnnotation({ id: "a2" }),
+    ];
     render(<AnnotationFeedback {...defaultProps} annotations={annotations} />);
     expect(screen.getByText("Request Changes (2)")).toBeDefined();
   });
@@ -130,7 +152,10 @@ describe("AnnotationFeedback", () => {
 describe("formatAnnotations", () => {
   it("formats single annotation", () => {
     const result = formatAnnotations([
-      makePassageAnnotation({ selectedText: "hello world", comment: "change this" }),
+      makePassageAnnotation({
+        selectedText: "hello world",
+        comment: "change this",
+      }),
     ]);
     expect(result).toBe('[Passage: "hello world"]\nFeedback: change this');
   });

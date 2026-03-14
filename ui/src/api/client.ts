@@ -125,7 +125,7 @@ export function syncZoteroPaper(
     body: JSON.stringify({
       paper_key: paperKey,
       excluded_annotation_keys: excludedAnnotationKeys ?? null,
-      model: model ?? "haiku",
+      model: model ?? "sonnet",
     }),
   });
 }
@@ -141,9 +141,7 @@ export function requestChanges(
   });
 }
 
-export function regenerateChangeset(
-  changesetId: string,
-): Promise<Changeset> {
+export function regenerateChangeset(changesetId: string): Promise<Changeset> {
   return fetchJSON(`${BASE}/changesets/${changesetId}/regenerate`, {
     method: "POST",
   });

@@ -23,14 +23,11 @@ from src.models import (
     ChangesetListResponse,
     ChangesetSummary,
     ChangeStatusResponse,
-    ChunkInfo,
     FeedbackRequest,
     HealthResponse,
-    IndexResponse,
     PaperCacheStatusResponse,
     RefreshResponse,
     RejectResponse,
-    SearchResponse,
     VaultMapResponse,
     ZoteroAnnotationItem,
     ZoteroCollection,
@@ -51,10 +48,6 @@ from src.agent.agent import (
 )
 from src.agent.changeset import apply_changeset
 from src.store import get_changeset_store, get_batch_job_store
-from src.rag.indexer import index_vault
-from src.rag.search import search_vault
-from src.rag.embedder import MODEL as EMBEDDING_MODEL
-from src.rag.store import VECTOR_DIM
 from src.zotero.background import ZoteroPaperCacheSyncer
 
 logging.basicConfig(level=logging.INFO)
@@ -91,7 +84,7 @@ app = FastAPI(
         {"name": "Health", "description": "Server health and status"},
         {
             "name": "Vault",
-            "description": "Vault structure, indexing, and semantic search",
+            "description": "Vault structure and note management",
         },
         {
             "name": "Changesets",
@@ -393,57 +386,6 @@ async def regenerate(changeset_id: str, request: Request):
         return new_cs.model_dump()
     except Exception as err:
         return _handle_anthropic_error(err, "Error regenerating changeset")
-
-
-# --- RAG routes ---
-
-
-# Index vault notes into LanceDB for semantic search.
-@app.post(
-    "/vault/index",
-    response_model=IndexResponse,
-    tags=["Vault"],
-    summary="Index vault",
-    description="Scan the vault, chunk notes by heading, embed via Voyage AI, and upsert into LanceDB. Incremental — only re-embeds changed chunks.",
-)
-async def vault_index(request: Request):
-    config = _get_config(request)
-    stats = await index_vault(
-        config.vault_path, config.voyage_api_key, config.lancedb_path
-    )
-    return IndexResponse(success=True, **asdict(stats))
-
-
-# Hybrid semantic + full-text search across indexed vault chunks.
-@app.get(
-    "/vault/search",
-    response_model=SearchResponse,
-    tags=["Vault"],
-    summary="Search vault",
-    description="Hybrid semantic + full-text search across indexed vault chunks. Returns ranked results with similarity scores.",
-)
-async def vault_search(q: str, request: Request, n: int = 10):
-    config = _get_config(request)
-    n = min(n, 100)
-    results = await search_vault(q, config.voyage_api_key, config.lancedb_path, n=n)
-    overall_search_type = results[0].search_type if results else "hybrid"
-    return SearchResponse(
-        query=q,
-        results=[
-            ChunkInfo(
-                note_path=r.note_path,
-                heading=r.heading,
-                content=r.content,
-                score=r.score,
-                search_type=r.search_type,
-            )
-            for r in results
-        ],
-        count=len(results),
-        embedding_model=EMBEDDING_MODEL,
-        vector_dimensions=VECTOR_DIM,
-        search_type=overall_search_type,
-    )
 
 
 # --- Zotero routes ---

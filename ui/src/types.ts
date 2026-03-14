@@ -48,7 +48,6 @@ export interface RoutingInfo {
   target_path: string | null;
   reasoning: string;
   confidence: number;
-  search_results_used: number;
   additional_targets: string[] | null;
   duplicate_notes: string[] | null;
 }

@@ -59,8 +59,8 @@ class TestComputeCost:
     def test_zero_tokens(self):
         assert _compute_cost(0, 0, 0, 0) == 0.0
 
-    def test_default_model_is_haiku(self):
-        assert DEFAULT_MODEL == "haiku"
+    def test_default_model_is_sonnet(self):
+        assert DEFAULT_MODEL == "sonnet"
 
 
 class TestBuildTokenUsage:
@@ -72,7 +72,7 @@ class TestBuildTokenUsage:
         assert usage.cache_read_tokens == 30
         assert usage.api_calls == 2
         assert usage.tool_calls == 3
-        assert usage.model == "haiku"
+        assert usage.model == "sonnet"
         assert usage.is_batch is False
         assert usage.total_cost_usd > 0
 
@@ -95,11 +95,11 @@ class TestBuildTokenUsage:
 class TestModelsRegistry:
     def test_haiku_exists(self):
         assert "haiku" in MODELS
-        assert MODELS["haiku"]["id"] == "claude-haiku-4-5-20251001"
+        assert MODELS["haiku"]["id"] == "claude-haiku-4-5"
 
     def test_sonnet_exists(self):
         assert "sonnet" in MODELS
-        assert MODELS["sonnet"]["id"] == "claude-sonnet-4-6-20250514"
+        assert MODELS["sonnet"]["id"] == "claude-sonnet-4-6"
 
     def test_all_models_have_required_keys(self):
         required = {"id", "label", "input", "output", "cache_write", "cache_read"}

@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { ChangesetSummary, Changeset, TokenUsage, PassageAnnotation } from "../types";
+import type {
+  ChangesetSummary,
+  Changeset,
+  TokenUsage,
+  PassageAnnotation,
+} from "../types";
 import {
   fetchChangesets,
   fetchChangeset,
@@ -13,7 +18,12 @@ import { ChangesetReview } from "./ChangesetReview";
 import { AnnotationFeedback, formatAnnotations } from "./AnnotationFeedback";
 
 type View = "list" | "detail";
-type StatusFilter = "all" | "pending" | "applied" | "rejected" | "revision_requested";
+type StatusFilter =
+  | "all"
+  | "pending"
+  | "applied"
+  | "rejected"
+  | "revision_requested";
 
 const PAGE_SIZE = 25;
 
@@ -426,9 +436,7 @@ export function ChangesetHistory() {
                     annotations={annotations}
                     onAdd={(a) => setAnnotations((prev) => [...prev, a])}
                     onRemove={(id) =>
-                      setAnnotations((prev) =>
-                        prev.filter((a) => a.id !== id),
-                      )
+                      setAnnotations((prev) => prev.filter((a) => a.id !== id))
                     }
                     onSubmit={handleRequestChanges}
                     submitting={submittingFeedback}

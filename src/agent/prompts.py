@@ -51,15 +51,13 @@ BASE_TOOL_DESCRIPTIONS = [
     "- **update_note**: Add content to an existing note (append a section).",
 ]
 
-SEARCH_VAULT_TOOL_DESC = "- **search_vault**: Semantic search across note contents. Use this FIRST to find relevant notes before reading or creating."
-
 REPORT_ROUTING_TOOL_DESC = "- **report_routing_decision**: Declare your placement decision (update, create, or skip if already in vault). Call this exactly ONCE before making changes."
 
 ROUTING_GUIDANCE = """## Routing Instructions
 
 Before making any changes, you MUST decide where this {singular} belongs:
 
-1. **Review search results**: Review the search results provided below. If they are insufficient, use `search_vault` for additional searches.
+1. **Review vault structure**: Review the vault structure above to identify candidate notes.
 2. **Read candidates**: Read 1-3 of the most promising notes to inspect their content and structure.
 3. **Report your decision**: Call `report_routing_decision` with your placement choice:
    - **action**: "update" if the {singular} fits an existing note, "create" if it needs a new one, "skip" if the information is already adequately covered in the vault.
@@ -83,13 +81,11 @@ BASE_RULES = [
     "All operations are additive only. You cannot delete content or overwrite existing sections.",
 ]
 
-SEARCH_VAULT_RULE = "ALWAYS start by using search_vault to find notes semantically related to the {singular} topic. The vault context above is a summary only (folder structure and tags) — search_vault searches actual note contents and is the primary way to discover relevant notes."
-
 BATCH_ROUTING_GUIDANCE = """## Batch Processing Instructions
 
 You are receiving multiple {plural} at once. Your job is to integrate them coherently:
 
-1. **Review search results**: Review the search results provided below. If they are insufficient, use `search_vault` for additional searches.
+1. **Review vault structure**: Review the vault structure above to identify candidate notes.
 2. **Read candidates**: Read promising notes to understand existing coverage.
 3. **Report routing**: Call `report_routing_decision` with your overall placement strategy. Use "skip" if all {plural} are already adequately covered in the vault.
 4. **Execute coherently**: Create or update notes that weave the {plural} together logically. If you chose skip, do NOT make any changes — summarize and finish.
@@ -104,7 +100,6 @@ ZOTERO_PAPER_TEMPLATE = """## Paper Note Template
 
 When creating a note for a Zotero paper, use this structure:
 
-```markdown
 ---
 created: YYYY-MM-DD
 aliases:
@@ -115,42 +110,49 @@ tags:
 
 # Paper Title
 
-> [!ad-abstract]
-> Brief synthesis of the paper's key contributions based on the annotations.
+Brief synthesis of the paper's core contribution and why it matters.
 
 ## Key Findings
 
-- Critical findings from the annotations
-- Important supporting points
-- General context and background details
+- Synthesized critical findings in analytical voice
+- Important methodology or approach details
+- Key implications and connections to broader themes
 
 ## Detailed Notes
 
 ### Subtopic Heading
 
-> Quoted annotation text
-
-Commentary linking this to broader themes.
+Analytical summary synthesized from annotations. Use standard blockquotes
+sparingly — at most 2-3 essential passages across the entire note.
 
 ## References
 
 - DOI / URL if available
-```
 
-### Formatting conventions
-- **Callouts**: Use `> [!ad-abstract]` for paper summaries, `> [!ad-quote]` for key quotes
-- **Emphasis bullets**: `- !` for critical points, `- =` for notable points, plain `-` for general
-- **Math**: Use `$\\large{...}$` for important terms or definitions
-- **Links**: Always use `[[wikilinks]]` to connect to existing vault notes
-- **Frontmatter**: Must include `created`, `aliases` (with Zotero item key as citekey), and `tags`
+### Synthesis guidelines
+- Write a detailed analytical summary in your own voice. The note serves as a
+  paper refresher — the reader should understand the paper's contributions
+  without returning to the original.
+- At most 2-3 direct quotes (standard > blockquote) for passages that are
+  definitional or particularly well-phrased. Everything else: synthesize.
+- No callout syntax (no > [!...]), no custom emphasis bullet markers.
+  Plain markdown only.
+- Use [[wikilinks]] to connect to existing vault notes where relevant.
+- When the paper's findings rely on specific equations or the annotation
+  highlights a critical formula, include it using LaTeX math (`$...$` or
+  `$$...$$`). Do not use math formatting for emphasis or definitions —
+  only for actual mathematical expressions from the paper.
+- Code and implementation details: only include if the reader's annotation
+  specifically highlights them. Don't quote code blocks from the paper.
+- Frontmatter must include created, aliases (with Zotero item key), and tags.
 
 ### Annotation priority guidance
-Annotations have priority labels (Critical, Important, General) based on the reader's color coding:
-- **Critical**: Must appear in the note and feature prominently in key findings
-- **Important**: Should appear in the note as key supporting content
-- **General**: Include selectively for background and context — not everything needs to be in the note
-
-Priority informs **synthesis weighting**, not output formatting. All content uses the same formatting conventions above. Critical annotations simply get more prominence in the note structure."""
+Annotations have priority labels (Critical, Important, General) based on
+highlight color:
+- Critical: Must inform key findings and get prominent coverage
+- Important: Should shape the detailed notes sections
+- General: Use selectively for background — not everything needs inclusion
+Priority informs synthesis weighting, not output formatting."""
 
 
 # Build (system_prompt, user_message) for single-call Zotero note synthesis.
@@ -168,8 +170,10 @@ def build_zotero_synthesis_prompt(
     metadata: "SourceMetadata",
 ) -> tuple[str, str]:
     system = (
-        "You are a research note synthesizer. Your job is to transform paper "
-        "annotations into a well-structured Obsidian markdown note.\n\n"
+        "You are a research note synthesizer. Your job is to produce a detailed "
+        "analytical summary of a paper based on the reader's annotations. "
+        "Write in your own voice — synthesize, don't transcribe. "
+        "The note should serve as a standalone paper refresher.\n\n"
         "Return ONLY the complete markdown note — no preamble, no explanation, "
         "no code fences.\n\n"
         f"{ZOTERO_PAPER_TEMPLATE}"
@@ -184,8 +188,9 @@ def build_zotero_synthesis_prompt(
         user += f'{i}. {prefix}"{item.text}"{comment}\n'
 
     user += (
-        "\nSynthesize these annotations into a single Obsidian note following "
-        "the Paper Note Template above. Return ONLY the markdown."
+        "\nWrite a detailed analytical summary of this paper based on the "
+        "annotations above. Follow the Paper Note Template. Synthesize in your "
+        "own voice — quote at most 2-3 essential passages. Return ONLY the markdown."
     )
     return system, user
 
@@ -214,9 +219,7 @@ def build_system_prompt(
     sc = source_config
     tools = [_fmt(t, sc) for t in BASE_TOOL_DESCRIPTIONS]
     tools.insert(0, REPORT_ROUTING_TOOL_DESC)
-    tools.insert(0, SEARCH_VAULT_TOOL_DESC)
     rules = [_fmt(r, sc) for r in BASE_RULES]
-    rules.insert(0, _fmt(SEARCH_VAULT_RULE, sc))
 
     tools_section = "## Your Tools\n\n" + "\n".join(tools)
     rules_section = "## Rules\n\n" + "\n".join(
@@ -284,7 +287,6 @@ def build_user_message(
     source_config: SourceConfig,
     feedback: str | None = None,
     previous_reasoning: str | None = None,
-    search_context: str | None = None,
 ) -> str:
     sc = source_config
     msg = f"Please integrate this {sc.singular} into my vault:\n\n"
@@ -300,15 +302,7 @@ def build_user_message(
         msg += f"**Previous reasoning:**\n{previous_reasoning}\n\n"
         msg += f"**User feedback:** {feedback}\n\n"
         msg += "Please reconsider your approach based on the user's feedback. "
-        msg += "Search again if needed, then make a new routing decision and generate changes.\n"
-
-    if search_context:
-        msg += "\n## Vault Search Results\n\n"
-        msg += (
-            f"The following notes are semantically related to this {sc.singular}:\n\n"
-        )
-        msg += search_context
-        msg += "\n\nUse `read_note` to inspect any of these before making changes.\n"
+        msg += "Make a new routing decision and generate changes.\n"
 
     return msg
 
@@ -380,13 +374,12 @@ def build_batch_user_message(
     source_config: SourceConfig,
     feedback: str | None = None,
     previous_reasoning: str | None = None,
-    search_context: str | None = None,
 ) -> str:
     sc = source_config
 
     if len(items) == 1 and not items[0].source_metadata:
         return build_user_message(
-            items[0], source_config, feedback, previous_reasoning, search_context
+            items[0], source_config, feedback, previous_reasoning
         )
 
     sources = list(dict.fromkeys(item.source for item in items))
@@ -427,11 +420,5 @@ def build_batch_user_message(
         msg += f"**Previous reasoning:**\n{previous_reasoning}\n\n"
         msg += f"**User feedback:** {feedback}\n\n"
         msg += "Please reconsider your approach based on the user's feedback.\n"
-
-    if search_context:
-        msg += "## Vault Search Results\n\n"
-        msg += f"The following notes are semantically related to these {sc.plural}:\n\n"
-        msg += search_context
-        msg += "\n\nUse `read_note` to inspect any of these before making changes.\n"
 
     return msg

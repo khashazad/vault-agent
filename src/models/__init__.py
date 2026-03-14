@@ -15,7 +15,6 @@ from .changesets import (
     TokenUsage,
 )
 from .content import ContentItem, SourceMetadata, SourceType
-from .search import ChunkInfo, IndexResponse, SearchResponse, SearchType
 from .tools import CreateNoteInput, ReadNoteInput, UpdateNoteInput
 from .vault import (
     HealthResponse,
@@ -70,11 +69,6 @@ __all__ = [
     "FeedbackRequest",
     "ChangesetSummary",
     "ChangesetListResponse",
-    # search
-    "SearchType",
-    "ChunkInfo",
-    "IndexResponse",
-    "SearchResponse",
     # zotero
     "ZoteroSyncRequest",
     "ZoteroSyncResponse",
