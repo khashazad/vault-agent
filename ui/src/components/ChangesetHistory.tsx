@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useRef, type RefObject } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type RefObject,
+} from "react";
 import type {
   ChangesetSummary,
   Changeset,
@@ -87,13 +93,19 @@ function DeleteConfirmPopover({
       </p>
       <div className="flex gap-2 justify-end">
         <button
-          onClick={(e) => { e.stopPropagation(); onCancel(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onCancel();
+          }}
           className="text-xs px-3 py-1 rounded bg-transparent border border-border text-muted cursor-pointer hover:text-foreground"
         >
           Cancel
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); onConfirm(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onConfirm();
+          }}
           data-testid="confirm-delete-btn"
           className="text-xs px-3 py-1 rounded bg-red/15 border border-red/30 text-red cursor-pointer hover:bg-red/25"
         >
@@ -230,13 +242,10 @@ export function ChangesetHistory() {
     }
   }, [selectedId, openDetail]);
 
-  const openDeleteConfirm = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      setConfirmDeleteId(id);
-    },
-    [],
-  );
+  const openDeleteConfirm = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDeleteId(id);
+  }, []);
 
   const cancelDelete = useCallback(() => {
     setConfirmDeleteId(null);
