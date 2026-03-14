@@ -61,7 +61,7 @@ describe("ChangesetHistory", () => {
     });
 
     // Click the first card
-    const card = screen.getByText(/cs-1/).closest("button");
+    const card = screen.getByText(/cs-1/).closest("[role='button']");
     if (card) fireEvent.click(card);
 
     await waitFor(() => {
@@ -94,12 +94,57 @@ describe("ChangesetHistory", () => {
       expect(screen.getByText(/cs-1/)).toBeDefined();
     });
 
-    const card = screen.getByText(/cs-1/).closest("button");
+    const card = screen.getByText(/cs-1/).closest("[role='button']");
     if (card) fireEvent.click(card);
 
     await waitFor(() => {
       expect(screen.getByText("Annotate Selection")).toBeDefined();
     });
+  });
+
+  it("delete button triggers confirm popover and API call", async () => {
+    let deleteCalled = false;
+    server.use(
+      http.delete("/changesets/:id", () => {
+        deleteCalled = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    render(<ChangesetHistory />);
+    await waitFor(() => {
+      expect(screen.getByTestId("delete-cs-1")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByTestId("delete-cs-1"));
+    expect(screen.getByTestId("delete-confirm-popover")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("confirm-delete-btn"));
+    await waitFor(() => {
+      expect(deleteCalled).toBe(true);
+    });
+  });
+
+  it("cancelled confirm does not call delete API", async () => {
+    let deleteCalled = false;
+    server.use(
+      http.delete("/changesets/:id", () => {
+        deleteCalled = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    render(<ChangesetHistory />);
+    await waitFor(() => {
+      expect(screen.getByTestId("delete-cs-1")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByTestId("delete-cs-1"));
+    expect(screen.getByTestId("delete-confirm-popover")).toBeDefined();
+
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(screen.queryByTestId("delete-confirm-popover")).toBeNull();
+    expect(deleteCalled).toBe(false);
   });
 
   it("filter tabs change displayed results", async () => {

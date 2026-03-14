@@ -43,6 +43,22 @@ test("back button returns to list from detail", async ({ page }) => {
   await expect(page.getByText("Changeset History")).toBeVisible();
 });
 
+test("delete button shows popover and sends DELETE request", async ({ page }) => {
+  await page.goto("/");
+  await page.getByText("History").click();
+  await expect(page.getByText(/cshist01/)).toBeVisible();
+
+  await page.getByTestId("delete-cshist01-abcd-1234").click();
+  await expect(page.getByTestId("delete-confirm-popover")).toBeVisible();
+
+  const deletePromise = page.waitForRequest(
+    (req) => req.method() === "DELETE" && req.url().includes("/changesets/"),
+  );
+  await page.getByTestId("confirm-delete-btn").click();
+  const req = await deletePromise;
+  expect(req.method()).toBe("DELETE");
+});
+
 test("Sync tab still works after visiting History", async ({ page }) => {
   await page.goto("/");
   await page.getByText("History").click();

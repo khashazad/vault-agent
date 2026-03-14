@@ -260,7 +260,10 @@ export async function mockApi(page: Page) {
   await page.route("**/changesets/*/changes/*", (route) =>
     route.fulfill({ status: 204 })
   );
-  await page.route("**/changesets/*", (route) =>
-    route.fulfill({ json: MOCK_CHANGESET })
-  );
+  await page.route("**/changesets/*", (route) => {
+    if (route.request().method() === "DELETE") {
+      return route.fulfill({ status: 204 });
+    }
+    return route.fulfill({ json: MOCK_CHANGESET });
+  });
 }

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import anthropic
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -100,7 +100,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["GET", "POST", "PATCH"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Content-Type"],
 )
 
@@ -335,6 +335,20 @@ async def reject(changeset_id: str):
     cs = _get_changeset_or_404(changeset_id)
     _reject_changeset(cs)
     return {"id": cs.id, "status": "rejected"}
+
+
+# Permanently delete a changeset from the store.
+@app.delete(
+    "/changesets/{changeset_id}",
+    status_code=204,
+    tags=["Changesets"],
+    summary="Delete changeset",
+    description="Permanently delete a changeset regardless of status.",
+)
+async def delete_changeset(changeset_id: str):
+    _get_changeset_or_404(changeset_id)
+    get_changeset_store().delete(changeset_id)
+    return Response(status_code=204)
 
 
 # Submit feedback on a changeset and request revision.

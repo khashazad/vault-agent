@@ -75,6 +75,12 @@ export function rejectChangeset(changesetId: string): Promise<void> {
   });
 }
 
+export function deleteChangeset(changesetId: string): Promise<void> {
+  return fetchVoid(`${BASE}/changesets/${changesetId}`, {
+    method: "DELETE",
+  });
+}
+
 export function fetchZoteroStatus(): Promise<ZoteroStatus> {
   return fetchJSON(`${BASE}/zotero/status`);
 }

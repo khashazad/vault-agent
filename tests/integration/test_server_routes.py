@@ -233,3 +233,17 @@ class TestChangesetHistoryRoutes:
         call_kwargs = mock_gen.call_args
         assert call_kwargs.kwargs["feedback"] == "Fix heading"
         assert call_kwargs.kwargs["parent_changeset_id"] == cs.id
+
+    async def test_delete_changeset(self, client):
+        from src.store import get_changeset_store
+
+        cs = make_changeset()
+        get_changeset_store().set(cs)
+
+        resp = await client.delete(f"/changesets/{cs.id}")
+        assert resp.status_code == 204
+        assert get_changeset_store().get(cs.id) is None
+
+    async def test_delete_changeset_not_found(self, client):
+        resp = await client.delete("/changesets/nonexistent")
+        assert resp.status_code == 404
