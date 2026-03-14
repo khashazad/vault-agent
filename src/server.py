@@ -374,9 +374,7 @@ async def regenerate(changeset_id: str, request: Request):
         )
     config = _get_config(request)
     try:
-        from src.agent.agent import generate_changeset
-
-        new_cs = await generate_changeset(
+        new_cs = await generate_zotero_note(
             config,
             cs.items,
             feedback=cs.feedback,

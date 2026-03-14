@@ -37,9 +37,6 @@ logs
 # IntelliJ based IDEs
 .idea
 
-# LanceDB
-.lancedb/
-
 # Changeset database
 .changesets.db
 

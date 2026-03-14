@@ -14,7 +14,7 @@ Connect your Zotero library and Vault Agent's AI figures out where each annotati
 
 1. **Browse** — Browse your Zotero papers by collection, search, or sync status in the web UI.
 2. **Select** — Pick a paper and review its annotations. Toggle individual annotations on/off.
-3. **Search & Reason** — The AI agent searches your vault semantically, reads relevant notes, and decides the best placement: update an existing note, create a new one, or skip. It declares a routing decision explaining its reasoning.
+3. **Search & Reason** — The AI agent reviews your vault structure, reads relevant notes, and decides the best placement: update an existing note, create a new one, or skip. It declares a routing decision explaining its reasoning.
 4. **Preview** — Proposed changes are computed against your current files and presented as diffs. Nothing is written to disk yet.
 5. **Approve & Apply** — Review each proposed change individually. Approve what looks good, reject what doesn't. Only approved changes are written to your vault.
 
@@ -23,8 +23,6 @@ The safety model is deliberate: all writes are **additive-only** (appends and ne
 ## Technology Overview
 
 **Claude (Haiku 4.5)** — The AI reasoning layer that reads your vault, decides where annotations belong, and generates Obsidian-compatible markdown. The agent loop uses the Anthropic SDK directly — no framework — keeping the core logic minimal and transparent.
-
-**Voyage AI + LanceDB** — Powers semantic note discovery. Notes are chunked by heading, embedded with Voyage AI, and stored in LanceDB. The agent searches using hybrid retrieval (vector similarity + full-text search) with RRF reranking to find the most relevant sections of your vault.
 
 **pyzotero** — Connects to your Zotero library to fetch papers, annotations, and collections. Background sync keeps a local cache up to date.
 
@@ -42,7 +40,7 @@ The safety model is deliberate: all writes are **additive-only** (appends and ne
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 - [Bun](https://bun.sh/) (for the UI)
 - An Obsidian vault on your local filesystem
-- API keys for [Anthropic](https://console.anthropic.com/) and [Voyage AI](https://www.voyageai.com/)
+- An [Anthropic](https://console.anthropic.com/) API key
 - Optional: [Zotero](https://www.zotero.org/) API key and library ID for Zotero integration
 
 ### Setup
@@ -58,16 +56,12 @@ cd ui && bun install && cd ..
 cp .env.example .env
 # Edit .env with your API keys and vault path:
 #   ANTHROPIC_API_KEY=sk-ant-...
-#   VOYAGE_API_KEY=pa-...
 #   VAULT_PATH=/absolute/path/to/your/obsidian/vault
 #   ZOTERO_API_KEY=...          (optional)
 #   ZOTERO_LIBRARY_ID=...       (optional)
 
 # Start the backend
 uv run python -m src.server
-
-# In a separate terminal, index your vault for semantic search
-curl -X POST http://localhost:3000/vault/index
 
 # Start the UI (in another terminal)
 cd ui && bun run dev
@@ -78,14 +72,14 @@ The backend runs on port 3000 and the UI dev server on port 5173.
 ### Running Tests
 
 ```bash
-# Backend (pytest — 110 tests)
+# Backend (pytest — 138 tests)
 uv sync --dev
 uv run pytest tests/ -v
 
 # Frontend (vitest — 46 tests)
 cd ui && bun run test
 
-# E2E (Playwright — 14 tests, requires built UI)
+# E2E (Playwright — 19 tests, requires built UI)
 cd ui && bun run build
 cd ../tests/e2e && bun install && bunx playwright install chromium
 bunx playwright test

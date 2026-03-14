@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A **FastAPI backend server** running on Python that takes highlights and annotations from web pages, Zotero, and books, then intelligently integrates them into an Obsidian vault using Claude as the AI reasoning layer. Content items are submitted via HTTP API (primarily through Zotero sync), processed by a Claude agent with vault-aware tools, and written to the filesystem as Obsidian-compatible markdown.
+A **FastAPI backend server** running on Python that takes Zotero annotations and synthesizes them into Obsidian vault notes using Claude as the AI reasoning layer. Annotations are submitted via HTTP API (through Zotero sync), synthesized by a single Claude LLM call into a paper note, and written to the filesystem as Obsidian-compatible markdown after user approval.
 
 ## Architecture
 
@@ -11,11 +11,9 @@ Zotero Sync Flow:
   POST /zotero/papers/{paper_key}/sync (or POST /zotero/sync for batch)
     → Fetch annotations from Zotero API
     → Build ContentItem list from annotations
-    → Agent runs in dry-run mode (virtual filesystem)
-    → Claude calls search_vault, reads notes, reports routing decision
-    → Tool calls intercepted: diffs computed against originals
-    → Proposed changes collected into a Changeset (persisted in SQLite)
-    → Response: full Changeset with diffs and routing info
+    → Single Claude LLM call synthesizes annotations into a paper note
+    → Proposed note wrapped in a Changeset with diff (persisted in SQLite)
+    → Response: full Changeset with diff and routing info
 
   Apply (POST /changesets/{id}/apply):
     → Client approves/rejects individual changes
@@ -29,17 +27,11 @@ Zotero Sync Flow:
 - **`src/config.py`** — Loads env vars, validates VAULT_PATH, API keys, and optional Zotero config.
 - **`src/vault/reader.py`** — Scans the Obsidian vault filesystem. Parses frontmatter, extracts wikilinks, builds the vault map string for the LLM context.
 - **`src/vault/writer.py`** — Filesystem write operations: create note, append to note. All operations are additive-only (no destructive edits).
-- **`src/agent/agent.py`** — The core agent loop. Sends messages to Claude with tools, executes tool calls, loops until completion.
-- **`src/agent/tools.py`** — Tool definitions and handlers for `search_vault`, `report_routing_decision`, `read_note`, `create_note`, `update_note`.
-- **`src/agent/prompts.py`** — System prompt templates with source-type-aware configs (web, zotero, book). The vault map gets interpolated into the system prompt at runtime.
+- **`src/agent/agent.py`** — Single-call Zotero note synthesis (`generate_zotero_note`), batch API support, retry logic, cost tracking.
+- **`src/agent/prompts.py`** — Zotero synthesis prompt builder. Produces (system, user) message pair from annotations and metadata, with optional feedback for regeneration.
 - **`src/store.py`** — SQLite-backed persistent `ChangesetStore` using WAL journal mode. Stores changesets in `.changesets.db`.
 - **`src/agent/changeset.py`** — `apply_changeset(vault_path, changeset, approved_ids?)`. Iterates approved `ProposedChange` objects and dispatches to `create_note` / `update_note`.
 - **`src/agent/diff.py`** — `generate_diff(path, original, proposed)`. Wraps `difflib.unified_diff` to produce unified diffs for display in the UI.
-- **`src/rag/chunker.py`** — Heading-based markdown chunker. Splits notes into chunks by heading boundaries.
-- **`src/rag/embedder.py`** — Voyage AI wrapper for embedding texts and queries.
-- **`src/rag/store.py`** — LanceDB wrapper for vector storage and search.
-- **`src/rag/indexer.py`** — Orchestrator: scans vault → chunks notes → embeds changed chunks → upserts into LanceDB.
-- **`src/rag/search.py`** — Hybrid search: combines vector similarity + full-text search with RRF (Reciprocal Rank Fusion) reranking. Falls back to vector-only if hybrid fails.
 - **`src/vault/__init__.py`** — Path validation utility (`validate_path`) preventing traversal outside vault root.
 - **`src/zotero/client.py`** — Zotero API client wrapping `pyzotero`. Fetches papers, annotations, collections.
 - **`src/zotero/sync.py`** — Zotero highlight sync logic. Converts annotations to `ContentItem` list and runs agent.
@@ -52,9 +44,6 @@ Zotero Sync Flow:
 - **Framework**: FastAPI + Uvicorn
 - **LLM**: Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) via `anthropic` Python SDK (direct SDK, no framework)
 - **Markdown parsing**: `python-frontmatter` for frontmatter, regex for wikilink extraction
-- **Embeddings**: Voyage AI (`voyage-3-lite`, 512 dimensions) for semantic search
-- **Search**: Hybrid vector + full-text search with RRF reranking via LanceDB
-- **Vector store**: LanceDB (local, file-based) for chunk storage, vector search, and FTS index
 - **Changeset storage**: SQLite with WAL journal mode (`.changesets.db`)
 - **Filesystem**: `pathlib.Path.rglob()` for vault traversal, `Path.read_text()` / `.write_text()` for I/O
 - **Zotero integration**: `pyzotero` for Zotero API access, background sync with local paper cache
@@ -121,8 +110,6 @@ A React 19 + TypeScript single-page application built with Vite 6 and Tailwind C
 ### Health & Vault
 - `GET /health` — Health check, returns vault path and status
 - `GET /vault/map` — Returns vault structure JSON (for debugging)
-- `POST /vault/index` — Index vault into LanceDB for semantic search
-- `GET /vault/search?q=...&n=10` — Semantic search across vault contents
 
 ### Changesets
 - `GET /changesets/{id}` — Get full changeset with all ProposedChange details
@@ -172,8 +159,6 @@ Required in `.env` (loaded via `python-dotenv`):
 ANTHROPIC_API_KEY=sk-ant-...
 VAULT_PATH=/absolute/path/to/obsidian/vault
 PORT=3000
-VOYAGE_API_KEY=pa-...          # Required — powers semantic search
-LANCEDB_PATH=.lancedb          # Optional — default ".lancedb"
 CHANGESET_DB_PATH=.changesets.db  # Optional — default ".changesets.db"
 ZOTERO_API_KEY=...             # Optional — Zotero integration
 ZOTERO_LIBRARY_ID=...          # Optional — Zotero library ID
@@ -181,25 +166,18 @@ ZOTERO_LIBRARY_TYPE=user       # Optional — default "user"
 ```
 
 `VAULT_PATH` must point to the root of the Obsidian vault (the directory containing `.obsidian/`).
-`VOYAGE_API_KEY` is required. The agent uses semantic search (Voyage AI + LanceDB) to discover relevant notes.
 `ZOTERO_API_KEY` and `ZOTERO_LIBRARY_ID` are required for Zotero integration endpoints.
 
 ## Key Design Decisions
-
-### Hybrid search with Voyage AI + LanceDB
-A compact vault summary (folder structure and top tags) is passed in the Claude context window. Hybrid search powers note discovery: notes are chunked by heading, embedded via Voyage AI (`voyage-3-lite`), and stored in LanceDB with a full-text search index. The agent uses `search_vault` which combines vector similarity and FTS results via RRF (Reciprocal Rank Fusion) reranking. Falls back to vector-only search if hybrid fails. Indexing is incremental (only re-embeds changed chunks).
 
 ### Additive-only writes
 Two write operations: create note and append section. No modifications to existing prose, no deletions, no moves, no renames. Worst case is an unwanted new note or a bad append, both trivially reverted with `git checkout`.
 
 ### Direct Anthropic SDK
-The agent loop is ~50 lines. No LangChain/LlamaIndex — a framework adds complexity without value for this use case.
+Single-call synthesis in ~40 lines. No LangChain/LlamaIndex — a framework adds complexity without value for this use case.
 
 ### Changeset approval workflow
-Content is previewed before being written. The agent runs in dry-run mode using a virtual filesystem: tool calls are intercepted, diffs computed against originals, and a `Changeset` persisted to SQLite without touching the vault. The agent pre-fetches notes found via `search_vault` into the virtual filesystem before running. The client approves or rejects individual changes, then calls `POST /changesets/{id}/apply` to write only approved changes. Git remains useful for reviewing what landed, but the primary safety mechanism is the approval gate.
-
-### Routing decisions
-The agent must call `report_routing_decision` exactly once before making any `create_note` or `update_note` calls. This declares the intended placement (update existing, create new, or skip), target path, reasoning, confidence score, and optional duplicate_notes. Routing decisions are stored on the changeset and displayed in the UI for review. If the agent reports "skip", the changeset status is set to "skipped".
+Content is previewed before being written. The synthesis call produces a proposed note, which is wrapped in a `Changeset` with a diff and persisted to SQLite without touching the vault. The client approves or rejects individual changes, then calls `POST /changesets/{id}/apply` to write only approved changes. Git remains useful for reviewing what landed, but the primary safety mechanism is the approval gate.
 
 ### Zotero integration
 Papers and annotations are fetched via `pyzotero`. A local paper cache supports paginated browsing, search, and collection filtering. Background sync refreshes the cache from Zotero API. Per-paper sync creates a changeset by converting annotations to `ContentItem` objects and running the agent. Annotations can be excluded before sync.
@@ -234,34 +212,6 @@ Content here with [[wikilinks]] to related notes.
 Commentary about the highlight.
 ```
 
-## Agent Tool Definitions
-
-### `read_note`
-- **Input**: `{ path: string }` — relative path from vault root
-- **Output**: Full file content including frontmatter
-- **Error**: `"Note not found: {path}"` if missing
-
-### `create_note`
-- **Input**: `{ path: string, content: string }`
-- **Output**: Confirmation with created path
-- **Constraint**: Must not overwrite existing files
-
-### `update_note`
-- **Input**: `{ path: string, operation: "append_section", heading?, content? }`
-- **Operations**:
-  - `append_section`: Appends content under a heading (or at end of file if heading omitted/not found)
-- **Constraint**: Append-only, never removes content
-
-### `search_vault`
-- **Input**: `{ query: string, n?: number }`
-- **Output**: Ranked list of note sections with path, heading, content snippet, and similarity score
-- **Usage**: Agent calls this first to find semantically relevant notes before reading/creating
-
-### `report_routing_decision`
-- **Input**: `{ action: "update" | "create" | "skip", target_path?: string, reasoning: string, confidence: number, duplicate_notes?: string[] }`
-- **Output**: Confirmation that routing decision was recorded
-- **Constraint**: Must be called exactly once before any `create_note` or `update_note` calls
-
 ## Testing
 
 ### Testability design
@@ -272,7 +222,7 @@ Two refactors enable test imports without side effects:
 
 ### Backend tests (pytest)
 
-110 tests in `tests/`. Config in `pyproject.toml` under `[tool.pytest.ini_options]`.
+126 tests in `tests/`. Config in `pyproject.toml` under `[tool.pytest.ini_options]`.
 
 **Root fixtures** (`tests/conftest.py`):
 - `tmp_vault` — temp dir with sample `.md` notes and `.obsidian/` marker
@@ -280,7 +230,7 @@ Two refactors enable test imports without side effects:
 
 **Factories** (`tests/factories.py`): `make_content_item()`, `make_zotero_content_item()`, `make_proposed_change()`, `make_routing_info()`, `make_changeset()` — all accept `**overrides`.
 
-**Unit tests** (`tests/unit/`): Pure functions, no mocks. Covers vault reader/writer, chunker, diff, prompts, models, agent tools, zotero parsing.
+**Unit tests** (`tests/unit/`): Pure functions, no mocks. Covers vault reader/writer, diff, prompts, models, agent cost, zotero parsing.
 
 **Integration tests** (`tests/integration/`): Uses `:memory:` SQLite stores (via `tests/integration/conftest.py`), `tmp_path` filesystem, and `httpx.AsyncClient` with `ASGITransport` for server route tests. Covers store CRUD, vault I/O, changeset apply, vault map, server routes.
 
@@ -298,11 +248,11 @@ Two refactors enable test imports without side effects:
 
 ### E2E tests (Playwright)
 
-14 tests in `tests/e2e/specs/`. Config in `tests/e2e/playwright.config.ts`.
+19 tests in `tests/e2e/specs/`. Config in `tests/e2e/playwright.config.ts`.
 
 Uses Playwright's `page.route()` for API mocking (no real backend needed). Serves the built UI via `vite preview`. Mock data defined in `tests/e2e/mock-api.ts`.
 
-**Specs**: `health.spec.ts` (page load, header, Zotero config), `papers.spec.ts` (paper list, search, filters, sidebar), `sync-flow.spec.ts` (full paper → annotations → process → review flow).
+**Specs**: `health.spec.ts` (page load, header, Zotero config), `history.spec.ts` (changeset history), `papers.spec.ts` (paper list, search, filters, sidebar), `sync-flow.spec.ts` (full paper → annotations → process → review flow).
 
 **Prerequisite**: `cd ui && bun run build` before running E2E tests.
 
@@ -336,7 +286,6 @@ vault-agent/
 │   │   ├── changesets.py      # Changeset, ProposedChange, RoutingInfo
 │   │   ├── vault.py           # VaultNote, VaultMap, VaultNoteSummary
 │   │   ├── tools.py           # ReadNoteInput, CreateNoteInput, UpdateNoteInput
-│   │   ├── search.py          # ChunkInfo, IndexResponse, SearchResponse
 │   │   └── zotero.py          # Zotero request/response models
 │   ├── vault/
 │   │   ├── __init__.py        # validate_path()
@@ -345,18 +294,10 @@ vault-agent/
 │   ├── agent/
 │   │   ├── __init__.py
 │   │   ├── agent.py
-│   │   ├── tools.py
 │   │   ├── prompts.py
 │   │   ├── changeset.py       # Applies approved changes to vault
 │   │   ├── diff.py            # Unified diff generation
 │   │   └── wikify.py          # Post-processing wikilink auto-linker
-│   ├── rag/
-│   │   ├── __init__.py
-│   │   ├── chunker.py
-│   │   ├── embedder.py
-│   │   ├── store.py
-│   │   ├── indexer.py
-│   │   └── search.py
 │   └── zotero/
 │       ├── __init__.py
 │       ├── client.py          # Zotero API client (pyzotero)
@@ -371,11 +312,10 @@ vault-agent/
 │   │   ├── test_vault_reader.py
 │   │   ├── test_vault_writer.py
 │   │   ├── test_vault_init.py
-│   │   ├── test_chunker.py
 │   │   ├── test_diff.py
 │   │   ├── test_prompts.py
 │   │   ├── test_models.py
-│   │   ├── test_agent_tools.py
+│   │   ├── test_agent_cost.py
 │   │   └── test_zotero_parsing.py
 │   ├── integration/
 │   │   ├── conftest.py        # :memory: store fixtures
@@ -390,6 +330,7 @@ vault-agent/
 │       ├── mock-api.ts        # Route interception helpers
 │       └── specs/
 │           ├── health.spec.ts
+│           ├── history.spec.ts
 │           ├── papers.spec.ts
 │           └── sync-flow.spec.ts
 ├── ui/
@@ -413,6 +354,8 @@ vault-agent/
 │       │   ├── DiffViewer.tsx
 │       │   ├── MarkdownPreview.tsx
 │       │   ├── CollectionTree.tsx
+│       │   ├── AnnotationFeedback.tsx
+│       │   ├── ChangesetHistory.tsx
 │       │   └── ErrorAlert.tsx
 │       ├── utils/
 │       │   ├── obsidian.ts    # Wikilink/tag/embed preprocessing
@@ -427,7 +370,9 @@ vault-agent/
 │           ├── components/
 │           │   ├── ErrorAlert.test.tsx
 │           │   ├── CollectionTree.test.tsx
-│           │   └── DiffViewer.test.tsx
+│           │   ├── DiffViewer.test.tsx
+│           │   ├── AnnotationFeedback.test.tsx
+│           │   └── ChangesetHistory.test.tsx
 │           └── api/
 │               └── client.test.ts
 ├── .github/
