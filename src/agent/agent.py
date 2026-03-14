@@ -9,32 +9,16 @@ import anthropic
 from src.models import (
     Changeset,
     ContentItem,
-    CreateNoteInput,
     ProposedChange,
     RoutingInfo,
     TokenUsage,
-    UpdateNoteInput,
 )
 from src.config import AppConfig
-from src.agent.tools import get_tool_definitions, execute_tool
-from src.agent.prompts import (
-    build_system_prompt,
-    build_batch_user_message,
-    build_zotero_synthesis_prompt,
-    SOURCE_CONFIGS,
-)
+from src.agent.prompts import build_zotero_synthesis_prompt
 from src.agent.diff import generate_diff
-from src.vault import validate_path
-from src.vault.reader import build_vault_map
-from src.vault.writer import compute_create, compute_update
 from src.store import get_changeset_store
 
 logger = logging.getLogger("vault-agent")
-
-MAX_TOOL_CALLS = 15
-_MAX_TOOL_CALLS_CAP = 40
-_TOOL_CALLS_BASE = 5
-_TOOL_CALLS_PER_ITEM = 3
 
 MODELS = {
     "haiku": {
@@ -56,6 +40,8 @@ MODELS = {
 }
 DEFAULT_MODEL = "sonnet"
 _BATCH_DISCOUNT = 0.5
+_SYNTHESIS_MAX_TOKENS = 8192
+_MAX_NOTE_PATH_LENGTH = 100
 
 
 def _compute_cost(
@@ -175,56 +161,6 @@ def _log_token_usage(
     )
 
 
-# Scale the max tool call limit based on batch size (min MAX_TOOL_CALLS, max _MAX_TOOL_CALLS_CAP).
-def _max_tool_calls(item_count: int) -> int:
-    return min(
-        _MAX_TOOL_CALLS_CAP,
-        max(MAX_TOOL_CALLS, _TOOL_CALLS_BASE + _TOOL_CALLS_PER_ITEM * item_count),
-    )
-
-
-# Initialize the agent: build client, system prompt, tools, and opening message.
-#
-# Args:
-#     config: App configuration (API keys, vault path, etc.).
-#     items: Content items to process.
-#     feedback: Optional user feedback from a previous changeset attempt.
-#     previous_reasoning: Optional agent reasoning from a prior run for continuity.
-#
-# Returns:
-#     Tuple of (AsyncAnthropic client, system prompt str, tool defs list, messages list).
-async def _init_agent(
-    config: AppConfig,
-    items: list[ContentItem],
-    feedback: str | None = None,
-    previous_reasoning: str | None = None,
-):
-    client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
-    is_batch = len(items) > 1
-    source_config = SOURCE_CONFIGS.get(items[0].source_type, SOURCE_CONFIGS["web"])
-    vault_map = build_vault_map(config.vault_path)
-    system_prompt = build_system_prompt(
-        vault_map.as_string,
-        source_config,
-        is_batch=is_batch,
-        source_type=items[0].source_type,
-    )
-    tool_defs = get_tool_definitions()
-
-    messages: list[dict] = [
-        {
-            "role": "user",
-            "content": build_batch_user_message(
-                items,
-                source_config,
-                feedback,
-                previous_reasoning,
-            ),
-        },
-    ]
-    return client, system_prompt, tool_defs, messages
-
-
 # Call client.messages.create with exponential backoff on 429/529 errors.
 # Retries up to 3 times with 1s base delay.
 async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
@@ -259,269 +195,6 @@ async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
                 raise
 
 
-# Dispatch a single tool call and return (result_content, is_error, routing_info_update, proposed_change).
-#
-# Handles routing decisions, read, create, and update tool calls.
-# Write tools (create/update) operate on a virtual filesystem for dry-run mode.
-async def _dispatch_tool(
-    tool_name: str,
-    tool_input: dict,
-    config: AppConfig,
-    virtual_fs: dict[str, str],
-) -> tuple[str, bool, RoutingInfo | None, ProposedChange | None]:
-    routing_info = None
-    proposed_change = None
-    is_error = False
-
-    try:
-        if tool_name == "report_routing_decision":
-            routing_info = RoutingInfo(
-                action=tool_input["action"],
-                target_path=tool_input.get("target_path"),
-                reasoning=tool_input["reasoning"],
-                confidence=tool_input["confidence"],
-                duplicate_notes=tool_input.get("duplicate_notes"),
-            )
-            if routing_info.action == "skip":
-                result_content = (
-                    "Routing decision recorded: skip. No changes needed — "
-                    "this information is already in the vault. "
-                    "Summarize your reasoning and finish."
-                )
-            else:
-                result_content = (
-                    f"Routing decision recorded: {routing_info.action} "
-                    f"{'at ' + routing_info.target_path if routing_info.target_path else '(new note)'}. "
-                    f"Now proceed to make the changes."
-                )
-
-        elif tool_name == "read_note":
-            note_path = tool_input["path"]
-            if note_path in virtual_fs:
-                result_content = virtual_fs[note_path]
-            else:
-                result_content = await execute_tool(
-                    config.vault_path, tool_name, tool_input
-                )
-
-        elif tool_name == "create_note":
-            inp = CreateNoteInput(**tool_input)
-            if inp.path in virtual_fs:
-                raise FileExistsError(
-                    f"Note already exists at {inp.path}. Use update_note to modify existing notes."
-                )
-            proposed_content = compute_create(config.vault_path, inp)
-            diff = generate_diff(inp.path, "", proposed_content)
-
-            proposed_change = ProposedChange(
-                id=str(uuid.uuid4()),
-                tool_name="create_note",
-                input=tool_input,
-                original_content=None,
-                proposed_content=proposed_content,
-                diff=diff,
-            )
-            virtual_fs[inp.path] = proposed_content
-            result_content = f"[Preview] Note would be created at {inp.path}"
-
-        elif tool_name == "update_note":
-            inp = UpdateNoteInput(**tool_input)
-            if inp.path in virtual_fs:
-                original = virtual_fs[inp.path]
-            else:
-                full_path = validate_path(config.vault_path, inp.path)
-                if not full_path.exists():
-                    raise FileNotFoundError(f"Note not found: {inp.path}")
-                original = full_path.read_text(encoding="utf-8")
-
-            result = compute_update(original, inp)
-            diff = generate_diff(inp.path, original, result)
-
-            proposed_change = ProposedChange(
-                id=str(uuid.uuid4()),
-                tool_name="update_note",
-                input=tool_input,
-                original_content=original,
-                proposed_content=result,
-                diff=diff,
-            )
-            virtual_fs[inp.path] = result
-            result_content = f"[Preview] Note would be updated at {inp.path}"
-
-        else:
-            raise ValueError(f"Unknown tool: {tool_name}")
-
-    except Exception as err:
-        logger.warning("Tool %s failed: %s", tool_name, err)
-        is_error = True
-        result_content = f"Error: {err}"
-
-    return result_content, is_error, routing_info, proposed_change
-
-
-# Run the core agent loop: search vault, decide placement, produce a dry-run changeset.
-#
-# Executes a multi-turn conversation with Claude. The agent searches the vault,
-# reports a routing decision, then calls create_note/update_note. All write
-# tool calls are intercepted and computed against a virtual filesystem — nothing
-# is written to disk. Diffs are generated for each proposed change and the full
-# changeset is persisted to SQLite for later approval.
-#
-# Args:
-#     config: App configuration (API keys, vault path).
-#     items: Content items (highlights/annotations) to integrate into the vault.
-#     feedback: Optional user feedback to incorporate from a prior attempt.
-#     previous_reasoning: Optional agent reasoning from a prior run for context.
-#     parent_changeset_id: ID of the previous changeset if this is a retry.
-#
-# Returns:
-#     Changeset with proposed changes, routing info, and agent reasoning.
-async def generate_changeset(
-    config: AppConfig,
-    items: list[ContentItem],
-    feedback: str | None = None,
-    previous_reasoning: str | None = None,
-    parent_changeset_id: str | None = None,
-    model: str = DEFAULT_MODEL,
-) -> Changeset:
-
-    max_calls = _max_tool_calls(len(items))
-
-    client, system_prompt, tool_defs, messages = await _init_agent(
-        config,
-        items,
-        feedback,
-        previous_reasoning,
-    )
-
-    proposed_changes: list[ProposedChange] = []
-    reasoning_parts: list[str] = []
-    routing_info: RoutingInfo | None = None
-    tool_call_count = 0
-    total_input_tokens = 0
-    total_output_tokens = 0
-    total_cache_write_tokens = 0
-    total_cache_read_tokens = 0
-    api_calls = 0
-
-    # Virtual filesystem for files "created" in preview mode
-    virtual_fs: dict[str, str] = {}
-
-    while tool_call_count < max_calls:
-        response = await _create_with_retry(
-            client,
-            model=MODELS[model]["id"],
-            max_tokens=4096,
-            system=[
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            tools=tool_defs,
-            messages=messages,
-        )
-
-        api_calls += 1
-        inp, out, cw, cr = _extract_usage(response)
-        total_input_tokens += inp
-        total_output_tokens += out
-        total_cache_write_tokens += cw
-        total_cache_read_tokens += cr
-
-        for block in response.content:
-            if block.type == "text":
-                reasoning_parts.append(block.text)
-
-        if response.stop_reason == "end_turn":
-            break
-
-        if response.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": response.content})
-
-            tool_results = []
-
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-
-                tool_call_count += 1
-
-                result_content, is_error, ri, change = (
-                    await _dispatch_tool(
-                        block.name, block.input, config, virtual_fs,
-                    )
-                )
-                if ri is not None:
-                    routing_info = ri
-                if change is not None:
-                    proposed_changes.append(change)
-
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result_content,
-                        "is_error": is_error,
-                    }
-                )
-
-            messages.append({"role": "user", "content": tool_results})
-
-    _log_token_usage(
-        len(items),
-        api_calls,
-        tool_call_count,
-        total_input_tokens,
-        total_output_tokens,
-        total_cache_write_tokens,
-        total_cache_read_tokens,
-        model,
-    )
-
-    # Fallback: infer routing from first proposed change if agent didn't call report_routing_decision
-    if routing_info is None and proposed_changes:
-        first = proposed_changes[0]
-        routing_info = RoutingInfo(
-            action="create" if first.tool_name == "create_note" else "update",
-            target_path=first.input.get("path"),
-            reasoning="Inferred from agent actions (no explicit routing decision reported).",
-            confidence=0.5,
-        )
-
-    changeset_status = "pending"
-    if routing_info and routing_info.action == "skip":
-        changeset_status = "skipped"
-
-    usage = _build_token_usage(
-        total_input_tokens,
-        total_output_tokens,
-        total_cache_write_tokens,
-        total_cache_read_tokens,
-        api_calls,
-        tool_call_count,
-        model,
-    )
-
-    changeset = Changeset(
-        id=str(uuid.uuid4()),
-        items=items,
-        changes=proposed_changes,
-        reasoning="".join(reasoning_parts),
-        status=changeset_status,
-        created_at=datetime.now(timezone.utc).isoformat(),
-        source_type=items[0].source_type,
-        routing=routing_info,
-        usage=usage,
-        feedback=feedback,
-        parent_changeset_id=parent_changeset_id,
-    )
-    get_changeset_store().set(changeset)
-
-    return changeset
-
-
 # Derive a vault-relative path (Papers/<sanitized-title>.md) from Zotero metadata.
 def _zotero_note_path(items: list[ContentItem]) -> str:
     meta = items[0].source_metadata
@@ -529,8 +202,8 @@ def _zotero_note_path(items: list[ContentItem]) -> str:
     # Sanitize for filesystem: keep alphanumeric, spaces, hyphens
     sanitized = re.sub(r"[^\w\s\-]", "", title)
     sanitized = re.sub(r"\s+", " ", sanitized).strip()
-    if len(sanitized) > 100:
-        sanitized = sanitized[:100].rsplit(" ", 1)[0]
+    if len(sanitized) > _MAX_NOTE_PATH_LENGTH:
+        sanitized = sanitized[:_MAX_NOTE_PATH_LENGTH].rsplit(" ", 1)[0]
     return f"Papers/{sanitized}.md"
 
 
@@ -538,11 +211,14 @@ def _zotero_note_path(items: list[ContentItem]) -> str:
 #
 # Sends all annotations to Claude with a Zotero-specific synthesis prompt
 # and creates a changeset containing one create_note ProposedChange.
-# Faster than generate_changeset since it skips search/routing.
 #
 # Args:
 #     config: App configuration (API keys, vault path).
 #     items: Annotation ContentItems from a single Zotero paper.
+#     model: Model key to use for synthesis.
+#     feedback: User feedback from a rejected previous attempt.
+#     previous_reasoning: Agent reasoning from the rejected attempt.
+#     parent_changeset_id: ID of the previous changeset if this is a retry.
 #
 # Returns:
 #     Changeset with a single proposed create_note change.
@@ -550,16 +226,21 @@ async def generate_zotero_note(
     config: AppConfig,
     items: list[ContentItem],
     model: str = DEFAULT_MODEL,
+    feedback: str | None = None,
+    previous_reasoning: str | None = None,
+    parent_changeset_id: str | None = None,
 ) -> Changeset:
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     metadata = items[0].source_metadata
 
-    system, user = build_zotero_synthesis_prompt(items, metadata)
+    system, user = build_zotero_synthesis_prompt(
+        items, metadata, feedback=feedback, previous_reasoning=previous_reasoning
+    )
 
     response = await _create_with_retry(
         client,
         model=MODELS[model]["id"],
-        max_tokens=8192,
+        max_tokens=_SYNTHESIS_MAX_TOKENS,
         system=[
             {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
         ],
@@ -601,6 +282,8 @@ async def generate_zotero_note(
         source_type="zotero",
         routing=routing,
         usage=usage,
+        feedback=feedback,
+        parent_changeset_id=parent_changeset_id,
     )
     get_changeset_store().set(changeset)
 
@@ -638,7 +321,7 @@ async def submit_zotero_note_batch(
                 "custom_id": paper_key,
                 "params": {
                     "model": MODELS[model]["id"],
-                    "max_tokens": 8192,
+                    "max_tokens": _SYNTHESIS_MAX_TOKENS,
                     "system": [{"type": "text", "text": system}],
                     "messages": [{"role": "user", "content": user}],
                 },

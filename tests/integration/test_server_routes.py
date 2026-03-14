@@ -210,11 +210,15 @@ class TestChangesetHistoryRoutes:
         resp = await client.post(f"/changesets/{cs.id}/regenerate")
         assert resp.status_code == 400
 
-    @patch("src.agent.agent.generate_changeset", new_callable=AsyncMock)
+    @patch("src.server.generate_zotero_note", new_callable=AsyncMock)
     async def test_regenerate_success(self, mock_gen, client):
         from src.store import get_changeset_store
 
-        cs = make_changeset(status="revision_requested", feedback="Fix heading")
+        cs = make_changeset(
+            status="revision_requested",
+            feedback="Fix heading",
+            source_type="zotero",
+        )
         get_changeset_store().set(cs)
 
         new_cs = make_changeset(parent_changeset_id=cs.id)
