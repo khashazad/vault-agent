@@ -52,6 +52,8 @@ export const handlers = [
     HttpResponse.json({ id: params.id, status: "rejected" }),
   ),
 
+  http.delete("/changesets/:id", () => new HttpResponse(null, { status: 204 })),
+
   http.post("/changesets/:id/request-changes", async ({ params, request }) => {
     const body = (await request.json()) as { feedback: string };
     return HttpResponse.json({

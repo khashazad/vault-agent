@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type RefObject } from "react";
 import type {
   ChangesetSummary,
   Changeset,
@@ -11,6 +11,7 @@ import {
   fetchChangesetCost,
   requestChanges,
   regenerateChangeset,
+  deleteChangeset,
 } from "../api/client";
 import { formatError } from "../utils";
 import { ErrorAlert } from "./ErrorAlert";
@@ -51,6 +52,58 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+function TrashIcon() {
+  return (
+    <svg
+      width={16}
+      height={16}
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M5.5 5.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5.5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0zm3 .5a.5.5 0 0 1-.5-.5.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6a.5.5 0 0 1 .5-.5" />
+      <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1 0-2H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1M4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM6 2h4a.5.5 0 0 0-.5-.5h-3A.5.5 0 0 0 6 2" />
+    </svg>
+  );
+}
+
+function DeleteConfirmPopover({
+  onConfirm,
+  onCancel,
+  popoverRef,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+  popoverRef: RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div
+      ref={popoverRef}
+      data-testid="delete-confirm-popover"
+      className="absolute right-0 top-full mt-1 z-10 bg-surface border border-border rounded p-3 shadow-lg min-w-[200px]"
+    >
+      <p className="text-xs text-muted m-0 mb-2">
+        Permanently delete this changeset?
+      </p>
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={(e) => { e.stopPropagation(); onCancel(); }}
+          className="text-xs px-3 py-1 rounded bg-transparent border border-border text-muted cursor-pointer hover:text-foreground"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onConfirm(); }}
+          data-testid="confirm-delete-btn"
+          className="text-xs px-3 py-1 rounded bg-red/15 border border-red/30 text-red cursor-pointer hover:bg-red/25"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CostDisplay({ usage }: { usage: TokenUsage }) {
   return (
     <div className="flex flex-col gap-1 text-xs">
@@ -88,6 +141,9 @@ export function ChangesetHistory() {
   const [annotations, setAnnotations] = useState<PassageAnnotation[]>([]);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const deletePopoverRef = useRef<HTMLDivElement>(null);
   const [splitPercent, setSplitPercent] = useState(72);
   const dragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -174,6 +230,51 @@ export function ChangesetHistory() {
     }
   }, [selectedId, openDetail]);
 
+  const openDeleteConfirm = useCallback(
+    (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setConfirmDeleteId(id);
+    },
+    [],
+  );
+
+  const cancelDelete = useCallback(() => {
+    setConfirmDeleteId(null);
+  }, []);
+
+  const confirmDelete = useCallback(
+    async (id: string) => {
+      setConfirmDeleteId(null);
+      setDeleting(id);
+      setError(null);
+      try {
+        await deleteChangeset(id);
+        if (view === "detail") backToList();
+        else loadList();
+      } catch (err) {
+        setError(formatError(err));
+      } finally {
+        setDeleting(null);
+      }
+    },
+    [view, backToList, loadList],
+  );
+
+  // Click-outside to dismiss delete popover
+  useEffect(() => {
+    if (!confirmDeleteId) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        deletePopoverRef.current &&
+        !deletePopoverRef.current.contains(e.target as Node)
+      ) {
+        setConfirmDeleteId(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [confirmDeleteId]);
+
   const onDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragging.current = true;
@@ -249,9 +350,14 @@ export function ChangesetHistory() {
           <>
             <div className="flex flex-col gap-2">
               {summaries.map((cs) => (
-                <button
+                <div
                   key={cs.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => openDetail(cs.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") openDetail(cs.id);
+                  }}
                   className="bg-surface border border-border rounded p-4 text-left cursor-pointer hover:border-accent transition-colors w-full"
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -279,9 +385,27 @@ export function ChangesetHistory() {
                       <span className="text-xs text-muted">
                         {new Date(cs.created_at).toLocaleDateString()}
                       </span>
+                      <div className="relative">
+                        <button
+                          onClick={(e) => openDeleteConfirm(cs.id, e)}
+                          disabled={deleting === cs.id}
+                          className="text-muted hover:text-red bg-transparent border-none cursor-pointer text-sm p-0 leading-none disabled:opacity-50"
+                          title="Delete changeset"
+                          data-testid={`delete-${cs.id}`}
+                        >
+                          <TrashIcon />
+                        </button>
+                        {confirmDeleteId === cs.id && (
+                          <DeleteConfirmPopover
+                            onConfirm={() => confirmDelete(cs.id)}
+                            onCancel={cancelDelete}
+                            popoverRef={deletePopoverRef}
+                          />
+                        )}
+                      </div>
                     </div>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
 
@@ -365,6 +489,23 @@ export function ChangesetHistory() {
                 <CostDisplay usage={usage} />
               </div>
             )}
+            <div className="relative">
+              <button
+                onClick={(e) => openDeleteConfirm(detail.id, e)}
+                disabled={deleting === detail.id}
+                className="text-xs text-red bg-transparent border border-red/30 rounded px-3 py-1 cursor-pointer hover:bg-red/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="detail-delete"
+              >
+                {deleting === detail.id ? "Deleting..." : "Delete"}
+              </button>
+              {confirmDeleteId === detail.id && (
+                <DeleteConfirmPopover
+                  onConfirm={() => confirmDelete(detail.id)}
+                  onCancel={cancelDelete}
+                  popoverRef={deletePopoverRef}
+                />
+              )}
+            </div>
           </div>
 
           {/* Parent link */}
