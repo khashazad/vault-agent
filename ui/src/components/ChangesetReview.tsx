@@ -296,14 +296,19 @@ export function ChangesetReview({
                 <div
                   className={`${isSingle ? "" : "ml-auto "}flex border border-border rounded overflow-hidden`}
                 >
-                  <button
-                    onClick={() =>
-                      setViewModes((prev) => ({ ...prev, [change.id]: "diff" }))
-                    }
-                    className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
-                  >
-                    Diff
-                  </button>
+                  {change.tool_name !== "create_note" && (
+                    <button
+                      onClick={() =>
+                        setViewModes((prev) => ({
+                          ...prev,
+                          [change.id]: "diff",
+                        }))
+                      }
+                      className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
+                    >
+                      Diff
+                    </button>
+                  )}
                   <button
                     onClick={() =>
                       setViewModes((prev) => ({
@@ -330,15 +335,15 @@ export function ChangesetReview({
                   )}
                 </div>
               </div>
-              {mode === "diff" ? (
+              {mode === "diff" && change.tool_name !== "create_note" ? (
                 <DiffViewer
                   diff={change.diff}
                   filePath={change.input.path as string}
-                  isNew={change.tool_name === "create_note"}
+                  isNew={false}
                   originalContent={change.original_content}
                   proposedContent={change.proposed_content}
                 />
-              ) : mode === "preview" ? (
+              ) : mode === "preview" || change.tool_name === "create_note" ? (
                 <MarkdownPreview content={change.proposed_content} />
               ) : (
                 <textarea
