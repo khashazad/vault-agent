@@ -29,7 +29,10 @@ class TestComputeCost:
     def test_with_cache_savings(self):
         """With cache savings, each token type gets its own rate."""
         cost = _compute_cost(
-            100, 200, 300, 400,
+            100,
+            200,
+            300,
+            400,
             model_key="haiku",
             include_cache_savings=True,
         )
@@ -45,7 +48,10 @@ class TestComputeCost:
         """Cache-aware cost should always be <= no-savings estimate."""
         no_savings = _compute_cost(100, 200, 300, 400, model_key="haiku")
         with_savings = _compute_cost(
-            100, 200, 300, 400,
+            100,
+            200,
+            300,
+            400,
             model_key="haiku",
             include_cache_savings=True,
         )
@@ -82,7 +88,9 @@ class TestBuildTokenUsage:
 
     def test_batch_flag(self):
         normal = _build_token_usage(100, 200, 0, 0, 1, 0, model_key="haiku")
-        batch = _build_token_usage(100, 200, 0, 0, 1, 0, model_key="haiku", is_batch=True)
+        batch = _build_token_usage(
+            100, 200, 0, 0, 1, 0, model_key="haiku", is_batch=True
+        )
         assert batch.is_batch is True
         assert abs(batch.total_cost_usd - normal.total_cost_usd * 0.5) < 1e-10
 

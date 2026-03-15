@@ -40,7 +40,7 @@ def load_config() -> AppConfig:
             f'VAULT_PATH "{vault_path}" does not exist or is not a directory'
         )
 
-    port = int(os.environ.get("PORT", "3000"))
+    port = int(os.environ.get("PORT", "3456"))
 
     zotero_api_key = os.environ.get("ZOTERO_API_KEY")
     zotero_library_id = os.environ.get("ZOTERO_LIBRARY_ID")

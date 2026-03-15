@@ -75,6 +75,6 @@ test("step indicator navigates back to papers", async ({ page }) => {
   await expect(page.getByText("2 of 2 selected")).toBeVisible();
 
   // Papers breadcrumb should be clickable
-  await page.getByRole("button", { name: "Papers" }).click();
+  await page.getByRole("button", { name: "Papers", exact: true }).click();
   await expect(page.getByText("Zotero Library")).toBeVisible();
 });

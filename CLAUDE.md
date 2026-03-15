@@ -58,8 +58,8 @@ Zotero Sync Flow:
 ```bash
 uv sync                                            # Install dependencies
 uv sync --dev                                      # Install with test dependencies
-uv run python -m src.server                        # Start server with hot reload (port 3000)
-uv run uvicorn src.server:app --reload --port 3000 # Alternative start command
+uv run python -m src.server                        # Start server with hot reload (port 3456)
+uv run uvicorn src.server:app --reload --port 3456 # Alternative start command
 cd ui && bun install                               # Install UI dependencies
 cd ui && bun run dev                               # Start UI dev server (port 5173)
 cd ui && bun run build                             # Build UI for production → ui/dist/
@@ -102,7 +102,7 @@ A React 19 + TypeScript single-page application built with Vite 6 and Tailwind C
 - Dual view modes: diff and markdown preview for each proposed change
 
 ### Development
-- Dev server on port 5173 with proxy to backend at port 3000
+- Dev server on port 5173 with proxy to backend at port 3456
 - Production build served from `ui/dist/`
 
 ## API Endpoints
@@ -158,7 +158,7 @@ Required in `.env` (loaded via `python-dotenv`):
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 VAULT_PATH=/absolute/path/to/obsidian/vault
-PORT=3000
+PORT=3456
 CHANGESET_DB_PATH=.changesets.db  # Optional — default ".changesets.db"
 ZOTERO_API_KEY=...             # Optional — Zotero integration
 ZOTERO_LIBRARY_ID=...          # Optional — Zotero library ID

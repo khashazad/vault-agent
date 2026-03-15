@@ -52,7 +52,7 @@ def app_config(tmp_vault: Path, tmp_path: Path) -> AppConfig:
     return AppConfig(
         anthropic_api_key="sk-ant-test-fake-key",
         vault_path=str(tmp_vault),
-        port=3000,
+        port=3456,
         zotero_api_key="zotero-test-key",
         zotero_library_id="12345",
         zotero_library_type="user",

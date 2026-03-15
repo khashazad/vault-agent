@@ -61,7 +61,7 @@ function DiffRow({ line }: { line: DiffLine }) {
       <td className="w-[1px] whitespace-nowrap text-right pr-2 pl-1 text-[11px] text-muted/50 select-none align-top font-mono">
         {line.newNum ?? ""}
       </td>
-      <td className={`pr-3 ${textClass}`}>
+      <td className={`pr-3 whitespace-pre min-w-0 ${textClass}`}>
         <span className="inline-block w-4 text-center select-none opacity-60">
           {prefix}
         </span>

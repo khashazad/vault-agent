@@ -3,7 +3,6 @@ import {
   useEffect,
   useCallback,
   useRef,
-  type RefObject,
 } from "react";
 import type {
   ChangesetSummary,
@@ -19,10 +18,14 @@ import {
   regenerateChangeset,
   deleteChangeset,
 } from "../api/client";
-import { formatError } from "../utils";
+import { formatError, formatTokens } from "../utils";
 import { ErrorAlert } from "./ErrorAlert";
 import { ChangesetReview } from "./ChangesetReview";
 import { AnnotationFeedback, formatAnnotations } from "./AnnotationFeedback";
+import { StatusBadge } from "./StatusBadge";
+import { Pagination } from "./Pagination";
+import { Skeleton } from "./Skeleton";
+import { useClickOutside } from "../hooks/useClickOutside";
 
 type View = "list" | "detail";
 type StatusFilter =
@@ -33,30 +36,6 @@ type StatusFilter =
   | "revision_requested";
 
 const PAGE_SIZE = 25;
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-accent/15 text-accent",
-  applied: "bg-green-bg text-green",
-  rejected: "bg-red-bg text-red",
-  partially_applied: "bg-accent/15 text-accent",
-  skipped: "bg-surface text-muted border border-border",
-  revision_requested: "bg-accent/15 text-yellow",
-};
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span
-      className={`text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_COLORS[status] ?? "bg-surface text-muted"}`}
-    >
-      {status.replace("_", " ")}
-    </span>
-  );
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
 
 function TrashIcon() {
   return (
@@ -76,15 +55,16 @@ function TrashIcon() {
 function DeleteConfirmPopover({
   onConfirm,
   onCancel,
-  popoverRef,
 }: {
   onConfirm: () => void;
   onCancel: () => void;
-  popoverRef: RefObject<HTMLDivElement | null>;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useClickOutside(ref, onCancel);
+
   return (
     <div
-      ref={popoverRef}
+      ref={ref}
       data-testid="delete-confirm-popover"
       className="absolute right-0 top-full mt-1 z-10 bg-surface border border-border rounded p-3 shadow-lg min-w-[200px]"
     >
@@ -134,6 +114,60 @@ function CostDisplay({ usage }: { usage: TokenUsage }) {
   );
 }
 
+function ListSkeleton() {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: 5 }, (_, i) => (
+        <div
+          key={i}
+          className="bg-surface border border-border rounded p-4 flex flex-col gap-2"
+        >
+          <div className="flex items-center gap-2">
+            <Skeleton h="h-3" w="w-20" />
+            <Skeleton h="h-4" w="w-16" className="rounded-full" />
+          </div>
+          <Skeleton h="h-3" w="w-2/5" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="bg-surface border border-border rounded p-3 flex gap-3">
+        <Skeleton h="h-4" w="w-16" className="rounded-full" />
+        <Skeleton h="h-3" w="w-32" />
+        <Skeleton h="h-3" w="w-24" className="ml-auto" />
+      </div>
+      <div className="bg-surface border border-border rounded p-4 flex flex-col gap-2">
+        {Array.from({ length: 8 }, (_, i) => (
+          <Skeleton key={i} h="h-3" w={i % 3 === 0 ? "w-full" : "w-4/5"} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ message, hint }: { message: string; hint?: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2 py-8 text-center">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        className="text-muted/40"
+      >
+        <path d="M4 .5a.5.5 0 0 0-1 0V1H2a2 2 0 0 0-2 2v1h16V3a2 2 0 0 0-2-2h-1V.5a.5.5 0 0 0-1 0V1H4zM16 14V5H0v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2" />
+      </svg>
+      <span className="text-sm text-muted">{message}</span>
+      {hint && <span className="text-xs text-muted/70">{hint}</span>}
+    </div>
+  );
+}
+
 export function ChangesetHistory() {
   const [view, setView] = useState<View>("list");
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +189,6 @@ export function ChangesetHistory() {
   const [regenerating, setRegenerating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const deletePopoverRef = useRef<HTMLDivElement>(null);
   const [splitPercent, setSplitPercent] = useState(72);
   const dragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -233,7 +266,6 @@ export function ChangesetHistory() {
     setError(null);
     try {
       const newCs = await regenerateChangeset(selectedId);
-      // Navigate to the new changeset
       openDetail(newCs.id);
     } catch (err) {
       setError(formatError(err));
@@ -268,21 +300,6 @@ export function ChangesetHistory() {
     },
     [view, backToList, loadList],
   );
-
-  // Click-outside to dismiss delete popover
-  useEffect(() => {
-    if (!confirmDeleteId) return;
-    function handleClick(e: MouseEvent) {
-      if (
-        deletePopoverRef.current &&
-        !deletePopoverRef.current.contains(e.target as Node)
-      ) {
-        setConfirmDeleteId(null);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [confirmDeleteId]);
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -352,9 +369,12 @@ export function ChangesetHistory() {
         </div>
 
         {listLoading && summaries.length === 0 ? (
-          <div className="text-muted text-sm">Loading changesets...</div>
+          <ListSkeleton />
         ) : summaries.length === 0 ? (
-          <div className="text-muted text-sm">No changesets found.</div>
+          <EmptyState
+            message="No changesets found."
+            hint="Process some papers to see changesets here"
+          />
         ) : (
           <>
             <div className="flex flex-col gap-2">
@@ -367,7 +387,7 @@ export function ChangesetHistory() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") openDetail(cs.id);
                   }}
-                  className="bg-surface border border-border rounded p-4 text-left cursor-pointer hover:border-accent transition-colors w-full"
+                  className="bg-surface border border-border rounded p-4 text-left cursor-pointer hover:border-accent transition-colors w-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex flex-col gap-1 min-w-0">
@@ -399,6 +419,7 @@ export function ChangesetHistory() {
                           onClick={(e) => openDeleteConfirm(cs.id, e)}
                           disabled={deleting === cs.id}
                           className="text-muted hover:text-red bg-transparent border-none cursor-pointer text-sm p-0 leading-none disabled:opacity-50"
+                          aria-label="Delete changeset"
                           title="Delete changeset"
                           data-testid={`delete-${cs.id}`}
                         >
@@ -408,7 +429,6 @@ export function ChangesetHistory() {
                           <DeleteConfirmPopover
                             onConfirm={() => confirmDelete(cs.id)}
                             onCancel={cancelDelete}
-                            popoverRef={deletePopoverRef}
                           />
                         )}
                       </div>
@@ -418,29 +438,13 @@ export function ChangesetHistory() {
               ))}
             </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-2">
-                <button
-                  onClick={() => setPage((p) => p - 1)}
-                  disabled={page === 0}
-                  className="text-xs text-accent bg-transparent border border-border rounded px-3 py-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  &larr; Previous
-                </button>
-                <span className="text-xs text-muted">
-                  {page * PAGE_SIZE + 1}&ndash;
-                  {Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-                </span>
-                <button
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={(page + 1) * PAGE_SIZE >= total}
-                  className="text-xs text-accent bg-transparent border border-border rounded px-3 py-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next &rarr;
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              totalItems={total}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+            />
           </>
         )}
       </div>
@@ -458,6 +462,7 @@ export function ChangesetHistory() {
         <button
           onClick={backToList}
           className="text-muted hover:text-foreground bg-transparent border-none cursor-pointer text-lg p-0 leading-none"
+          aria-label="Back to list"
           title="Back to list"
         >
           &larr;
@@ -468,7 +473,7 @@ export function ChangesetHistory() {
       {error && <ErrorAlert message={error} />}
 
       {detailLoading ? (
-        <div className="text-muted text-sm">Loading changeset...</div>
+        <DetailSkeleton />
       ) : detail ? (
         <div className="flex flex-col gap-4">
           {/* Metadata bar — full width */}
@@ -511,7 +516,6 @@ export function ChangesetHistory() {
                 <DeleteConfirmPopover
                   onConfirm={() => confirmDelete(detail.id)}
                   onCancel={cancelDelete}
-                  popoverRef={deletePopoverRef}
                 />
               )}
             </div>
@@ -576,8 +580,12 @@ export function ChangesetHistory() {
               <>
                 <div
                   onMouseDown={onDragStart}
-                  className="w-1.5 mx-1 self-stretch cursor-col-resize rounded-full bg-border hover:bg-accent transition-colors flex-shrink-0"
-                />
+                  className="w-1.5 mx-1 self-stretch cursor-col-resize rounded-full bg-border hover:bg-accent transition-colors flex-shrink-0 relative flex flex-col items-center justify-center gap-0.5"
+                >
+                  <span className="block w-1 h-1 rounded-full bg-muted/50" />
+                  <span className="block w-1 h-1 rounded-full bg-muted/50" />
+                  <span className="block w-1 h-1 rounded-full bg-muted/50" />
+                </div>
                 <div
                   className="min-w-0 overflow-auto sticky top-4 flex-shrink-0"
                   style={{ width: `${100 - splitPercent}%` }}

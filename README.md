@@ -67,7 +67,7 @@ uv run python -m src.server
 cd ui && bun run dev
 ```
 
-The backend runs on port 3000 and the UI dev server on port 5173.
+The backend runs on port 3456 and the UI dev server on port 5173.
 
 ### Running Tests
 

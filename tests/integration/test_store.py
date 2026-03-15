@@ -77,6 +77,39 @@ class TestChangesetStoreFiltered:
         assert results == []
 
 
+class TestZoteroSyncState:
+    def test_clear_paper_sync_by_changeset(self):
+        from src.zotero.sync import ZoteroSyncState
+
+        state = ZoteroSyncState(db_path=":memory:")
+        state.set_paper_sync("PAPER1", "Title 1", "cs-target")
+        state.set_paper_sync("PAPER2", "Title 2", "cs-other")
+
+        cleared = state.clear_paper_sync_by_changeset("cs-target")
+        assert cleared == 1
+
+        p1 = state.get_paper_sync("PAPER1")
+        assert p1["last_synced"] is None
+        assert p1["changeset_id"] is None
+
+        p2 = state.get_paper_sync("PAPER2")
+        assert p2["last_synced"] is not None
+        assert p2["changeset_id"] == "cs-other"
+
+    def test_clear_paper_sync_no_match(self):
+        from src.zotero.sync import ZoteroSyncState
+
+        state = ZoteroSyncState(db_path=":memory:")
+        state.set_paper_sync("PAPER1", "Title 1", "cs-keep")
+
+        cleared = state.clear_paper_sync_by_changeset("cs-nonexistent")
+        assert cleared == 0
+
+        p1 = state.get_paper_sync("PAPER1")
+        assert p1["last_synced"] is not None
+        assert p1["changeset_id"] == "cs-keep"
+
+
 class TestBatchJobStore:
     def test_set_and_get(self, memory_batch_job_store):
         memory_batch_job_store.set(

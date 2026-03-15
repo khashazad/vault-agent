@@ -91,9 +91,7 @@ class ZoteroPaperCacheSyncer:
         await asyncio.to_thread(sync_state.upsert_papers, paper_dicts)
 
         current_keys = {p.key for p in papers}
-        deleted = await asyncio.to_thread(
-            sync_state.delete_papers_not_in, current_keys
-        )
+        deleted = await asyncio.to_thread(sync_state.delete_papers_not_in, current_keys)
 
         logger.info(
             "Zotero paper cache synced: %d papers cached, %d removed",
@@ -105,9 +103,7 @@ class ZoteroPaperCacheSyncer:
         try:
             counts = await asyncio.to_thread(client.count_annotations_per_paper)
             if counts:
-                await asyncio.to_thread(
-                    sync_state.update_annotation_counts, counts
-                )
+                await asyncio.to_thread(sync_state.update_annotation_counts, counts)
                 logger.info(
                     "Annotation counts updated for %d papers",
                     len(counts),
