@@ -11,7 +11,7 @@ interface Props {
 export function Layout({ children, currentTab, onTabChange }: Props) {
   return (
     <div className="flex flex-col h-screen">
-      <header className="h-12 bg-surface border-b border-border shrink-0">
+      <header className="h-12 bg-surface border-b border-border shadow-sm shrink-0">
         <div className="flex items-center px-6 h-full">
           <span className="text-base font-semibold">Vault Agent</span>
           <div className="flex gap-2 ml-auto">
@@ -21,8 +21,8 @@ export function Layout({ children, currentTab, onTabChange }: Props) {
                 onClick={() => onTabChange(tab)}
                 className={
                   currentTab === tab
-                    ? "px-3 py-1 text-xs font-medium rounded bg-accent/15 text-accent"
-                    : "px-3 py-1 text-xs font-medium rounded bg-surface text-muted border border-border"
+                    ? "px-4 py-1.5 text-sm font-medium rounded bg-accent/15 text-accent"
+                    : "px-4 py-1.5 text-sm font-medium rounded bg-surface text-muted border border-border"
                 }
               >
                 {tab === "sync" ? "Sync" : "History"}

@@ -7,12 +7,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/health": "http://localhost:3000",
-      "/vault": "http://localhost:3000",
-      "/highlights": "http://localhost:3000",
-      "/changesets": "http://localhost:3000",
-      "/routing": "http://localhost:3000",
-      "/zotero": "http://localhost:3000",
+      "/health": "http://localhost:3456",
+      "/vault": "http://localhost:3456",
+      "/highlights": "http://localhost:3456",
+      "/changesets": "http://localhost:3456",
+      "/routing": "http://localhost:3456",
+      "/zotero": "http://localhost:3456",
     },
   },
 });

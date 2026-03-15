@@ -161,6 +161,21 @@ class ZoteroSyncState:
         )
         self._conn.commit()
 
+    # Clear paper sync records that reference a deleted changeset.
+    #
+    # Args:
+    #     changeset_id: The changeset ID being deleted.
+    #
+    # Returns:
+    #     Number of rows cleared.
+    def clear_paper_sync_by_changeset(self, changeset_id: str) -> int:
+        cursor = self._conn.execute(
+            "UPDATE zotero_paper_sync SET last_synced = NULL, changeset_id = NULL WHERE changeset_id = ?",
+            (changeset_id,),
+        )
+        self._conn.commit()
+        return cursor.rowcount
+
     # --- Paper cache (zotero_papers table) ---
 
     # Bulk upsert paper metadata into the local cache.

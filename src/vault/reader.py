@@ -91,9 +91,7 @@ def format_vault_summary(summaries: list[VaultNoteSummary]) -> str:
     ]
 
     if total > 200:
-        lines.append(
-            "Large vault — use `read_note` with a specific path."
-        )
+        lines.append("Large vault — use `read_note` with a specific path.")
     else:
         lines.append("### Notes")
         for note in summaries:

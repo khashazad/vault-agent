@@ -247,3 +247,17 @@ class TestChangesetHistoryRoutes:
     async def test_delete_changeset_not_found(self, client):
         resp = await client.delete("/changesets/nonexistent")
         assert resp.status_code == 404
+
+    @patch("src.zotero.sync.ZoteroSyncState")
+    async def test_delete_changeset_clears_paper_sync(self, mock_cls, client):
+        from src.store import get_changeset_store
+
+        cs = make_changeset()
+        get_changeset_store().set(cs)
+
+        resp = await client.delete(f"/changesets/{cs.id}")
+        assert resp.status_code == 204
+
+        mock_cls.return_value.clear_paper_sync_by_changeset.assert_called_once_with(
+            cs.id
+        )

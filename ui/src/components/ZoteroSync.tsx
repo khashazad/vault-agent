@@ -18,9 +18,12 @@ import type {
   TokenUsage,
 } from "../types";
 import { ErrorAlert } from "./ErrorAlert";
-import { formatError } from "../utils";
+import { formatError, formatTokens } from "../utils";
 import { CollectionTree, CollectionTreeSkeleton } from "./CollectionTree";
 import { ChangesetReview } from "./ChangesetReview";
+import { Skeleton } from "./Skeleton";
+import { Pagination } from "./Pagination";
+import { useClickOutside } from "../hooks/useClickOutside";
 
 type Step = "papers" | "annotations" | "processing";
 
@@ -38,6 +41,12 @@ const COLOR_NAMES: Record<string, string> = {
   "#f19837": "Orange",
   "#aaaaaa": "Gray",
 };
+
+const PROCESSING_MESSAGES = [
+  "Analyzing annotations...",
+  "Generating note...",
+  "Building diff...",
+];
 
 function StepIndicator({
   current,
@@ -64,12 +73,13 @@ function StepIndicator({
             <button
               onClick={() => isCompleted && onNavigate(step.key)}
               disabled={!isCompleted}
-              className={`px-2 py-0.5 rounded border-none cursor-default ${
+              aria-current={isCurrent ? "step" : undefined}
+              className={`px-2 py-0.5 rounded border-none ${
                 isCurrent
-                  ? "bg-accent text-crust font-medium"
+                  ? "bg-accent text-crust font-medium cursor-default"
                   : isCompleted
-                    ? "bg-transparent text-accent !cursor-pointer underline"
-                    : "bg-transparent text-muted"
+                    ? "bg-transparent text-accent cursor-pointer underline"
+                    : "bg-transparent text-muted cursor-default"
               }`}
             >
               {step.label}
@@ -81,9 +91,83 @@ function StepIndicator({
   );
 }
 
-function formatTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
+function ProcessingSpinner({ paperTitle }: { paperTitle: string }) {
+  const [msgIndex, setMsgIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMsgIndex((i) => (i + 1) % PROCESSING_MESSAGES.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="bg-surface border border-border rounded p-6 flex flex-col items-center gap-3">
+      <div className="flex items-center gap-2 text-sm text-muted">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-[pulse-dot_1s_infinite]" />
+        {PROCESSING_MESSAGES[msgIndex]}
+      </div>
+      <div className="text-xs text-muted">
+        Processing &ldquo;{paperTitle}&rdquo;
+      </div>
+    </div>
+  );
+}
+
+function PaperListSkeleton() {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: 5 }, (_, i) => (
+        <div
+          key={i}
+          className="bg-surface border border-border rounded p-4 flex flex-col gap-2"
+        >
+          <Skeleton h="h-4" w="w-3/4" />
+          <div className="flex gap-2">
+            <Skeleton h="h-3" w="w-1/3" />
+            <Skeleton h="h-3" w="w-16" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AnnotationListSkeleton() {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div
+          key={i}
+          className="bg-surface border border-border rounded p-3 flex gap-3"
+        >
+          <Skeleton h="h-4" w="w-4" className="flex-shrink-0 mt-1" />
+          <div className="flex flex-col gap-2 flex-1">
+            <Skeleton h="h-10" />
+            <Skeleton h="h-3" w="w-1/4" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyState({ message, hint }: { message: string; hint?: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2 py-8 text-center">
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        className="text-muted/40"
+      >
+        <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.879a1.5 1.5 0 0 1 1.06.44l1.122 1.12A1.5 1.5 0 0 0 9.62 4H13.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z" />
+      </svg>
+      <span className="text-sm text-muted">{message}</span>
+      {hint && <span className="text-xs text-muted/70">{hint}</span>}
+    </div>
+  );
 }
 
 function CostPopover({
@@ -103,13 +187,7 @@ function CostPopover({
       .finally(() => setLoading(false));
   }, [changesetId]);
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [onClose]);
+  useClickOutside(ref, onClose);
 
   return (
     <div
@@ -195,6 +273,7 @@ export function ZoteroSync() {
   const [selectedCollectionKey, setSelectedCollectionKey] = useState<
     string | null
   >(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Annotations step
   const [selectedPaper, setSelectedPaper] = useState<ZoteroPaperSummary | null>(
@@ -214,6 +293,10 @@ export function ZoteroSync() {
   );
 
   const [costPopoverKey, setCostPopoverKey] = useState<string | null>(null);
+
+  // Polling ref for cleanup
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -296,16 +379,30 @@ export function ZoteroSync() {
     loadPapers,
   ]);
 
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
+
   async function handleRefresh() {
     try {
       await triggerZoteroPapersRefresh();
       setSyncInProgress(true);
 
-      const pollInterval = setInterval(async () => {
+      // Clear any existing poll
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+
+      pollIntervalRef.current = setInterval(async () => {
+        // Pause polling when tab is hidden
+        if (document.hidden) return;
+
         try {
           const cacheStatus = await fetchZoteroPapersCacheStatus();
           if (!cacheStatus.sync_in_progress) {
-            clearInterval(pollInterval);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
             setSyncInProgress(false);
             if (cacheStatus.cache_updated_at) {
               setCacheUpdatedAt(cacheStatus.cache_updated_at);
@@ -445,6 +542,7 @@ export function ZoteroSync() {
   }, [annotations]);
 
   const totalPages = Math.ceil(totalPapers / PAGE_SIZE);
+  const showSidebar = collectionsLoading || collections.length > 0;
 
   if (loading) {
     return <div className="text-muted text-sm">Loading Zotero status...</div>;
@@ -510,24 +608,62 @@ export function ZoteroSync() {
             </div>
           </div>
         ) : (
-          <div className="flex gap-4 max-h-[calc(100vh-200px)]">
+          <div className="flex gap-4 flex-1 min-h-0">
             {/* Collections sidebar */}
-            {(collectionsLoading || collections.length > 0) && (
-              <div className="w-[220px] flex-shrink-0 overflow-y-auto border-r border-border pr-3">
-                {collectionsLoading ? (
-                  <CollectionTreeSkeleton />
+            {showSidebar && (
+              <div className="relative flex-shrink-0">
+                {sidebarCollapsed ? (
+                  <button
+                    onClick={() => setSidebarCollapsed(false)}
+                    className="bg-surface border border-border rounded p-1 text-muted hover:text-foreground cursor-pointer"
+                    aria-label="Expand sidebar"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                    >
+                      <path d="M6 3l5 5-5 5V3z" />
+                    </svg>
+                  </button>
                 ) : (
-                  <CollectionTree
-                    collections={collections}
-                    selectedKey={selectedCollectionKey}
-                    onSelect={handleSelectCollection}
-                  />
+                  <div className="w-[220px] overflow-y-auto border-r border-border pr-3 transition-all">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-muted uppercase tracking-wide">
+                        Collections
+                      </span>
+                      <button
+                        onClick={() => setSidebarCollapsed(true)}
+                        className="bg-transparent border-none text-muted hover:text-foreground cursor-pointer p-0"
+                        aria-label="Collapse sidebar"
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 16 16"
+                          fill="currentColor"
+                        >
+                          <path d="M10 3l-5 5 5 5V3z" />
+                        </svg>
+                      </button>
+                    </div>
+                    {collectionsLoading ? (
+                      <CollectionTreeSkeleton />
+                    ) : (
+                      <CollectionTree
+                        collections={collections}
+                        selectedKey={selectedCollectionKey}
+                        onSelect={handleSelectCollection}
+                      />
+                    )}
+                  </div>
                 )}
               </div>
             )}
 
             {/* Papers list */}
-            <div className="flex-1 overflow-y-auto flex flex-col gap-3">
+            <div className="flex-1 overflow-y-auto flex flex-col gap-3 min-h-0">
               {/* Search input */}
               <input
                 type="text"
@@ -559,13 +695,16 @@ export function ZoteroSync() {
               </div>
 
               {papersLoading && papers.length === 0 ? (
-                <div className="text-muted text-sm">Loading papers...</div>
+                <PaperListSkeleton />
               ) : papers.length === 0 ? (
-                <div className="text-muted text-sm">
-                  {debouncedSearch
-                    ? "No papers match your search."
-                    : "No papers found."}
-                </div>
+                <EmptyState
+                  message={
+                    debouncedSearch
+                      ? "No papers match your search."
+                      : "No papers found."
+                  }
+                  hint="Try a different search or collection"
+                />
               ) : (
                 <>
                   <div className="flex flex-col gap-2">
@@ -573,11 +712,14 @@ export function ZoteroSync() {
                       <button
                         key={paper.key}
                         onClick={() => handleSelectPaper(paper)}
-                        className="bg-surface border border-border rounded p-4 text-left cursor-pointer hover:border-accent transition-colors w-full"
+                        className="group bg-surface border border-border rounded p-4 text-left cursor-pointer hover:border-accent transition-all hover:shadow-md hover:shadow-black/10 w-full"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex flex-col gap-1 min-w-0">
-                            <span className="text-sm font-medium truncate">
+                            <span
+                              className="text-sm font-medium truncate"
+                              title={paper.title || "Untitled"}
+                            >
                               {paper.title || "Untitled"}
                             </span>
                             <span className="text-xs text-muted truncate">
@@ -605,6 +747,7 @@ export function ZoteroSync() {
                                   );
                                 }}
                                 className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-muted hover:text-accent hover:border-accent cursor-pointer"
+                                aria-label="View LLM cost"
                                 title="View LLM cost"
                               >
                                 $
@@ -634,30 +777,13 @@ export function ZoteroSync() {
                     ))}
                   </div>
 
-                  {/* Pagination */}
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-between pt-2">
-                      <button
-                        onClick={() => setPage((p) => p - 1)}
-                        disabled={page === 0}
-                        className="text-xs text-accent bg-transparent border border-border rounded px-3 py-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        &larr; Previous
-                      </button>
-                      <span className="text-xs text-muted">
-                        {page * PAGE_SIZE + 1}&ndash;
-                        {Math.min((page + 1) * PAGE_SIZE, totalPapers)} of{" "}
-                        {totalPapers}
-                      </span>
-                      <button
-                        onClick={() => setPage((p) => p + 1)}
-                        disabled={(page + 1) * PAGE_SIZE >= totalPapers}
-                        className="text-xs text-accent bg-transparent border border-border rounded px-3 py-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Next &rarr;
-                      </button>
-                    </div>
-                  )}
+                  <Pagination
+                    page={page}
+                    totalPages={totalPages}
+                    totalItems={totalPapers}
+                    pageSize={PAGE_SIZE}
+                    onPageChange={setPage}
+                  />
                 </>
               )}
             </div>
@@ -679,6 +805,7 @@ export function ZoteroSync() {
           <button
             onClick={handleBackToPapers}
             className="text-muted hover:text-foreground bg-transparent border-none cursor-pointer text-lg p-0 leading-none"
+            aria-label="Back to papers"
             title="Back to papers"
           >
             &larr;
@@ -697,23 +824,26 @@ export function ZoteroSync() {
         {error && <ErrorAlert message={error} />}
 
         {annotationsLoading ? (
-          <div className="text-muted text-sm">Loading annotations...</div>
+          <AnnotationListSkeleton />
         ) : annotations.length === 0 ? (
-          <div className="text-muted text-sm">
-            No annotations found for this paper.
-          </div>
+          <EmptyState
+            message="No annotations found for this paper."
+            hint="Highlight text in Zotero to create annotations"
+          />
         ) : (
           <>
-            <div className="flex flex-col gap-3 max-h-[calc(100vh-340px)] overflow-y-auto pb-16">
+            <div className="flex flex-col gap-3 flex-1 overflow-y-auto min-h-0 pb-16">
               {groupedAnnotations.map((group) => (
                 <div key={group.color} className="flex flex-col gap-2">
                   {groupedAnnotations.length > 1 && (
                     <div className="flex items-center gap-2 text-xs text-muted pt-1">
                       <span
-                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: group.color || "#888" }}
-                      />
-                      <span>
+                        className="px-2 py-0.5 rounded-full text-[10px] font-medium"
+                        style={{
+                          backgroundColor: `${group.color || "#888"}20`,
+                          color: group.color || "#888",
+                        }}
+                      >
                         {group.name} ({group.items.length})
                       </span>
                     </div>
@@ -810,6 +940,7 @@ export function ZoteroSync() {
         <button
           onClick={handleBackToPapers}
           className="text-muted hover:text-foreground bg-transparent border-none cursor-pointer text-lg p-0 leading-none"
+          aria-label="Back to papers"
           title="Back to papers"
           disabled={processing}
         >
@@ -823,13 +954,7 @@ export function ZoteroSync() {
       {error && <ErrorAlert message={error} />}
 
       {processing && (
-        <div className="bg-surface border border-border rounded p-6 flex flex-col items-center gap-3">
-          <div className="text-muted text-sm animate-pulse">
-            Running agent on annotations from &ldquo;{selectedPaper?.title}
-            &rdquo;...
-          </div>
-          <div className="text-xs text-muted">This may take a moment.</div>
-        </div>
+        <ProcessingSpinner paperTitle={selectedPaper?.title || "Untitled"} />
       )}
 
       {!processing && resultChangeset && (
@@ -862,7 +987,7 @@ export function ZoteroSync() {
       )}
 
       {!processing && !resultChangeset && !error && (
-        <div className="text-muted text-sm">No results yet.</div>
+        <EmptyState message="No results yet." />
       )}
     </div>
   );

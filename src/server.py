@@ -50,7 +50,9 @@ from src.agent.changeset import apply_changeset
 from src.store import get_changeset_store, get_batch_job_store
 from src.zotero.background import ZoteroPaperCacheSyncer
 
-logging.basicConfig(level=logging.INFO)
+from src.logging_config import setup_logging
+
+setup_logging()
 logger = logging.getLogger("vault-agent")
 
 paper_cache_syncer: ZoteroPaperCacheSyncer | None = None
@@ -63,7 +65,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "config"):
         app.state.config = load_config()
     config = app.state.config
-    if config.zotero_api_key and config.zotero_library_id:
+    logger.info("vault: %s", config.vault_path)
+    zotero_ok = bool(config.zotero_api_key and config.zotero_library_id)
+    logger.info("zotero: %s", "configured" if zotero_ok else "not configured")
+    if zotero_ok:
         paper_cache_syncer = ZoteroPaperCacheSyncer(config)
         paper_cache_syncer.start()
     yield
@@ -348,6 +353,9 @@ async def reject(changeset_id: str):
 async def delete_changeset(changeset_id: str):
     _get_changeset_or_404(changeset_id)
     get_changeset_store().delete(changeset_id)
+    from src.zotero.sync import ZoteroSyncState
+
+    ZoteroSyncState().clear_paper_sync_by_changeset(changeset_id)
     return Response(status_code=204)
 
 
@@ -796,4 +804,5 @@ if __name__ == "__main__":
         host="127.0.0.1",
         port=_config.port,
         reload=True,
+        log_config=None,
     )

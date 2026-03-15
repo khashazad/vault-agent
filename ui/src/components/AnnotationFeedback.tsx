@@ -112,6 +112,7 @@ export function AnnotationFeedback({
                 onClick={() => onRemove(a.id)}
                 className="text-red bg-transparent border-none cursor-pointer text-xs p-0 leading-none flex-shrink-0"
                 title="Remove"
+                aria-label="Remove annotation"
               >
                 &times;
               </button>

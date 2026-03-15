@@ -11,15 +11,32 @@ import type {
 
 const BASE = "";
 
+async function extractError(res: Response): Promise<string> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      const body = await res.json();
+      return body.detail ?? body.message ?? JSON.stringify(body);
+    } catch {
+      // fall through
+    }
+  }
+  if (contentType.includes("text/html")) {
+    return `Server returned HTML instead of JSON (HTTP ${res.status}). Is the backend running?`;
+  }
+  const text = await res.text();
+  return text.length > 200 ? text.slice(0, 200) + "..." : text;
+}
+
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await extractError(res));
   return res.json();
 }
 
 async function fetchVoid(url: string, options?: RequestInit): Promise<void> {
   const res = await fetch(url, options);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await extractError(res));
 }
 
 export function fetchChangesets(opts?: {

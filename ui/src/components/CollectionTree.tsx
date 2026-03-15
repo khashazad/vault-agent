@@ -64,8 +64,11 @@ export function CollectionTree({ collections, selectedKey, onSelect }: Props) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const tree = useMemo(() => buildTree(collections), [collections]);
 
-  function toggleExpand(key: string, e: React.MouseEvent) {
-    e.stopPropagation();
+  function toggleExpand(
+    key: string,
+    e?: React.MouseEvent | React.KeyboardEvent,
+  ) {
+    e?.stopPropagation();
     setExpandedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -123,7 +126,7 @@ interface TreeNodeItemProps {
   selectedKey: string | null;
   expandedKeys: Set<string>;
   onSelect: (key: string | null) => void;
-  onToggle: (key: string, e: React.MouseEvent) => void;
+  onToggle: (key: string, e?: React.MouseEvent | React.KeyboardEvent) => void;
 }
 
 function TreeNodeItem({
@@ -141,16 +144,37 @@ function TreeNodeItem({
 
   return (
     <>
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => onSelect(collection.key)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect(collection.key);
+          }
+        }}
         className={itemClassName(isSelected)}
         style={{ paddingLeft: `${depth * 16 + 8}px`, paddingRight: "8px" }}
       >
         {/* Expand/collapse chevron */}
         {hasChildren ? (
-          <span
-            onClick={(e) => onToggle(collection.key, e)}
-            className="flex items-center justify-center w-4 h-4 flex-shrink-0 text-muted hover:text-foreground"
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(collection.key, e);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggle(collection.key, e);
+              }
+            }}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? "Collapse" : "Expand"}
+            className="flex items-center justify-center w-4 h-4 flex-shrink-0 text-muted hover:text-foreground bg-transparent border-none cursor-pointer p-0"
           >
             <svg
               width="10"
@@ -161,14 +185,16 @@ function TreeNodeItem({
             >
               <path d="M3 1l5 4-5 4V1z" />
             </svg>
-          </span>
+          </button>
         ) : (
           <span className="w-4 flex-shrink-0" />
         )}
 
         <FolderIcon />
 
-        <span className="truncate">{collection.name}</span>
+        <span className="truncate" title={collection.name}>
+          {collection.name}
+        </span>
 
         {/* Item count — only for leaf collections */}
         {!hasChildren && (
@@ -176,7 +202,7 @@ function TreeNodeItem({
             {collection.num_items}
           </span>
         )}
-      </button>
+      </div>
 
       {/* Recursive children */}
       {isExpanded &&

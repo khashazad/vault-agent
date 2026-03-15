@@ -10,6 +10,7 @@ import {
 import { formatError } from "../utils";
 import { DiffViewer } from "./DiffViewer";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { Skeleton } from "./Skeleton";
 
 type ViewMode = "diff" | "preview" | "edit";
 
@@ -42,6 +43,7 @@ export function ChangesetReview({
     failed: { id: string; error: string }[];
   } | null>(null);
 
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {},
   );
@@ -115,6 +117,7 @@ export function ChangesetReview({
   const handleEditChange = useCallback(
     (changeId: string, content: string) => {
       setEditBuffers((prev) => ({ ...prev, [changeId]: content }));
+      setSavingIds((prev) => new Set(prev).add(changeId));
 
       // Debounce the API call
       if (debounceTimers.current[changeId]) {
@@ -133,6 +136,12 @@ export function ChangesetReview({
           );
         } catch (err) {
           setStatusError(formatError(err));
+        } finally {
+          setSavingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(changeId);
+            return next;
+          });
         }
       }, 500);
     },
@@ -169,8 +178,14 @@ export function ChangesetReview({
 
   if (loadingChangeset) {
     return (
-      <div className="bg-surface border border-border rounded p-5 text-center">
-        <p className="text-muted">Loading...</p>
+      <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
+        <div className="flex gap-3">
+          <Skeleton h="h-4" w="w-24" />
+          <Skeleton h="h-4" w="w-32" />
+        </div>
+        {Array.from({ length: 8 }, (_, i) => (
+          <Skeleton key={i} h="h-3" w={i % 2 === 0 ? "w-full" : "w-3/4"} />
+        ))}
       </div>
     );
   }
@@ -206,18 +221,44 @@ export function ChangesetReview({
   }
 
   if (result) {
+    const targetPaths = changes
+      .filter((c) => result.applied.includes(c.id))
+      .map((c) => c.input.path as string);
+
     return (
-      <div className="bg-surface border border-border rounded p-5 text-center">
-        <h3>Changes Applied</h3>
+      <div className="bg-surface border border-border rounded p-5 flex flex-col items-center gap-3">
         {result.applied.length > 0 && (
-          <p className="text-green mb-3">
-            {result.applied.length} change(s) applied successfully.
-          </p>
+          <>
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              className="text-green"
+            >
+              <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0m3.78 4.97a.75.75 0 0 0-1.06 0L7 8.69 5.28 6.97a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.06 0l4.25-4.25a.75.75 0 0 0 0-1.06" />
+            </svg>
+            <h3 className="text-sm font-semibold m-0">
+              {result.applied.length} change
+              {result.applied.length !== 1 ? "s" : ""} written to vault
+            </h3>
+            {targetPaths.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {targetPaths.map((p) => (
+                  <span key={p} className="text-xs font-mono text-muted">
+                    {p}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
         )}
         {result.failed.length > 0 && (
-          <div>
-            <p className="text-red">{result.failed.length} change(s) failed:</p>
-            <ul>
+          <div className="text-center">
+            <p className="text-red text-sm">
+              {result.failed.length} change(s) failed:
+            </p>
+            <ul className="text-xs text-red list-none p-0">
               {result.failed.map((f) => (
                 <li key={f.id}>{f.error}</li>
               ))}
@@ -226,7 +267,7 @@ export function ChangesetReview({
         )}
         <button
           onClick={onDone}
-          className="mt-4 bg-accent text-crust border-none py-2 px-5 rounded text-sm"
+          className="mt-2 bg-accent text-crust border-none py-2 px-5 rounded text-sm"
         >
           Start New
         </button>
@@ -334,6 +375,11 @@ export function ChangesetReview({
                     </button>
                   )}
                 </div>
+                {mode === "edit" && savingIds.has(change.id) && (
+                  <span className="text-[10px] text-muted animate-pulse ml-2">
+                    Saving...
+                  </span>
+                )}
               </div>
               {mode === "diff" && change.tool_name !== "create_note" ? (
                 <DiffViewer
