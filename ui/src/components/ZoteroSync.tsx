@@ -152,13 +152,7 @@ function AnnotationListSkeleton() {
   );
 }
 
-function EmptyState({
-  message,
-  hint,
-}: {
-  message: string;
-  hint?: string;
-}) {
+function EmptyState({ message, hint }: { message: string; hint?: string }) {
   return (
     <div className="flex flex-col items-center gap-2 py-8 text-center">
       <svg
@@ -407,8 +401,7 @@ export function ZoteroSync() {
         try {
           const cacheStatus = await fetchZoteroPapersCacheStatus();
           if (!cacheStatus.sync_in_progress) {
-            if (pollIntervalRef.current)
-              clearInterval(pollIntervalRef.current);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
             setSyncInProgress(false);
             if (cacheStatus.cache_updated_at) {
@@ -625,20 +618,32 @@ export function ZoteroSync() {
                     className="bg-surface border border-border rounded p-1 text-muted hover:text-foreground cursor-pointer"
                     aria-label="Expand sidebar"
                   >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                    >
                       <path d="M6 3l5 5-5 5V3z" />
                     </svg>
                   </button>
                 ) : (
                   <div className="w-[220px] overflow-y-auto border-r border-border pr-3 transition-all">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-muted uppercase tracking-wide">Collections</span>
+                      <span className="text-[10px] text-muted uppercase tracking-wide">
+                        Collections
+                      </span>
                       <button
                         onClick={() => setSidebarCollapsed(true)}
                         className="bg-transparent border-none text-muted hover:text-foreground cursor-pointer p-0"
                         aria-label="Collapse sidebar"
                       >
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 16 16"
+                          fill="currentColor"
+                        >
                           <path d="M10 3l-5 5 5 5V3z" />
                         </svg>
                       </button>

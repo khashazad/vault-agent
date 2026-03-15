@@ -229,16 +229,25 @@ export function ChangesetReview({
       <div className="bg-surface border border-border rounded p-5 flex flex-col items-center gap-3">
         {result.applied.length > 0 && (
           <>
-            <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor" className="text-green">
+            <svg
+              width="32"
+              height="32"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              className="text-green"
+            >
               <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0m3.78 4.97a.75.75 0 0 0-1.06 0L7 8.69 5.28 6.97a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.06 0l4.25-4.25a.75.75 0 0 0 0-1.06" />
             </svg>
             <h3 className="text-sm font-semibold m-0">
-              {result.applied.length} change{result.applied.length !== 1 ? "s" : ""} written to vault
+              {result.applied.length} change
+              {result.applied.length !== 1 ? "s" : ""} written to vault
             </h3>
             {targetPaths.length > 0 && (
               <div className="flex flex-col gap-1">
                 {targetPaths.map((p) => (
-                  <span key={p} className="text-xs font-mono text-muted">{p}</span>
+                  <span key={p} className="text-xs font-mono text-muted">
+                    {p}
+                  </span>
                 ))}
               </div>
             )}
@@ -246,7 +255,9 @@ export function ChangesetReview({
         )}
         {result.failed.length > 0 && (
           <div className="text-center">
-            <p className="text-red text-sm">{result.failed.length} change(s) failed:</p>
+            <p className="text-red text-sm">
+              {result.failed.length} change(s) failed:
+            </p>
             <ul className="text-xs text-red list-none p-0">
               {result.failed.map((f) => (
                 <li key={f.id}>{f.error}</li>
@@ -360,7 +371,9 @@ export function ChangesetReview({
                   )}
                 </div>
                 {mode === "edit" && savingIds.has(change.id) && (
-                  <span className="text-[10px] text-muted animate-pulse ml-2">Saving...</span>
+                  <span className="text-[10px] text-muted animate-pulse ml-2">
+                    Saving...
+                  </span>
                 )}
               </div>
               {mode === "diff" ? (

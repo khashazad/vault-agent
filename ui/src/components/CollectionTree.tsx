@@ -64,7 +64,10 @@ export function CollectionTree({ collections, selectedKey, onSelect }: Props) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const tree = useMemo(() => buildTree(collections), [collections]);
 
-  function toggleExpand(key: string, e?: React.MouseEvent | React.KeyboardEvent) {
+  function toggleExpand(
+    key: string,
+    e?: React.MouseEvent | React.KeyboardEvent,
+  ) {
     e?.stopPropagation();
     setExpandedKeys((prev) => {
       const next = new Set(prev);
@@ -189,7 +192,9 @@ function TreeNodeItem({
 
         <FolderIcon />
 
-        <span className="truncate" title={collection.name}>{collection.name}</span>
+        <span className="truncate" title={collection.name}>
+          {collection.name}
+        </span>
 
         {/* Item count — only for leaf collections */}
         {!hasChildren && (
