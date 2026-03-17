@@ -313,7 +313,10 @@ export function ChangesetReview({
             viewModes[change.id] ??
             (change.tool_name === "create_note" ? "preview" : "diff");
           return (
-            <div key={change.id} className="relative flex flex-col flex-1 min-h-0">
+            <div
+              key={change.id}
+              className="relative flex flex-col flex-1 min-h-0"
+            >
               <div className="flex items-center gap-2 mb-1">
                 {!readOnly && !isSingle ? (
                   <button

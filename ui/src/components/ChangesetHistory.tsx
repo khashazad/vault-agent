@@ -538,7 +538,10 @@ export function ChangesetHistory() {
           )}
 
           {/* Resizable split: review + annotations */}
-          <div ref={containerRef} className="flex items-stretch w-full flex-1 min-h-0">
+          <div
+            ref={containerRef}
+            className="flex items-stretch w-full flex-1 min-h-0"
+          >
             {/* Left: review */}
             <div
               className="flex flex-col gap-4 min-w-0 overflow-auto"
