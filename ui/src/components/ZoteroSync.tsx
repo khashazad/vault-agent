@@ -933,7 +933,7 @@ export function ZoteroSync() {
 
   // --- Processing step ---
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 flex-1 min-h-0">
       <StepIndicator current="processing" onNavigate={handleStepNavigate} />
 
       <div className="flex items-center gap-3">
@@ -958,7 +958,7 @@ export function ZoteroSync() {
       )}
 
       {!processing && resultChangeset && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 flex-1 min-h-0">
           {/* Routing summary */}
           {resultChangeset.routing && (
             <div className="bg-surface border border-border rounded p-3 text-sm">

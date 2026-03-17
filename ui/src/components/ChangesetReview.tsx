@@ -278,7 +278,7 @@ export function ChangesetReview({
   const isSingle = changes.length === 1;
 
   return (
-    <div className="bg-surface border border-border rounded p-4">
+    <div className="bg-surface border border-border rounded p-4 flex flex-col flex-1 min-h-0">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-sm">
           {isSingle ? "Review Change" : `Review Changes (${changes.length})`}
@@ -307,13 +307,13 @@ export function ChangesetReview({
         </p>
       )}
 
-      <div className="flex flex-col gap-3 mb-4">
+      <div className="flex flex-col gap-3 mb-4 flex-1 min-h-0">
         {changes.map((change) => {
           const mode =
             viewModes[change.id] ??
             (change.tool_name === "create_note" ? "preview" : "diff");
           return (
-            <div key={change.id} className="relative">
+            <div key={change.id} className="relative flex flex-col flex-1 min-h-0">
               <div className="flex items-center gap-2 mb-1">
                 {!readOnly && !isSingle ? (
                   <button
@@ -389,14 +389,14 @@ export function ChangesetReview({
                   originalContent={change.original_content}
                   proposedContent={change.proposed_content}
                 />
-              ) : mode === "preview" || change.tool_name === "create_note" ? (
-                <MarkdownPreview content={change.proposed_content} />
-              ) : (
+              ) : mode === "edit" && !readOnly ? (
                 <textarea
-                  className="w-full h-64 bg-bg border border-border rounded p-3 text-sm text-foreground font-mono resize-y outline-none focus:border-accent"
+                  className="w-full flex-1 min-h-64 bg-bg border border-border rounded p-3 text-sm text-foreground font-mono resize-y outline-none focus:border-accent"
                   value={editBuffers[change.id] ?? change.proposed_content}
                   onChange={(e) => handleEditChange(change.id, e.target.value)}
                 />
+              ) : (
+                <MarkdownPreview content={change.proposed_content} />
               )}
             </div>
           );
