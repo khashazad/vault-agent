@@ -452,7 +452,7 @@ export function ChangesetHistory() {
   const showRegenerate = detail?.status === "revision_requested";
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 flex-1 min-h-0">
       <div className="flex items-center gap-3">
         <button
           onClick={backToList}
@@ -470,7 +470,7 @@ export function ChangesetHistory() {
       {detailLoading ? (
         <DetailSkeleton />
       ) : detail ? (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 flex-1 min-h-0">
           {/* Metadata bar — full width */}
           <div className="bg-surface border border-border rounded p-3 flex flex-wrap items-center gap-3 text-sm">
             <StatusBadge status={detail.status} />
@@ -538,7 +538,10 @@ export function ChangesetHistory() {
           )}
 
           {/* Resizable split: review + annotations */}
-          <div ref={containerRef} className="flex items-start w-full">
+          <div
+            ref={containerRef}
+            className="flex items-stretch w-full flex-1 min-h-0"
+          >
             {/* Left: review */}
             <div
               className="flex flex-col gap-4 min-w-0 overflow-auto"

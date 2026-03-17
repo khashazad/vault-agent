@@ -11,9 +11,7 @@ describe("ChangesetReview", () => {
 
   it("hides Diff tab for create_note changes", () => {
     const change = makeProposedChange({ tool_name: "create_note" });
-    render(
-      <ChangesetReview {...baseProps} initialChanges={[change]} />,
-    );
+    render(<ChangesetReview {...baseProps} initialChanges={[change]} />);
 
     expect(screen.queryByRole("button", { name: "Diff" })).toBeNull();
     expect(screen.getByRole("button", { name: "Preview" })).toBeDefined();
@@ -25,9 +23,7 @@ describe("ChangesetReview", () => {
       original_content: "# Existing\n\nOld content.",
       diff: "--- a/Papers/Test.md\n+++ b/Papers/Test.md\n@@ -1,3 +1,3 @@\n # Existing\n \n-Old content.\n+New content.\n",
     });
-    render(
-      <ChangesetReview {...baseProps} initialChanges={[change]} />,
-    );
+    render(<ChangesetReview {...baseProps} initialChanges={[change]} />);
 
     expect(screen.getByRole("button", { name: "Diff" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Preview" })).toBeDefined();
@@ -38,9 +34,7 @@ describe("ChangesetReview", () => {
       tool_name: "create_note",
       proposed_content: "# Test\n\nUnique preview content here.",
     });
-    render(
-      <ChangesetReview {...baseProps} initialChanges={[change]} />,
-    );
+    render(<ChangesetReview {...baseProps} initialChanges={[change]} />);
 
     // Preview content should be rendered (via MarkdownPreview)
     expect(screen.getByText("Unique preview content here.")).toBeDefined();
