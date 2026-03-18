@@ -37,8 +37,8 @@ logs
 # IntelliJ based IDEs
 .idea
 
-# Changeset database
-.changesets.db
+# App database
+.vault-agent.db
 
 # Finder (MacOS) folder config
 .DS_Store

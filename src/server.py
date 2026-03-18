@@ -52,7 +52,7 @@ from src.agent.agent import (
 )
 from src.agent.changeset import apply_changeset
 from src.agent.diff import generate_diff
-from src.store import get_changeset_store, get_batch_job_store, get_migration_store
+from src.db import get_changeset_store, get_batch_job_store, get_migration_store
 from src.zotero.background import ZoteroPaperCacheSyncer
 
 from src.logging_config import setup_logging
@@ -1021,9 +1021,8 @@ async def migration_registry():
     }
 
 
-# Mount static files for the UI (must be last to not shadow API routes)
+# Check PyInstaller bundle path first, then dev path.
 def _find_ui_dist() -> Path | None:
-    """Check PyInstaller bundle path first, then dev path."""
     if hasattr(sys, "_MEIPASS"):
         bundled = Path(sys._MEIPASS) / "ui" / "dist"
         if bundled.exists():

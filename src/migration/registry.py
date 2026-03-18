@@ -1,5 +1,5 @@
 from src.models import TagNode, TaxonomyProposal
-from src.store import get_migration_store
+from src.db import get_migration_store
 
 
 # Recursively flatten a tag hierarchy into a list of slash-separated paths.

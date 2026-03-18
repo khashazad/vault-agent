@@ -5,8 +5,8 @@ from pathlib import PurePosixPath
 
 import frontmatter
 
-from src.models import VaultNote, VaultNoteSummary, VaultMap
-from src.vault import validate_path, iter_markdown_files
+from src.models import VaultNoteSummary, VaultMap
+from src.vault import iter_markdown_files
 
 logger = logging.getLogger("vault-agent")
 
@@ -91,7 +91,7 @@ def format_vault_summary(summaries: list[VaultNoteSummary]) -> str:
     ]
 
     if total > 200:
-        lines.append("Large vault — use `read_note` with a specific path.")
+        lines.append("Large vault — folder structure shown above.")
     else:
         lines.append("### Notes")
         for note in summaries:
@@ -101,7 +101,7 @@ def format_vault_summary(summaries: list[VaultNoteSummary]) -> str:
                 entry += f" [h: {h_list}]"
             lines.append(entry)
         lines.append("")
-        lines.append("Use `read_note` to inspect specific notes by path.")
+        lines.append("Use note paths above to inspect specific notes.")
 
     return "\n".join(lines)
 
@@ -124,31 +124,3 @@ def build_vault_map(vault_path: str) -> VaultMap:
     as_string = format_vault_summary(summaries)
 
     return VaultMap(total_notes=total_notes, notes=summaries, as_string=as_string)
-
-
-# Read a single note from the vault and parse its frontmatter and wikilinks.
-#
-# Args:
-#     vault_path: Absolute path to the Obsidian vault root.
-#     note_path: Relative path to the note from vault root.
-#
-# Returns:
-#     VaultNote with parsed frontmatter, content, and wikilinks.
-#
-# Raises:
-#     FileNotFoundError: When note_path does not exist on disk.
-def read_note(vault_path: str, note_path: str) -> VaultNote:
-    full_path = validate_path(vault_path, note_path)
-
-    if not full_path.exists():
-        raise FileNotFoundError(f"Note not found: {note_path}")
-
-    raw = full_path.read_text(encoding="utf-8")
-    fm, content = parse_frontmatter(raw)
-
-    return VaultNote(
-        path=note_path,
-        frontmatter=fm,
-        content=content,
-        wikilinks=extract_wikilinks(content),
-    )

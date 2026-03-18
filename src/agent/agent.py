@@ -23,7 +23,7 @@ from src.agent.utils import (
     extract_usage as _extract_usage,
     create_with_retry as _create_with_retry,
 )
-from src.store import get_changeset_store
+from src.db import get_changeset_store
 
 logger = logging.getLogger("vault-agent")
 

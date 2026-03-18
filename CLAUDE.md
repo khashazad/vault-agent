@@ -29,7 +29,7 @@ Zotero Sync Flow:
 - **`src/vault/writer.py`** — Filesystem write operations: create note, append to note. All operations are additive-only (no destructive edits).
 - **`src/agent/agent.py`** — Single-call Zotero note synthesis (`generate_zotero_note`), batch API support, retry logic, cost tracking.
 - **`src/agent/prompts.py`** — Zotero synthesis prompt builder. Produces (system, user) message pair from annotations and metadata, with optional feedback for regeneration.
-- **`src/store.py`** — SQLite-backed persistent `ChangesetStore` using WAL journal mode. Stores changesets in `.changesets.db`.
+- **`src/db/`** — SQLite-backed persistent stores package (WAL journal mode). `changesets.py` (`ChangesetStore`), `batch_jobs.py` (`BatchJobStore`), `migration.py` (`MigrationStore`). Lazy singletons in `__init__.py`. Stores data in `.vault-agent.db`.
 - **`src/agent/changeset.py`** — `apply_changeset(vault_path, changeset, approved_ids?)`. Iterates approved `ProposedChange` objects and dispatches to `create_note` / `update_note`.
 - **`src/agent/diff.py`** — `generate_diff(path, original, proposed)`. Wraps `difflib.unified_diff` to produce unified diffs for display in the UI.
 - **`src/vault/__init__.py`** — Path validation utility (`validate_path`) preventing traversal outside vault root.
@@ -44,7 +44,7 @@ Zotero Sync Flow:
 - **Framework**: FastAPI + Uvicorn
 - **LLM**: Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) via `anthropic` Python SDK (direct SDK, no framework)
 - **Markdown parsing**: `python-frontmatter` for frontmatter, regex for wikilink extraction
-- **Changeset storage**: SQLite with WAL journal mode (`.changesets.db`)
+- **Changeset storage**: SQLite with WAL journal mode (`.vault-agent.db`)
 - **Filesystem**: `pathlib.Path.rglob()` for vault traversal, `Path.read_text()` / `.write_text()` for I/O
 - **Zotero integration**: `pyzotero` for Zotero API access, background sync with local paper cache
 - **UI**: React 19, TypeScript 5.6, Vite 6, Tailwind CSS 4
@@ -159,7 +159,7 @@ Required in `.env` (loaded via `python-dotenv`):
 ANTHROPIC_API_KEY=sk-ant-...
 VAULT_PATH=/absolute/path/to/obsidian/vault
 PORT=3456
-CHANGESET_DB_PATH=.changesets.db  # Optional — default ".changesets.db"
+DB_PATH=.vault-agent.db           # Optional — default ".vault-agent.db"
 ZOTERO_API_KEY=...             # Optional — Zotero integration
 ZOTERO_LIBRARY_ID=...          # Optional — Zotero library ID
 ZOTERO_LIBRARY_TYPE=user       # Optional — default "user"
@@ -216,7 +216,7 @@ Rules:
 - Methods: same format, indented to match the method
 - Omit Raises section unless the function actually raises
 - Omit Returns section for `-> None` functions
-- Reference examples: `src/vault/reader.py`, `src/store.py`
+- Reference examples: `src/vault/reader.py`, `src/db/changesets.py`
 
 ## Obsidian Conventions
 
@@ -253,7 +253,7 @@ Commentary about the highlight.
 ### Testability design
 
 Two refactors enable test imports without side effects:
-- **Lazy store singletons** (`src/store.py`): `get_changeset_store()` / `get_batch_job_store()` replace module-level instantiation. Tests reset the global to inject `:memory:` SQLite.
+- **Lazy store singletons** (`src/db/`): `get_changeset_store()` / `get_batch_job_store()` / `get_migration_store()` in `src/db/__init__.py`. Tests reset the global to inject `:memory:` SQLite.
 - **Deferred config** (`src/server.py`): `load_config()` runs inside `lifespan()`, stored on `app.state`. Route handlers access config via `request.app.state.config`. Tests set `app.state.config` directly.
 
 ### Backend tests (pytest)
@@ -315,7 +315,11 @@ vault-agent/
 │   ├── __init__.py
 │   ├── server.py
 │   ├── config.py
-│   ├── store.py               # SQLite changeset + batch job store (lazy singletons)
+│   ├── db/
+│   │   ├── __init__.py        # Re-exports, lazy singletons, getters
+│   │   ├── changesets.py      # ChangesetStore
+│   │   ├── batch_jobs.py      # BatchJobStore
+│   │   └── migration.py       # MigrationStore
 │   ├── models/
 │   │   ├── __init__.py        # Re-exports all models
 │   │   ├── content.py         # ContentItem, SourceMetadata, SourceType
