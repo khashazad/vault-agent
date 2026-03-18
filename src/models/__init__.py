@@ -38,6 +38,14 @@ from .zotero import (
     ZoteroSyncRequest,
     ZoteroSyncResponse,
 )
+from .migration import (
+    CostEstimate,
+    LinkTarget,
+    MigrationJob,
+    MigrationNote,
+    TagNode,
+    TaxonomyProposal,
+)
 
 __all__ = [
     # content
@@ -83,4 +91,11 @@ __all__ = [
     "RefreshResponse",
     "ZoteroStatusResponse",
     "BatchJobStatusResponse",
+    # migration
+    "TagNode",
+    "LinkTarget",
+    "TaxonomyProposal",
+    "MigrationNote",
+    "MigrationJob",
+    "CostEstimate",
 ]

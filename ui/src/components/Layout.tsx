@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export type Tab = "sync" | "history";
+export type Tab = "sync" | "history" | "migration";
 
 interface Props {
   children: ReactNode;
@@ -15,19 +15,26 @@ export function Layout({ children, currentTab, onTabChange }: Props) {
         <div className="flex items-center px-6 h-full">
           <span className="text-base font-semibold">Vault Agent</span>
           <div className="flex gap-2 ml-auto">
-            {(["sync", "history"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => onTabChange(tab)}
-                className={
-                  currentTab === tab
-                    ? "px-4 py-1.5 text-sm font-medium rounded bg-accent/15 text-accent"
-                    : "px-4 py-1.5 text-sm font-medium rounded bg-surface text-muted border border-border"
-                }
-              >
-                {tab === "sync" ? "Sync" : "History"}
-              </button>
-            ))}
+            {(["sync", "history", "migration"] as const).map((tab) => {
+              const labels: Record<Tab, string> = {
+                sync: "Sync",
+                history: "History",
+                migration: "Migration",
+              };
+              return (
+                <button
+                  key={tab}
+                  onClick={() => onTabChange(tab)}
+                  className={
+                    currentTab === tab
+                      ? "px-4 py-1.5 text-sm font-medium rounded bg-accent/15 text-accent"
+                      : "px-4 py-1.5 text-sm font-medium rounded bg-surface text-muted border border-border"
+                  }
+                >
+                  {labels[tab]}
+                </button>
+              );
+            })}
           </div>
         </div>
       </header>

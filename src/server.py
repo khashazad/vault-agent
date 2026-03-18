@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 from collections.abc import AsyncIterator
@@ -23,11 +24,14 @@ from src.models import (
     ChangesetListResponse,
     ChangesetSummary,
     ChangeStatusResponse,
+    CostEstimate,
     FeedbackRequest,
     HealthResponse,
+    MigrationJob,
     PaperCacheStatusResponse,
     RefreshResponse,
     RejectResponse,
+    TaxonomyProposal,
     VaultMapResponse,
     ZoteroAnnotationItem,
     ZoteroCollection,
@@ -47,7 +51,8 @@ from src.agent.agent import (
     poll_zotero_batch,
 )
 from src.agent.changeset import apply_changeset
-from src.store import get_changeset_store, get_batch_job_store
+from src.agent.diff import generate_diff
+from src.store import get_changeset_store, get_batch_job_store, get_migration_store
 from src.zotero.background import ZoteroPaperCacheSyncer
 
 from src.logging_config import setup_logging
@@ -98,6 +103,10 @@ app = FastAPI(
         {
             "name": "Zotero",
             "description": "Zotero library sync, papers, and collections",
+        },
+        {
+            "name": "Migration",
+            "description": "Vault migration: taxonomy management, per-note migration, and review",
         },
     ],
 )
@@ -776,6 +785,239 @@ async def zotero_status(request: Request):
         "configured": configured,
         "last_version": last_version,
         "last_synced": last_synced,
+    }
+
+
+# --- Migration routes ---
+
+
+@app.post(
+    "/migration/estimate",
+    response_model=CostEstimate,
+    tags=["Migration"],
+    summary="Estimate migration cost",
+)
+async def migration_estimate(request: Request, model: str = "sonnet"):
+    config = _get_config(request)
+    from src.migration.migrator import estimate_cost
+
+    return estimate_cost(config.vault_path, model)
+
+
+@app.post(
+    "/migration/taxonomy/import",
+    response_model=TaxonomyProposal,
+    tags=["Migration"],
+    summary="Import taxonomy JSON",
+)
+async def migration_taxonomy_import(request: Request):
+    body = await request.json()
+    from src.migration.taxonomy import import_taxonomy
+
+    try:
+        taxonomy = import_taxonomy(body)
+    except (ValueError, Exception) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    get_migration_store().set_taxonomy(taxonomy)
+    return taxonomy.model_dump()
+
+
+@app.get(
+    "/migration/taxonomy/{taxonomy_id}",
+    response_model=TaxonomyProposal,
+    tags=["Migration"],
+    summary="Get taxonomy",
+)
+async def migration_taxonomy_get(taxonomy_id: str):
+    t = get_migration_store().get_taxonomy(taxonomy_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Taxonomy not found")
+    return t.model_dump()
+
+
+@app.put(
+    "/migration/taxonomy/{taxonomy_id}",
+    response_model=TaxonomyProposal,
+    tags=["Migration"],
+    summary="Update taxonomy",
+)
+async def migration_taxonomy_update(taxonomy_id: str, request: Request):
+    store = get_migration_store()
+    existing = store.get_taxonomy(taxonomy_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Taxonomy not found")
+
+    body = await request.json()
+    if "folders" in body:
+        existing.folders = body["folders"]
+    if "tag_hierarchy" in body:
+        from src.models import TagNode
+
+        existing.tag_hierarchy = [
+            TagNode(**t) if isinstance(t, dict) else t for t in body["tag_hierarchy"]
+        ]
+    if "link_targets" in body:
+        from src.models import LinkTarget
+
+        existing.link_targets = [
+            LinkTarget(**lt) if isinstance(lt, dict) else lt
+            for lt in body["link_targets"]
+        ]
+    existing.status = "curated"
+    store.set_taxonomy(existing)
+    return existing.model_dump()
+
+
+@app.post(
+    "/migration/taxonomy/{taxonomy_id}/activate",
+    response_model=TaxonomyProposal,
+    tags=["Migration"],
+    summary="Activate taxonomy",
+)
+async def migration_taxonomy_activate(taxonomy_id: str):
+    store = get_migration_store()
+    t = store.get_taxonomy(taxonomy_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Taxonomy not found")
+    store.deactivate_all_taxonomies()
+    t.status = "active"
+    store.set_taxonomy(t)
+    return t.model_dump()
+
+
+@app.post(
+    "/migration/jobs",
+    response_model=MigrationJob,
+    tags=["Migration"],
+    summary="Create migration job",
+)
+async def migration_job_create(request: Request):
+    config = _get_config(request)
+    body = await request.json()
+    target_vault = body.get("target_vault")
+    taxonomy_id = body.get("taxonomy_id")
+    model = body.get("model", "sonnet")
+
+    if not target_vault:
+        return JSONResponse({"error": "target_vault is required"}, status_code=400)
+
+    from src.migration.migrator import create_migration_job, run_migration
+
+    job = create_migration_job(config.vault_path, target_vault, taxonomy_id)
+
+    # Start migration in background
+    asyncio.create_task(run_migration(config, job.id, model))
+
+    return job.model_dump()
+
+
+@app.get(
+    "/migration/jobs/{job_id}",
+    response_model=MigrationJob,
+    tags=["Migration"],
+    summary="Get migration job status",
+)
+async def migration_job_get(job_id: str):
+    job = get_migration_store().get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Migration job not found")
+    return job.model_dump()
+
+
+@app.get(
+    "/migration/jobs/{job_id}/notes",
+    tags=["Migration"],
+    summary="List migration notes",
+)
+async def migration_job_notes(
+    job_id: str,
+    status: str | None = None,
+    offset: int = 0,
+    limit: int = 50,
+):
+    store = get_migration_store()
+    if not store.get_job(job_id):
+        raise HTTPException(status_code=404, detail="Migration job not found")
+    notes, total = store.get_notes_by_job(job_id, status, offset, limit)
+    return {"notes": [n.model_dump() for n in notes], "total": total}
+
+
+@app.patch(
+    "/migration/jobs/{job_id}/notes/{note_id}",
+    tags=["Migration"],
+    summary="Update migration note",
+)
+async def migration_note_update(job_id: str, note_id: str, request: Request):
+    store = get_migration_store()
+    note = store.get_note(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Migration note not found")
+
+    body = await request.json()
+    if "status" in body:
+        note.status = body["status"]
+    if "proposed_content" in body:
+        note.proposed_content = body["proposed_content"]
+        note.diff = generate_diff(
+            note.source_path, note.original_content, body["proposed_content"]
+        )
+    store.update_note(job_id, note)
+    return note.model_dump()
+
+
+@app.post(
+    "/migration/jobs/{job_id}/apply",
+    tags=["Migration"],
+    summary="Apply approved migration notes",
+)
+async def migration_job_apply(job_id: str):
+    store = get_migration_store()
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Migration job not found")
+
+    from src.migration.writer import apply_migration
+
+    job.status = "applying"
+    store.set_job(job)
+
+    result = apply_migration(job.target_vault, job_id)
+    job.status = "completed" if not result["failed"] else "failed"
+    store.set_job(job)
+    return result
+
+
+@app.post(
+    "/migration/jobs/{job_id}/cancel",
+    tags=["Migration"],
+    summary="Cancel migration job",
+)
+async def migration_job_cancel(job_id: str):
+    store = get_migration_store()
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Migration job not found")
+    job.status = "cancelled"
+    store.set_job(job)
+    return {"id": job_id, "status": "cancelled"}
+
+
+@app.get(
+    "/migration/registry",
+    tags=["Migration"],
+    summary="Get active taxonomy registry",
+)
+async def migration_registry():
+    from src.migration.registry import VaultRegistry
+
+    reg = VaultRegistry.from_active()
+    if not reg:
+        return JSONResponse({"error": "No active taxonomy"}, status_code=404)
+    return {
+        "taxonomy_id": reg.taxonomy_id,
+        "folders": reg.get_folder_structure(),
+        "tags": reg.get_tag_hierarchy(),
+        "link_targets": reg.get_link_targets(),
     }
 
 
