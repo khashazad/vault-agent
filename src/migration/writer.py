@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from src.store import get_migration_store
+from src.db import get_migration_store
 
 
 # Write a single migrated note to the target vault, creating parent dirs.

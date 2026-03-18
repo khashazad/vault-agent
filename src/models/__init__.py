@@ -15,7 +15,7 @@ from .changesets import (
     TokenUsage,
 )
 from .content import ContentItem, SourceMetadata, SourceType
-from .tools import CreateNoteInput, ReadNoteInput, UpdateNoteInput
+from .tools import CreateNoteInput, UpdateNoteInput
 from .vault import (
     HealthResponse,
     VaultMap,
@@ -59,7 +59,6 @@ __all__ = [
     "HealthResponse",
     "VaultMapResponse",
     # tools
-    "ReadNoteInput",
     "CreateNoteInput",
     "UpdateNoteInput",
     # changesets

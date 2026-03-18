@@ -145,8 +145,8 @@ class ChangeContentUpdate(BaseModel):
     proposed_content: str | None = None
 
 
+# Lightweight changeset for list view — no diffs/content.
 class ChangesetSummary(BaseModel):
-    """Lightweight changeset for list view — no diffs/content."""
 
     id: str
     status: str

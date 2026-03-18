@@ -5,8 +5,8 @@ from httpx import AsyncClient, ASGITransport
 
 from src.server import app
 from tests.factories import make_changeset, make_proposed_change
-import src.store as store_module
-from src.store import ChangesetStore
+import src.db as db_module
+from src.db import ChangesetStore
 
 
 @pytest.fixture
@@ -16,14 +16,14 @@ async def client(tmp_vault, app_config, tmp_path):
 
     # Inject in-memory stores
     mem_cs = ChangesetStore(db_path=":memory:")
-    old_cs = store_module._changeset_store
-    store_module._changeset_store = mem_cs
+    old_cs = db_module._changeset_store
+    db_module._changeset_store = mem_cs
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
-    store_module._changeset_store = old_cs
+    db_module._changeset_store = old_cs
     mem_cs.close()
 
 
@@ -50,7 +50,7 @@ class TestChangesetRoutes:
         assert resp.status_code == 404
 
     async def test_changeset_crud(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset()
         get_changeset_store().set(cs)
@@ -60,7 +60,7 @@ class TestChangesetRoutes:
         assert resp.json()["id"] == cs.id
 
     async def test_reject_changeset(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset()
         get_changeset_store().set(cs)
@@ -70,7 +70,7 @@ class TestChangesetRoutes:
         assert resp.json()["status"] == "rejected"
 
     async def test_update_change_status(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset()
         change_id = cs.changes[0].id
@@ -84,7 +84,7 @@ class TestChangesetRoutes:
         assert resp.json()["status"] == "approved"
 
     async def test_apply_changeset(self, client, tmp_vault):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         change = make_proposed_change(
             tool_name="create_note",
@@ -109,7 +109,7 @@ class TestChangesetHistoryRoutes:
         assert data["total"] == 0
 
     async def test_list_changesets_with_data(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         store = get_changeset_store()
         store.set(make_changeset(status="pending"))
@@ -124,7 +124,7 @@ class TestChangesetHistoryRoutes:
         assert "change_count" in data["changesets"][0]
 
     async def test_list_changesets_filtered(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         store = get_changeset_store()
         store.set(make_changeset(status="pending"))
@@ -137,7 +137,7 @@ class TestChangesetHistoryRoutes:
         assert data["changesets"][0]["status"] == "applied"
 
     async def test_list_changesets_paginated(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         store = get_changeset_store()
         for _ in range(3):
@@ -150,7 +150,7 @@ class TestChangesetHistoryRoutes:
         assert len(data["changesets"]) == 1
 
     async def test_update_change_content(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset()
         change_id = cs.changes[0].id
@@ -168,7 +168,7 @@ class TestChangesetHistoryRoutes:
         assert "Updated" in updated.changes[0].diff
 
     async def test_request_changes(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset(status="pending")
         get_changeset_store().set(cs)
@@ -183,7 +183,7 @@ class TestChangesetHistoryRoutes:
         assert data["feedback"] == "Use a different heading"
 
     async def test_request_changes_wrong_status(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset(status="applied")
         get_changeset_store().set(cs)
@@ -202,7 +202,7 @@ class TestChangesetHistoryRoutes:
         assert resp.status_code == 404
 
     async def test_regenerate_wrong_status(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset(status="pending")
         get_changeset_store().set(cs)
@@ -212,7 +212,7 @@ class TestChangesetHistoryRoutes:
 
     @patch("src.server.generate_zotero_note", new_callable=AsyncMock)
     async def test_regenerate_success(self, mock_gen, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset(
             status="revision_requested",
@@ -235,7 +235,7 @@ class TestChangesetHistoryRoutes:
         assert call_kwargs.kwargs["parent_changeset_id"] == cs.id
 
     async def test_delete_changeset(self, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset()
         get_changeset_store().set(cs)
@@ -250,7 +250,7 @@ class TestChangesetHistoryRoutes:
 
     @patch("src.zotero.sync.ZoteroSyncState")
     async def test_delete_changeset_clears_paper_sync(self, mock_cls, client):
-        from src.store import get_changeset_store
+        from src.db import get_changeset_store
 
         cs = make_changeset()
         get_changeset_store().set(cs)

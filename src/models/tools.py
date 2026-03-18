@@ -3,10 +3,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-class ReadNoteInput(BaseModel):
-    path: str = Field(max_length=500)
-
-
 class CreateNoteInput(BaseModel):
     path: str = Field(max_length=500)
     content: str = Field(max_length=200_000)

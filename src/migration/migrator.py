@@ -24,7 +24,7 @@ from src.agent.utils import (
 )
 from src.agent.diff import generate_diff
 from src.migration.prompts import build_migration_prompt
-from src.store import get_migration_store
+from src.db import get_migration_store
 from src.vault import iter_markdown_files
 
 logger = logging.getLogger("vault-agent")
