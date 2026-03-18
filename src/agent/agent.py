@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import re
 import uuid
@@ -16,111 +15,22 @@ from src.models import (
 from src.config import AppConfig
 from src.agent.prompts import build_zotero_synthesis_prompt
 from src.agent.diff import generate_diff
+from src.agent.utils import (
+    MODELS,
+    DEFAULT_MODEL,
+    compute_cost as _compute_cost,
+    build_token_usage as _build_token_usage,
+    extract_usage as _extract_usage,
+    create_with_retry as _create_with_retry,
+)
 from src.store import get_changeset_store
 
 logger = logging.getLogger("vault-agent")
 
-MODELS = {
-    "haiku": {
-        "id": "claude-haiku-4-5",
-        "label": "Haiku 4.5",
-        "input": 1.00,
-        "output": 5.00,
-        "cache_write": 1.25,
-        "cache_read": 0.10,
-    },
-    "sonnet": {
-        "id": "claude-sonnet-4-6",
-        "label": "Sonnet 4.6",
-        "input": 3.00,
-        "output": 15.00,
-        "cache_write": 3.75,
-        "cache_read": 0.30,
-    },
-}
-DEFAULT_MODEL = "sonnet"
-_BATCH_DISCOUNT = 0.5
 _SYNTHESIS_MAX_TOKENS = 8192
 _MAX_NOTE_PATH_LENGTH = 100
 
 
-def _compute_cost(
-    input_tokens: int,
-    output_tokens: int,
-    cache_write_tokens: int,
-    cache_read_tokens: int,
-    model_key: str = DEFAULT_MODEL,
-    is_batch: bool = False,
-    include_cache_savings: bool = False,
-) -> float:
-    pricing = MODELS[model_key]
-    if include_cache_savings:
-        cost = (
-            input_tokens * pricing["input"] / 1_000_000
-            + output_tokens * pricing["output"] / 1_000_000
-            + cache_write_tokens * pricing["cache_write"] / 1_000_000
-            + cache_read_tokens * pricing["cache_read"] / 1_000_000
-        )
-    else:
-        total_input = input_tokens + cache_write_tokens + cache_read_tokens
-        cost = (
-            total_input * pricing["input"] / 1_000_000
-            + output_tokens * pricing["output"] / 1_000_000
-        )
-    return cost * _BATCH_DISCOUNT if is_batch else cost
-
-
-def _build_token_usage(
-    input_tokens: int,
-    output_tokens: int,
-    cache_write_tokens: int,
-    cache_read_tokens: int,
-    api_calls: int,
-    tool_calls: int,
-    model_key: str = DEFAULT_MODEL,
-    is_batch: bool = False,
-) -> TokenUsage:
-    return TokenUsage(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_write_tokens=cache_write_tokens,
-        cache_read_tokens=cache_read_tokens,
-        api_calls=api_calls,
-        tool_calls=tool_calls,
-        is_batch=is_batch,
-        model=model_key,
-        total_cost_usd=_compute_cost(
-            input_tokens,
-            output_tokens,
-            cache_write_tokens,
-            cache_read_tokens,
-            model_key,
-            is_batch,
-        ),
-    )
-
-
-# Extract token counts from an Anthropic API response.
-def _extract_usage(response) -> tuple[int, int, int, int]:
-    u = response.usage
-    return (
-        u.input_tokens,
-        u.output_tokens,
-        getattr(u, "cache_creation_input_tokens", 0) or 0,
-        getattr(u, "cache_read_input_tokens", 0) or 0,
-    )
-
-
-# Log cache-aware token usage and estimated cost breakdown.
-#
-# Args:
-#     item_count: Number of ContentItems processed.
-#     api_calls: Number of Claude API round-trips.
-#     tool_call_count: Total tool invocations across all rounds.
-#     input_tokens: Non-cached input tokens consumed.
-#     output_tokens: Output tokens generated.
-#     cache_write_tokens: Tokens written to prompt cache.
-#     cache_read_tokens: Tokens read from prompt cache.
 def _log_token_usage(
     item_count: int,
     api_calls: int,
@@ -161,40 +71,6 @@ def _log_token_usage(
     )
 
 
-# Call client.messages.create with exponential backoff on 429/529 errors.
-# Retries up to 3 times with 1s base delay.
-async def _create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
-    max_retries = 3
-    base_delay = 1.0
-
-    for attempt in range(max_retries + 1):
-        try:
-            return await client.messages.create(**kwargs)
-        except anthropic.RateLimitError:
-            if attempt == max_retries:
-                raise
-            delay = base_delay * (2**attempt)
-            logger.warning(
-                "Rate limited (429), retrying in %.1fs (attempt %d/%d)",
-                delay,
-                attempt + 1,
-                max_retries,
-            )
-            await asyncio.sleep(delay)
-        except anthropic.APIStatusError as err:
-            if err.status_code == 529 and attempt < max_retries:
-                delay = base_delay * (2**attempt)
-                logger.warning(
-                    "API overloaded (529), retrying in %.1fs (attempt %d/%d)",
-                    delay,
-                    attempt + 1,
-                    max_retries,
-                )
-                await asyncio.sleep(delay)
-            else:
-                raise
-
-
 # Derive a vault-relative path (Papers/<sanitized-title>.md) from Zotero metadata.
 def _zotero_note_path(items: list[ContentItem]) -> str:
     meta = items[0].source_metadata
@@ -229,12 +105,17 @@ async def generate_zotero_note(
     feedback: str | None = None,
     previous_reasoning: str | None = None,
     parent_changeset_id: str | None = None,
+    registry=None,
 ) -> Changeset:
     client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
     metadata = items[0].source_metadata
 
     system, user = build_zotero_synthesis_prompt(
-        items, metadata, feedback=feedback, previous_reasoning=previous_reasoning
+        items,
+        metadata,
+        feedback=feedback,
+        previous_reasoning=previous_reasoning,
+        registry=registry,
     )
 
     response = await _create_with_retry(

@@ -100,6 +100,7 @@ def build_zotero_synthesis_prompt(
     metadata: SourceMetadata,
     feedback: str | None = None,
     previous_reasoning: str | None = None,
+    registry=None,
 ) -> tuple[str, str]:
     system = (
         "You are a research note synthesizer. Your job is to produce a detailed "
@@ -110,6 +111,18 @@ def build_zotero_synthesis_prompt(
         "no code fences.\n\n"
         f"{ZOTERO_PAPER_TEMPLATE}"
     )
+
+    if registry:
+        tags = registry.get_tag_hierarchy()
+        link_targets = registry.get_link_targets()
+        target_lines = [f"- [[{lt['title']}]]" for lt in link_targets]
+        system += f"""
+
+## Vault Taxonomy
+Use these tags: {", ".join(tags)}
+Link to these notes when mentioned:
+{chr(10).join(target_lines)}
+Place new notes in: Papers/"""
 
     user = _format_zotero_context(metadata) + "\n\n"
     user += f"## Annotations ({len(items)} total)\n\n"

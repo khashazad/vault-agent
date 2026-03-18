@@ -1,7 +1,13 @@
 import type {
   Changeset,
   ChangesetListResponse,
+  CostEstimate,
+  MigrationJob,
+  MigrationNote,
+  MigrationNotesResponse,
+  MigrationRegistry,
   TokenUsage,
+  TaxonomyProposal,
   ZoteroStatus,
   ZoteroPapersResponse,
   ZoteroPaperAnnotationsResponse,
@@ -180,4 +186,112 @@ export function updateChangeContent(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ proposed_content: proposedContent }),
   });
+}
+
+// --- Migration API ---
+
+export function estimateMigrationCost(model?: string): Promise<CostEstimate> {
+  const params = new URLSearchParams();
+  if (model) params.set("model", model);
+  const qs = params.toString();
+  return fetchJSON(`${BASE}/migration/estimate${qs ? `?${qs}` : ""}`, {
+    method: "POST",
+  });
+}
+
+export function importTaxonomy(
+  data: Record<string, unknown>,
+): Promise<TaxonomyProposal> {
+  return fetchJSON(`${BASE}/migration/taxonomy/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function fetchTaxonomy(id: string): Promise<TaxonomyProposal> {
+  return fetchJSON(`${BASE}/migration/taxonomy/${id}`);
+}
+
+export function updateTaxonomy(
+  id: string,
+  updates: Partial<TaxonomyProposal>,
+): Promise<TaxonomyProposal> {
+  return fetchJSON(`${BASE}/migration/taxonomy/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+}
+
+export function activateTaxonomy(id: string): Promise<TaxonomyProposal> {
+  return fetchJSON(`${BASE}/migration/taxonomy/${id}/activate`, {
+    method: "POST",
+  });
+}
+
+export function createMigrationJob(
+  targetVault: string,
+  taxonomyId?: string,
+  model?: string,
+): Promise<MigrationJob> {
+  return fetchJSON(`${BASE}/migration/jobs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target_vault: targetVault,
+      taxonomy_id: taxonomyId,
+      model: model ?? "sonnet",
+    }),
+  });
+}
+
+export function fetchMigrationJob(id: string): Promise<MigrationJob> {
+  return fetchJSON(`${BASE}/migration/jobs/${id}`);
+}
+
+export function fetchMigrationNotes(
+  jobId: string,
+  opts?: { status?: string; offset?: number; limit?: number },
+): Promise<MigrationNotesResponse> {
+  const params = new URLSearchParams();
+  if (opts?.status) params.set("status", opts.status);
+  if (opts?.offset) params.set("offset", String(opts.offset));
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return fetchJSON(
+    `${BASE}/migration/jobs/${jobId}/notes${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function updateMigrationNote(
+  jobId: string,
+  noteId: string,
+  updates: { status?: string; proposed_content?: string },
+): Promise<MigrationNote> {
+  return fetchJSON(`${BASE}/migration/jobs/${jobId}/notes/${noteId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+}
+
+export function applyMigration(
+  jobId: string,
+): Promise<{ applied: string[]; failed: { id: string; error: string }[] }> {
+  return fetchJSON(`${BASE}/migration/jobs/${jobId}/apply`, {
+    method: "POST",
+  });
+}
+
+export function cancelMigration(
+  jobId: string,
+): Promise<{ id: string; status: string }> {
+  return fetchJSON(`${BASE}/migration/jobs/${jobId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function fetchMigrationRegistry(): Promise<MigrationRegistry> {
+  return fetchJSON(`${BASE}/migration/registry`);
 }

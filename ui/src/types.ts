@@ -172,3 +172,92 @@ export interface ChangesetListResponse {
   changesets: ChangesetSummary[];
   total: number;
 }
+
+// --- Migration types ---
+
+export interface TagNode {
+  name: string;
+  children: TagNode[];
+  description: string | null;
+}
+
+export interface LinkTarget {
+  title: string;
+  aliases: string[];
+  folder: string;
+}
+
+export interface TaxonomyProposal {
+  id: string;
+  folders: string[];
+  tag_hierarchy: TagNode[];
+  link_targets: LinkTarget[];
+  reasoning: string | null;
+  status: "imported" | "curated" | "active";
+  created_at: string;
+}
+
+export type MigrationNoteStatus =
+  | "pending"
+  | "processing"
+  | "proposed"
+  | "approved"
+  | "rejected"
+  | "applied"
+  | "failed"
+  | "skipped";
+
+export interface MigrationNote {
+  id: string;
+  source_path: string;
+  target_path: string;
+  original_content: string;
+  proposed_content: string | null;
+  diff: string | null;
+  status: MigrationNoteStatus;
+  error: string | null;
+  usage: TokenUsage | null;
+}
+
+export type MigrationJobStatus =
+  | "pending"
+  | "migrating"
+  | "review"
+  | "applying"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface MigrationJob {
+  id: string;
+  source_vault: string;
+  target_vault: string;
+  taxonomy_id: string | null;
+  status: MigrationJobStatus;
+  total_notes: number;
+  processed_notes: number;
+  total_usage: TokenUsage | null;
+  estimated_cost_usd: number | null;
+  created_at: string;
+}
+
+export interface CostEstimate {
+  total_notes: number;
+  total_chars: number;
+  estimated_input_tokens: number;
+  estimated_output_tokens: number;
+  estimated_cost_usd: number;
+  model: string;
+}
+
+export interface MigrationNotesResponse {
+  notes: MigrationNote[];
+  total: number;
+}
+
+export interface MigrationRegistry {
+  taxonomy_id: string;
+  folders: string[];
+  tags: string[];
+  link_targets: { title: string; aliases: string[]; folder: string }[];
+}
