@@ -29,6 +29,23 @@ DEFAULT_MODEL = "sonnet"
 _BATCH_DISCOUNT = 0.5
 
 
+# Compute LLM API cost in USD from token counts and model pricing.
+#
+# When include_cache_savings is True, cache write/read tokens use their
+# discounted rates. Otherwise all input tokens use the base input rate.
+# Batch API calls get a 50% discount.
+#
+# Args:
+#     input_tokens: Non-cached input token count.
+#     output_tokens: Output token count.
+#     cache_write_tokens: Tokens written to prompt cache.
+#     cache_read_tokens: Tokens read from prompt cache.
+#     model_key: Key into MODELS pricing dict.
+#     is_batch: Apply batch API discount.
+#     include_cache_savings: Use cache-specific pricing rates.
+#
+# Returns:
+#     Estimated cost in USD.
 def compute_cost(
     input_tokens: int,
     output_tokens: int,
@@ -55,6 +72,20 @@ def compute_cost(
     return cost * _BATCH_DISCOUNT if is_batch else cost
 
 
+# Construct a TokenUsage object from raw token counts.
+#
+# Args:
+#     input_tokens: Non-cached input token count.
+#     output_tokens: Output token count.
+#     cache_write_tokens: Tokens written to prompt cache.
+#     cache_read_tokens: Tokens read from prompt cache.
+#     api_calls: Number of API calls made.
+#     tool_calls: Number of tool calls made.
+#     model_key: Key into MODELS pricing dict.
+#     is_batch: Whether this was a batch API call.
+#
+# Returns:
+#     TokenUsage with computed cost.
 def build_token_usage(
     input_tokens: int,
     output_tokens: int,
@@ -85,6 +116,13 @@ def build_token_usage(
     )
 
 
+# Extract token counts from an Anthropic API response.
+#
+# Args:
+#     response: Raw Anthropic API response object.
+#
+# Returns:
+#     Tuple of (input, output, cache_write, cache_read) token counts.
 def extract_usage(response) -> tuple[int, int, int, int]:
     u = response.usage
     return (
@@ -95,6 +133,21 @@ def extract_usage(response) -> tuple[int, int, int, int]:
     )
 
 
+# Call client.messages.create with exponential backoff on rate limits.
+#
+# Retries up to 3 times on 429 (rate limit) and 529 (overloaded) errors
+# with exponential delay.
+#
+# Args:
+#     client: Anthropic async client.
+#     **kwargs: Arguments passed to client.messages.create.
+#
+# Returns:
+#     Anthropic API response.
+#
+# Raises:
+#     anthropic.RateLimitError: After all retries exhausted on 429.
+#     anthropic.APIStatusError: On non-retryable API errors.
 async def create_with_retry(client: anthropic.AsyncAnthropic, **kwargs):
     max_retries = 3
     base_delay = 1.0

@@ -1,6 +1,14 @@
 from src.models import TaxonomyProposal, TagNode
 
 
+# Render a tag hierarchy as an indented markdown list string.
+#
+# Args:
+#     nodes: List of TagNode trees to render.
+#     indent: Current indentation level (2 spaces per level).
+#
+# Returns:
+#     Formatted string with one tag per line.
 def _format_tag_tree(nodes: list[TagNode], indent: int = 0) -> str:
     lines: list[str] = []
     prefix = "  " * indent
@@ -12,6 +20,18 @@ def _format_tag_tree(nodes: list[TagNode], indent: int = 0) -> str:
     return "\n".join(lines)
 
 
+# Build the (system, user) prompt pair for migrating a single note.
+#
+# The system prompt contains the full taxonomy (folders, tags, link targets)
+# and migration rules. The user prompt contains the note content and path.
+#
+# Args:
+#     taxonomy: Active taxonomy with folders, tags, and link targets.
+#     note_content: Raw markdown content of the note to migrate.
+#     note_path: Current relative path of the note in the vault.
+#
+# Returns:
+#     Tuple of (system_prompt, user_prompt) strings.
 def build_migration_prompt(
     taxonomy: TaxonomyProposal,
     note_content: str,

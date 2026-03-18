@@ -195,13 +195,19 @@ class BatchJobStore:
         self._conn.commit()
 
 
+# SQLite-backed store for vault migration jobs, notes, and taxonomies.
 class MigrationStore:
+    # Initialize SQLite connection with WAL mode and row factory.
+    #
+    # Args:
+    #     db_path: Path to the SQLite database file.
     def __init__(self, db_path: str = DEFAULT_DB_PATH):
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._create_tables()
 
+    # Create migration_jobs, migration_notes, and taxonomy tables if they don't exist.
     def _create_tables(self) -> None:
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS migration_jobs (
@@ -237,6 +243,10 @@ class MigrationStore:
 
     # --- Jobs ---
 
+    # Upsert a migration job into the store.
+    #
+    # Args:
+    #     job: MigrationJob to insert or update.
     def set_job(self, job: MigrationJob) -> None:
         self._conn.execute(
             """
@@ -250,6 +260,13 @@ class MigrationStore:
         )
         self._conn.commit()
 
+    # Retrieve a migration job by ID.
+    #
+    # Args:
+    #     job_id: Unique job identifier.
+    #
+    # Returns:
+    #     The matching MigrationJob, or None if not found.
     def get_job(self, job_id: str) -> MigrationJob | None:
         row = self._conn.execute(
             "SELECT data FROM migration_jobs WHERE id = ?", (job_id,)
@@ -258,12 +275,21 @@ class MigrationStore:
             return None
         return MigrationJob.model_validate_json(row["data"])
 
+    # Update the status field of a migration job.
+    #
+    # Args:
+    #     job_id: Unique job identifier.
+    #     status: New status string.
     def update_job_status(self, job_id: str, status: str) -> None:
         job = self.get_job(job_id)
         if job:
             job.status = status  # type: ignore[assignment]
             self.set_job(job)
 
+    # Increment the processed_notes counter for a migration job.
+    #
+    # Args:
+    #     job_id: Unique job identifier.
     def increment_processed(self, job_id: str) -> None:
         job = self.get_job(job_id)
         if job:
@@ -272,6 +298,11 @@ class MigrationStore:
 
     # --- Notes ---
 
+    # Upsert a migration note into the store.
+    #
+    # Args:
+    #     job_id: Parent job identifier.
+    #     note: MigrationNote to insert or update.
     def set_note(self, job_id: str, note: MigrationNote) -> None:
         self._conn.execute(
             """
@@ -285,6 +316,13 @@ class MigrationStore:
         )
         self._conn.commit()
 
+    # Retrieve a migration note by ID.
+    #
+    # Args:
+    #     note_id: Unique note identifier.
+    #
+    # Returns:
+    #     The matching MigrationNote, or None if not found.
     def get_note(self, note_id: str) -> MigrationNote | None:
         row = self._conn.execute(
             "SELECT data FROM migration_notes WHERE id = ?", (note_id,)
@@ -293,6 +331,16 @@ class MigrationStore:
             return None
         return MigrationNote.model_validate_json(row["data"])
 
+    # Retrieve migration notes for a job with optional status filter and pagination.
+    #
+    # Args:
+    #     job_id: Parent job identifier.
+    #     status: Filter by note status (None = all).
+    #     offset: Number of rows to skip.
+    #     limit: Max rows to return.
+    #
+    # Returns:
+    #     Tuple of (matching notes, total count).
     def get_notes_by_job(
         self,
         job_id: str,
@@ -315,11 +363,20 @@ class MigrationStore:
         ).fetchall()
         return [MigrationNote.model_validate_json(r["data"]) for r in rows], total
 
+    # Update a migration note (delegates to set_note).
+    #
+    # Args:
+    #     job_id: Parent job identifier.
+    #     note: MigrationNote with updated fields.
     def update_note(self, job_id: str, note: MigrationNote) -> None:
         self.set_note(job_id, note)
 
     # --- Taxonomy ---
 
+    # Upsert a taxonomy proposal into the store.
+    #
+    # Args:
+    #     taxonomy: TaxonomyProposal to insert or update.
     def set_taxonomy(self, taxonomy: TaxonomyProposal) -> None:
         self._conn.execute(
             """
@@ -338,6 +395,13 @@ class MigrationStore:
         )
         self._conn.commit()
 
+    # Retrieve a taxonomy proposal by ID.
+    #
+    # Args:
+    #     taxonomy_id: Unique taxonomy identifier.
+    #
+    # Returns:
+    #     The matching TaxonomyProposal, or None if not found.
     def get_taxonomy(self, taxonomy_id: str) -> TaxonomyProposal | None:
         row = self._conn.execute(
             "SELECT data FROM taxonomy WHERE id = ?", (taxonomy_id,)
@@ -346,6 +410,10 @@ class MigrationStore:
             return None
         return TaxonomyProposal.model_validate_json(row["data"])
 
+    # Retrieve the most recently created active taxonomy.
+    #
+    # Returns:
+    #     The active TaxonomyProposal, or None if no active taxonomy exists.
     def get_active_taxonomy(self) -> TaxonomyProposal | None:
         row = self._conn.execute(
             "SELECT data FROM taxonomy WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
@@ -354,12 +422,14 @@ class MigrationStore:
             return None
         return TaxonomyProposal.model_validate_json(row["data"])
 
+    # Set all active taxonomies to 'curated' status.
     def deactivate_all_taxonomies(self) -> None:
         self._conn.execute(
             "UPDATE taxonomy SET status = 'curated' WHERE status = 'active'"
         )
         self._conn.commit()
 
+    # Close the SQLite connection.
     def close(self) -> None:
         self._conn.close()
 
@@ -383,6 +453,10 @@ def get_batch_job_store() -> BatchJobStore:
     return _batch_job_store
 
 
+# Return the global MigrationStore singleton, creating it on first call.
+#
+# Returns:
+#     Shared MigrationStore instance.
 def get_migration_store() -> MigrationStore:
     global _migration_store
     if _migration_store is None:

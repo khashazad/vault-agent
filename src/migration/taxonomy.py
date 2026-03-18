@@ -9,6 +9,14 @@ from src.models import TagNode, LinkTarget, TaxonomyProposal
 _TAG_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9\-/]*$")
 
 
+# Recursively validate that a tag node's name matches the allowed format.
+#
+# Args:
+#     node: TagNode to validate.
+#     path: Accumulated parent path for error messages.
+#
+# Returns:
+#     List of validation error strings (empty if valid).
 def _validate_tag_node(node: TagNode, path: str = "") -> list[str]:
     errors: list[str] = []
     full = f"{path}/{node.name}" if path else node.name
@@ -21,6 +29,16 @@ def _validate_tag_node(node: TagNode, path: str = "") -> list[str]:
     return errors
 
 
+# Validate a raw taxonomy dict for required fields and formats.
+#
+# Checks folders (relative paths), tag_hierarchy (valid TagNode names),
+# and link_targets (title and folder required).
+#
+# Args:
+#     data: Raw taxonomy dict with folders, tag_hierarchy, link_targets.
+#
+# Returns:
+#     List of validation error strings (empty if valid).
 def validate_taxonomy(data: dict) -> list[str]:
     errors: list[str] = []
 
@@ -60,6 +78,19 @@ def validate_taxonomy(data: dict) -> list[str]:
     return errors
 
 
+# Parse and persist a taxonomy JSON into a TaxonomyProposal.
+#
+# Validates the input, converts raw dicts to TagNode/LinkTarget models,
+# and returns a new TaxonomyProposal with generated ID and timestamp.
+#
+# Args:
+#     data: Raw taxonomy as JSON string or dict.
+#
+# Returns:
+#     New TaxonomyProposal with status 'imported'.
+#
+# Raises:
+#     ValueError: When taxonomy validation fails.
 def import_taxonomy(data: str | dict) -> TaxonomyProposal:
     if isinstance(data, str):
         data = json.loads(data)

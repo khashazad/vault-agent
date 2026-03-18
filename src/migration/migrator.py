@@ -39,6 +39,16 @@ _CONCURRENCY = 5
 _CHARS_PER_TOKEN = 4
 
 
+# Extract the MIGRATION_META HTML comment block from LLM output.
+#
+# Parses target_folder and new_link_targets from the metadata block,
+# then returns the content with the block stripped.
+#
+# Args:
+#     content: Raw LLM output containing the MIGRATION_META block.
+#
+# Returns:
+#     Tuple of (clean_content, target_folder, new_link_targets).
 def _parse_migration_meta(content: str) -> tuple[str, str | None, list[str]]:
     match = _META_RE.search(content)
     if not match:
@@ -62,6 +72,17 @@ def _parse_migration_meta(content: str) -> tuple[str, str | None, list[str]]:
     return clean_content, target_folder, new_link_targets
 
 
+# Scan the vault and estimate total LLM cost for migrating all notes.
+#
+# Uses a rough 4-chars-per-token heuristic and accounts for prompt
+# caching (first call pays cache_write, subsequent calls pay cache_read).
+#
+# Args:
+#     vault_path: Absolute path to the source vault.
+#     model: Model key from MODELS pricing dict.
+#
+# Returns:
+#     CostEstimate with note count, token estimates, and USD cost.
 def estimate_cost(vault_path: str, model: str = DEFAULT_MODEL) -> CostEstimate:
     total_chars = 0
     total_notes = 0
@@ -95,6 +116,20 @@ def estimate_cost(vault_path: str, model: str = DEFAULT_MODEL) -> CostEstimate:
     )
 
 
+# Migrate a single note via LLM using the taxonomy-driven prompt.
+#
+# Sends the note through Claude with the migration prompt, parses the
+# response for target folder and cleaned content, generates a diff,
+# and records token usage.
+#
+# Args:
+#     config: App config with API key.
+#     note: MigrationNote with original content.
+#     taxonomy: Active taxonomy for prompt construction.
+#     model: Model key from MODELS pricing dict.
+#
+# Returns:
+#     Updated MigrationNote with proposed_content, diff, and usage.
 async def migrate_note(
     config: AppConfig,
     note: MigrationNote,
@@ -135,6 +170,16 @@ async def migrate_note(
     return note
 
 
+# Run background migration of all pending notes in a job.
+#
+# Processes notes concurrently (up to _CONCURRENCY), updates each note's
+# status in the store, and aggregates token usage on the job.
+#
+# Args:
+#     config: App config with API key.
+#     job_id: Migration job identifier.
+#     model: Model key from MODELS pricing dict.
+#     note_paths: Optional subset of paths to migrate (None = all pending).
 async def run_migration(
     config: AppConfig,
     job_id: str,
@@ -218,6 +263,18 @@ async def run_migration(
     )
 
 
+# Scan the source vault and create a migration job with one note row per file.
+#
+# Creates the target vault directory and persists the job and all note
+# records to the migration store.
+#
+# Args:
+#     source_vault: Absolute path to the source Obsidian vault.
+#     target_vault: Absolute path for the migrated output vault.
+#     taxonomy_id: Optional taxonomy ID to associate with the job.
+#
+# Returns:
+#     New MigrationJob with status 'pending'.
 def create_migration_job(
     source_vault: str,
     target_vault: str,

@@ -182,6 +182,42 @@ Content is previewed before being written. The synthesis call produces a propose
 ### Zotero integration
 Papers and annotations are fetched via `pyzotero`. A local paper cache supports paginated browsing, search, and collection filtering. Background sync refreshes the cache from Zotero API. Per-paper sync creates a changeset by converting annotations to `ContentItem` objects and running the agent. Annotations can be excluded before sync.
 
+## Code Conventions
+
+### Comment docstrings
+
+All Python functions and classes use `#` comment blocks above the definition — **not** triple-quote docstrings. This is a strict project convention; every new or modified function must follow it.
+
+```python
+# One-line summary of what the function does.
+#
+# Optional expanded description if needed.
+#
+# Args:
+#     param_name: What it represents.
+#     other_param: What it represents.
+#
+# Returns:
+#     What the function returns.
+#
+# Raises:
+#     ExceptionType: When this happens.
+def function_name(param_name: str, other_param: int) -> str:
+```
+
+Rules:
+- **Always `#` comments**, never triple-quote docstrings
+- Blank `#` line between sections (summary, Args, Returns, Raises)
+- 4-space indent for content under section headers
+- Public functions + anything with 2+ params: full structure (summary, Args, Returns)
+- Trivial private helpers: one-liner `#` comment only
+- FastAPI route handlers: one-liner `#` comment above the decorator
+- Classes: brief `#` comment above the `class` line
+- Methods: same format, indented to match the method
+- Omit Raises section unless the function actually raises
+- Omit Returns section for `-> None` functions
+- Reference examples: `src/vault/reader.py`, `src/store.py`
+
 ## Obsidian Conventions
 
 - **Frontmatter**: YAML block with `---`. Always use `tags` (plural array), never `tag`.
