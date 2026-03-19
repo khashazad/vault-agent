@@ -13,6 +13,7 @@ export default defineConfig({
       "/changesets": "http://localhost:3456",
       "/routing": "http://localhost:3456",
       "/zotero": "http://localhost:3456",
+      "/migration": "http://localhost:3456",
     },
   },
 });
