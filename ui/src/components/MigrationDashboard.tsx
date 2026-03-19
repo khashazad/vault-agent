@@ -56,7 +56,11 @@ export function MigrationDashboard() {
   }
 
   async function handleActivateAndStart() {
-    if (!taxonomy || !targetVault) return;
+    if (!taxonomy) return;
+    if (!targetVault) {
+      setError("Target vault path is required before starting migration");
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
