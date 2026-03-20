@@ -241,7 +241,7 @@ async def poll_zotero_batch(
     # Fetch results
     note_content = None
     batch_usage: TokenUsage | None = None
-    async for result in client.messages.batches.results(batch_id):
+    async for result in await client.messages.batches.results(batch_id):
         if result.custom_id == paper_key and result.result.type == "succeeded":
             msg = result.result.message
             note_content = msg.content[0].text

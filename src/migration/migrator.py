@@ -498,7 +498,7 @@ async def poll_migration_batch(
         total_cost_usd=0.0,
     )
 
-    async for result in client.messages.batches.results(job.batch_id):
+    async for result in await client.messages.batches.results(job.batch_id):
         note = store.get_note(result.custom_id)
         if not note:
             continue

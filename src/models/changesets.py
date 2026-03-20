@@ -147,7 +147,6 @@ class ChangeContentUpdate(BaseModel):
 
 # Lightweight changeset for list view — no diffs/content.
 class ChangesetSummary(BaseModel):
-
     id: str
     status: str
     created_at: str
