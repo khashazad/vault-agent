@@ -4,32 +4,13 @@ import {
   cancelMigration,
   resumeMigration,
 } from "../api/client";
-import type { MigrationJob, MigrationJobStatus } from "../types";
+import type { MigrationJob } from "../types";
+import { StatusBadge } from "./StatusBadge";
 
 interface Props {
   jobId: string;
   model?: "haiku" | "sonnet";
   onReviewReady: () => void;
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-accent/15 text-accent",
-  migrating: "bg-blue-500/15 text-blue-400",
-  review: "bg-green-bg text-green",
-  applying: "bg-accent/15 text-accent",
-  completed: "bg-green-bg text-green",
-  failed: "bg-red-bg text-red",
-  cancelled: "bg-surface text-muted border border-border",
-};
-
-function StatusBadge({ status }: { status: MigrationJobStatus }) {
-  return (
-    <span
-      className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_STYLES[status] ?? "bg-surface text-muted"}`}
-    >
-      {status}
-    </span>
-  );
 }
 
 const TERMINAL_STATUSES = ["completed", "cancelled"];

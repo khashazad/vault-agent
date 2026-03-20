@@ -193,7 +193,10 @@ export function MigrationNoteReview({ jobId, onApply }: Props) {
                       : "bg-surface"
                   }`}
                 >
-                  <span className="text-text font-mono truncate">
+                  <span
+                    className="text-text font-mono truncate"
+                    title={note.source_path}
+                  >
                     {note.source_path}
                   </span>
                   <span
@@ -237,7 +240,10 @@ export function MigrationNoteReview({ jobId, onApply }: Props) {
             ) : (
               <>
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs font-mono text-muted flex-1 truncate">
+                  <span
+                    className="text-xs font-mono text-muted flex-1 truncate"
+                    title={selected.source_path}
+                  >
                     {selected.source_path}
                   </span>
                   {selected.proposed_content != null && (
