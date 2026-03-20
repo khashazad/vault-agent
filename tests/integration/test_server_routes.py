@@ -261,3 +261,73 @@ class TestChangesetHistoryRoutes:
         mock_cls.return_value.clear_paper_sync_by_changeset.assert_called_once_with(
             cs.id
         )
+
+
+class TestVaultAssetRoute:
+    async def test_serve_existing_file(self, client, tmp_vault):
+        resp = await client.get("/vault/assets/Projects/My Project.md")
+        assert resp.status_code == 200
+        assert b"# My Project" in resp.content
+
+    async def test_serve_image_file(self, client, tmp_vault):
+        # Create a fake image
+        img_dir = tmp_vault / "attachments"
+        img_dir.mkdir()
+        (img_dir / "test.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        resp = await client.get("/vault/assets/attachments/test.png")
+        assert resp.status_code == 200
+        assert resp.content.startswith(b"\x89PNG")
+
+    async def test_nonexistent_file_404(self, client, tmp_vault):
+        resp = await client.get("/vault/assets/does-not-exist.md")
+        assert resp.status_code == 404
+
+    async def test_filename_fallback_resolution(self, client, tmp_vault):
+        # Image in a subfolder, requested by basename only
+        img_dir = tmp_vault / "attachments"
+        img_dir.mkdir(exist_ok=True)
+        (img_dir / "diagram.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        resp = await client.get("/vault/assets/diagram.png")
+        assert resp.status_code == 200
+        assert resp.content.startswith(b"\x89PNG")
+
+    async def test_fallback_skips_hidden_dirs(self, client, tmp_vault):
+        hidden = tmp_vault / ".obsidian" / "plugins"
+        hidden.mkdir(parents=True, exist_ok=True)
+        (hidden / "secret.json").write_text("{}")
+
+        resp = await client.get("/vault/assets/secret.json")
+        assert resp.status_code == 404
+
+    @patch("src.vault.validate_path", side_effect=ValueError("escapes vault"))
+    async def test_path_traversal_rejected(self, mock_vp, client, tmp_vault):
+        resp = await client.get("/vault/assets/sneaky/path")
+        assert resp.status_code == 400
+
+
+class TestMigrationRoutes:
+    @patch("src.migration.migrator.run_migration", new_callable=AsyncMock)
+    @patch("src.migration.migrator.create_migration_job")
+    async def test_create_job_expands_tilde(self, mock_create, mock_run, client):
+        from src.models.migration import MigrationJob
+
+        mock_create.return_value = MigrationJob(
+            id="test-id",
+            source_vault="/src",
+            target_vault="/expanded",
+            status="pending",
+            total_notes=0,
+            created_at="2026-03-20T00:00:00",
+        )
+
+        resp = await client.post(
+            "/migration/jobs",
+            json={"target_vault": "~/Documents/test-vault", "batch": False},
+        )
+        assert resp.status_code == 200
+
+        called_target = mock_create.call_args[0][1]
+        assert "~" not in called_target
+        assert called_target.startswith("/")

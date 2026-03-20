@@ -3,15 +3,22 @@
  * Transforms Obsidian syntax into HTML spans that rehype-raw can render.
  */
 
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i;
+
 /** Transform Obsidian syntax into renderable HTML spans */
 export function preprocessObsidian(content: string): string {
   let result = content;
 
-  // Embeds: ![[Note]] or ![[Note|display]]
+  // Embeds: ![[Note]] or ![[Note|display]] — images become <img>, notes stay as spans
   result = result.replace(
     /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
-    (_match, note: string, display?: string) =>
-      `<span class="embed-link">${display ?? note}</span>`,
+    (_match, note: string, display?: string) => {
+      if (IMAGE_EXTENSIONS.test(note)) {
+        const alt = display ?? note;
+        return `<img src="/vault/assets/${encodeURI(note)}" alt="${alt}" class="obsidian-embed-image" />`;
+      }
+      return `<span class="embed-link">${display ?? note}</span>`;
+    },
   );
 
   // Wikilinks: [[Note]] or [[Note|display]] or [[Note#Heading]]

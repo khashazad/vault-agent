@@ -11,7 +11,7 @@ import anthropic
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.config import load_config
@@ -920,6 +920,8 @@ async def migration_job_create(request: Request):
     if not target_vault:
         return JSONResponse({"error": "target_vault is required"}, status_code=400)
 
+    target_vault = str(Path(target_vault).expanduser().resolve())
+
     from src.migration.migrator import (
         create_migration_job,
         run_migration,
@@ -1036,7 +1038,7 @@ async def migration_job_apply(job_id: str):
     job.status = "applying"
     store.set_job(job)
 
-    result = apply_migration(job.target_vault, job_id)
+    result = apply_migration(job.source_vault, job.target_vault, job_id)
     job.status = "completed" if not result["failed"] else "failed"
     store.set_job(job)
     return result
@@ -1170,6 +1172,36 @@ async def migration_registry():
         "tags": reg.get_tag_hierarchy(),
         "link_targets": reg.get_link_targets(),
     }
+
+
+# Serve a file from the configured vault (images, PDFs, etc).
+@app.get(
+    "/vault/assets/{file_path:path}",
+    tags=["Vault"],
+    summary="Serve vault asset",
+    description="Serve a file from the vault directory. Path traversal is prevented via validate_path.",
+)
+async def vault_asset(file_path: str, request: Request):
+    from src.vault import validate_path
+
+    config = _get_config(request)
+    try:
+        resolved = validate_path(config.vault_path, file_path)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    if not resolved.is_file():
+        # Obsidian-style: search vault for file by basename
+        target = Path(file_path).name
+        vault = Path(config.vault_path)
+        for match in vault.rglob(target):
+            if match.is_file() and not any(
+                p.startswith(".") for p in match.relative_to(vault).parts
+            ):
+                return FileResponse(match)
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(resolved)
 
 
 # Check PyInstaller bundle path first, then dev path.
