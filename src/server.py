@@ -885,6 +885,20 @@ async def migration_taxonomy_activate(taxonomy_id: str):
     return t.model_dump()
 
 
+# List migration jobs with optional status filter.
+@app.get(
+    "/migration/jobs",
+    tags=["Migration"],
+    summary="List migration jobs",
+)
+async def migration_job_list(
+    status: str | None = None,
+    limit: int = 10,
+):
+    jobs = get_migration_store().list_jobs(status=status, limit=limit)
+    return {"jobs": [j.model_dump() for j in jobs]}
+
+
 @app.post(
     "/migration/jobs",
     response_model=MigrationJob,
@@ -1000,6 +1014,41 @@ async def migration_job_cancel(job_id: str):
     job.status = "cancelled"
     store.set_job(job)
     return {"id": job_id, "status": "cancelled"}
+
+
+# Resume a failed migration job, optionally with a different model.
+@app.post(
+    "/migration/jobs/{job_id}/resume",
+    response_model=MigrationJob,
+    tags=["Migration"],
+    summary="Resume failed migration job",
+)
+async def migration_job_resume(job_id: str, request: Request):
+    store = get_migration_store()
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Migration job not found")
+    if job.status != "failed":
+        return JSONResponse(
+            {"error": f"Only failed jobs can be resumed, current status: {job.status}"},
+            status_code=400,
+        )
+
+    config = _get_config(request)
+    body = (
+        await request.json()
+        if request.headers.get("content-type", "").startswith("application/json")
+        else {}
+    )
+    model = body.get("model", "sonnet") if isinstance(body, dict) else "sonnet"
+
+    from src.migration.migrator import resume_migration
+
+    asyncio.create_task(resume_migration(config, job_id, model))
+
+    # Re-fetch after reset
+    job = store.get_job(job_id)
+    return job.model_dump()
 
 
 @app.get(

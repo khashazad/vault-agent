@@ -1,11 +1,13 @@
-import { useState } from "react";
-import type { TaxonomyProposal, CostEstimate } from "../types";
+import { useState, useEffect, useCallback } from "react";
+import type { TaxonomyProposal, CostEstimate, MigrationJob } from "../types";
 import {
   importTaxonomy,
   updateTaxonomy,
   activateTaxonomy,
   estimateMigrationCost,
   createMigrationJob,
+  fetchMigrationJobs,
+  fetchTaxonomy,
 } from "../api/client";
 import { TaxonomyEditor } from "./TaxonomyEditor";
 import { MigrationProgress } from "./MigrationProgress";
@@ -13,6 +15,23 @@ import { MigrationNoteReview } from "./MigrationNoteReview";
 import { ErrorAlert } from "./ErrorAlert";
 
 type Step = "setup" | "taxonomy" | "progress" | "review";
+
+const STORAGE_KEY = "vault-agent:migration-job-id";
+
+// Derive the dashboard step from a migration job's status.
+function stepFromStatus(status: MigrationJob["status"]): Step {
+  switch (status) {
+    case "pending":
+    case "migrating":
+    case "failed":
+      return "progress";
+    case "review":
+    case "applying":
+      return "review";
+    default:
+      return "setup";
+  }
+}
 
 export function MigrationDashboard() {
   const [step, setStep] = useState<Step>("setup");
@@ -23,6 +42,53 @@ export function MigrationDashboard() {
   const [jsonInput, setJsonInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [reconnecting, setReconnecting] = useState(true);
+  const [model, setModel] = useState<"haiku" | "sonnet">("sonnet");
+
+  // Auto-detect active job on mount
+  useEffect(() => {
+    async function reconnect() {
+      try {
+        const { jobs } = await fetchMigrationJobs({ limit: 5 });
+        const active = jobs.find((j) =>
+          ["pending", "migrating", "review", "applying", "failed"].includes(
+            j.status,
+          ),
+        );
+        if (active) {
+          setJobId(active.id);
+          setStep(stepFromStatus(active.status));
+          localStorage.setItem(STORAGE_KEY, active.id);
+          // Load taxonomy if available
+          if (active.taxonomy_id) {
+            try {
+              const t = await fetchTaxonomy(active.taxonomy_id);
+              setTaxonomy(t);
+            } catch {
+              // taxonomy load is best-effort
+            }
+          }
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        // API not available, stay on setup
+      } finally {
+        setReconnecting(false);
+      }
+    }
+    reconnect();
+  }, []);
+
+  // Sync jobId to localStorage
+  const setJobIdWithStorage = useCallback((id: string | null) => {
+    setJobId(id);
+    if (id) {
+      localStorage.setItem(STORAGE_KEY, id);
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
 
   async function handleImport() {
     setError(null);
@@ -42,7 +108,7 @@ export function MigrationDashboard() {
   async function handleEstimateCost() {
     setError(null);
     try {
-      const est = await estimateMigrationCost("sonnet");
+      const est = await estimateMigrationCost(model);
       setCostEstimate(est);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -56,19 +122,36 @@ export function MigrationDashboard() {
   }
 
   async function handleActivateAndStart() {
-    if (!taxonomy || !targetVault) return;
+    if (!taxonomy) return;
+    if (!targetVault) {
+      setError("Target vault path is required before starting migration");
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
       await activateTaxonomy(taxonomy.id);
-      const job = await createMigrationJob(targetVault, taxonomy.id);
-      setJobId(job.id);
+      const job = await createMigrationJob(targetVault, taxonomy.id, model);
+      setJobIdWithStorage(job.id);
       setStep("progress");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleApplyComplete() {
+    setJobIdWithStorage(null);
+    setStep("setup");
+  }
+
+  if (reconnecting) {
+    return (
+      <div className="text-muted text-sm p-4">
+        Checking for active migration...
+      </div>
+    );
   }
 
   return (
@@ -123,7 +206,7 @@ export function MigrationDashboard() {
             />
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
             <button
               onClick={handleImport}
               disabled={!jsonInput.trim() || loading}
@@ -137,6 +220,14 @@ export function MigrationDashboard() {
             >
               Estimate Cost
             </button>
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value as "haiku" | "sonnet")}
+              className="bg-surface border border-border rounded px-2 py-2 text-xs text-foreground outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="haiku">Haiku 4.5</option>
+              <option value="sonnet">Sonnet 4.6</option>
+            </select>
           </div>
 
           {costEstimate && (
@@ -176,12 +267,13 @@ export function MigrationDashboard() {
       {step === "progress" && jobId && (
         <MigrationProgress
           jobId={jobId}
+          model={model}
           onReviewReady={() => setStep("review")}
         />
       )}
 
       {step === "review" && jobId && (
-        <MigrationNoteReview jobId={jobId} onApply={() => setStep("setup")} />
+        <MigrationNoteReview jobId={jobId} onApply={handleApplyComplete} />
       )}
     </div>
   );

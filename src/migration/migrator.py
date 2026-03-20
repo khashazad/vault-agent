@@ -202,65 +202,74 @@ async def run_migration(
     job.status = "migrating"
     store.set_job(job)
 
-    semaphore = asyncio.Semaphore(_CONCURRENCY)
-    total_usage = TokenUsage(
-        input_tokens=0,
-        output_tokens=0,
-        cache_write_tokens=0,
-        cache_read_tokens=0,
-        api_calls=0,
-        tool_calls=0,
-        total_cost_usd=0.0,
-    )
+    try:
+        semaphore = asyncio.Semaphore(_CONCURRENCY)
+        total_usage = TokenUsage(
+            input_tokens=0,
+            output_tokens=0,
+            cache_write_tokens=0,
+            cache_read_tokens=0,
+            api_calls=0,
+            tool_calls=0,
+            total_cost_usd=0.0,
+        )
 
-    async def _process(note: MigrationNote) -> None:
-        async with semaphore:
-            try:
-                note.status = "processing"
-                store.update_note(job_id, note)
+        async def _process(note: MigrationNote) -> None:
+            async with semaphore:
+                try:
+                    note.status = "processing"
+                    store.update_note(job_id, note)
 
-                result = await migrate_note(config, note, taxonomy, model)
-                store.update_note(job_id, result)
+                    result = await migrate_note(config, note, taxonomy, model)
+                    store.update_note(job_id, result)
 
-                if result.usage:
-                    total_usage.input_tokens += result.usage.input_tokens
-                    total_usage.output_tokens += result.usage.output_tokens
-                    total_usage.cache_write_tokens += result.usage.cache_write_tokens
-                    total_usage.cache_read_tokens += result.usage.cache_read_tokens
-                    total_usage.api_calls += result.usage.api_calls
-                    total_usage.total_cost_usd += result.usage.total_cost_usd
+                    if result.usage:
+                        total_usage.input_tokens += result.usage.input_tokens
+                        total_usage.output_tokens += result.usage.output_tokens
+                        total_usage.cache_write_tokens += (
+                            result.usage.cache_write_tokens
+                        )
+                        total_usage.cache_read_tokens += result.usage.cache_read_tokens
+                        total_usage.api_calls += result.usage.api_calls
+                        total_usage.total_cost_usd += result.usage.total_cost_usd
 
-                store.increment_processed(job_id)
-            except Exception as e:
-                logger.exception("Failed to migrate note %s", note.source_path)
-                note.status = "failed"
-                note.error = str(e)
-                store.update_note(job_id, note)
-                store.increment_processed(job_id)
+                    store.increment_processed(job_id)
+                except Exception as e:
+                    logger.exception("Failed to migrate note %s", note.source_path)
+                    note.status = "failed"
+                    note.error = str(e)
+                    store.update_note(job_id, note)
+                    store.increment_processed(job_id)
 
-    # Get pending notes, optionally filtered by path
-    notes, _ = store.get_notes_by_job(job_id, status="pending", limit=10000)
-    if note_paths:
-        path_set = set(note_paths)
-        notes = [n for n in notes if n.source_path in path_set]
+        # Get pending notes, optionally filtered by path
+        notes, _ = store.get_notes_by_job(job_id, status="pending", limit=10000)
+        if note_paths:
+            path_set = set(note_paths)
+            notes = [n for n in notes if n.source_path in path_set]
 
-    tasks = [asyncio.create_task(_process(n)) for n in notes]
-    await asyncio.gather(*tasks)
+        tasks = [asyncio.create_task(_process(n)) for n in notes]
+        await asyncio.gather(*tasks)
 
-    # Update job with totals
-    job = store.get_job(job_id)
-    if job:
-        job.total_usage = total_usage
-        job.estimated_cost_usd = total_usage.total_cost_usd
-        job.status = "review"
-        store.set_job(job)
+        # Update job with totals
+        job = store.get_job(job_id)
+        if job:
+            job.total_usage = total_usage
+            job.estimated_cost_usd = total_usage.total_cost_usd
+            job.status = "review"
+            store.set_job(job)
 
-    logger.info(
-        "Migration job %s complete: %d notes, $%.4f",
-        job_id,
-        len(notes),
-        total_usage.total_cost_usd,
-    )
+        logger.info(
+            "Migration job %s complete: %d notes, $%.4f",
+            job_id,
+            len(notes),
+            total_usage.total_cost_usd,
+        )
+    except Exception:
+        logger.exception("Migration job %s failed", job_id)
+        job = store.get_job(job_id)
+        if job:
+            job.status = "failed"
+            store.set_job(job)
 
 
 # Scan the source vault and create a migration job with one note row per file.
@@ -311,3 +320,38 @@ def create_migration_job(
     Path(target_vault).mkdir(parents=True, exist_ok=True)
 
     return job
+
+
+# Resume a failed migration job by resetting stuck notes and re-running.
+#
+# Args:
+#     config: App config with API key.
+#     job_id: Migration job identifier.
+#     model: Model key from MODELS pricing dict.
+async def resume_migration(
+    config: AppConfig,
+    job_id: str,
+    model: str = DEFAULT_MODEL,
+) -> None:
+    store = get_migration_store()
+    job = store.get_job(job_id)
+    if not job:
+        logger.error("Migration job %s not found", job_id)
+        return
+
+    if job.status != "failed":
+        logger.error("Cannot resume job %s with status %s", job_id, job.status)
+        return
+
+    # Reset any notes stuck in 'processing' back to 'pending'
+    reset_count = store.reset_stuck_notes(job_id)
+    if reset_count:
+        logger.info("Reset %d stuck notes for job %s", reset_count, job_id)
+
+    # Recalculate processed_notes from non-pending/processing notes
+    all_notes, _ = store.get_notes_by_job(job_id, limit=10000)
+    processed = sum(1 for n in all_notes if n.status not in ("pending", "processing"))
+    job.processed_notes = processed
+    store.set_job(job)
+
+    await run_migration(config, job_id, model)
