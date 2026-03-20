@@ -82,7 +82,22 @@ target_folder: <folder path from taxonomy>
 new_link_targets: <comma-separated list of suggested new link targets, or "none">
 -->
 
-This metadata block will be parsed programmatically — do not alter its format."""
+This metadata block will be parsed programmatically — do not alter its format.
+
+## Shortcut: Already-Compliant Notes
+
+If this note ALREADY fully conforms to ALL migration rules — correct YAML frontmatter
+with valid taxonomy tags, proper heading hierarchy, wikilinks to canonical targets where
+mentioned, correct callout syntax, and belongs in its current folder — respond with ONLY:
+
+NO_CHANGES_NEEDED
+
+<!-- MIGRATION_META
+target_folder: <current folder>
+new_link_targets: none
+-->
+
+Do NOT use this shortcut if ANY changes are needed, even minor formatting fixes."""
 
     user = f"""## Note to Migrate
 

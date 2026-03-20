@@ -167,12 +167,21 @@ export function MigrationProgress({ jobId, model, onReviewReady }: Props) {
             </div>
           </div>
 
+          {job.batch_mode && (
+            <p className="text-[13px] text-blue-400">
+              Batch processing — typically completes within 1 hour
+            </p>
+          )}
+
           {job.estimated_cost_usd != null && (
             <p className="text-[13px] text-muted">
               Estimated cost:{" "}
               <span className="text-text">
                 ${job.estimated_cost_usd.toFixed(2)}
               </span>
+              {job.batch_mode && (
+                <span className="text-green ml-1">(50% batch discount)</span>
+              )}
             </p>
           )}
 

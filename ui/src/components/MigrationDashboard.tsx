@@ -108,7 +108,7 @@ export function MigrationDashboard() {
   async function handleEstimateCost() {
     setError(null);
     try {
-      const est = await estimateMigrationCost(model);
+      const est = await estimateMigrationCost(model, taxonomy?.id);
       setCostEstimate(est);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -246,9 +246,13 @@ export function MigrationDashboard() {
                 </div>
                 <div>
                   <span className="text-muted">Est. cost:</span>{" "}
-                  <span className="text-accent font-medium">
+                  <span className="text-muted line-through mr-1">
                     ${costEstimate.estimated_cost_usd.toFixed(2)}
                   </span>
+                  <span className="text-green font-medium">
+                    ${costEstimate.batch_estimated_cost_usd.toFixed(2)}
+                  </span>
+                  <span className="text-muted text-xs ml-1">with batch</span>
                 </div>
               </div>
             </div>

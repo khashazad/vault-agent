@@ -190,9 +190,13 @@ export function updateChangeContent(
 
 // --- Migration API ---
 
-export function estimateMigrationCost(model?: string): Promise<CostEstimate> {
+export function estimateMigrationCost(
+  model?: string,
+  taxonomyId?: string,
+): Promise<CostEstimate> {
   const params = new URLSearchParams();
   if (model) params.set("model", model);
+  if (taxonomyId) params.set("taxonomy_id", taxonomyId);
   const qs = params.toString();
   return fetchJSON(`${BASE}/migration/estimate${qs ? `?${qs}` : ""}`, {
     method: "POST",
@@ -234,6 +238,7 @@ export function createMigrationJob(
   targetVault: string,
   taxonomyId?: string,
   model?: string,
+  batch?: boolean,
 ): Promise<MigrationJob> {
   return fetchJSON(`${BASE}/migration/jobs`, {
     method: "POST",
@@ -242,6 +247,7 @@ export function createMigrationJob(
       target_vault: targetVault,
       taxonomy_id: taxonomyId,
       model: model ?? "sonnet",
+      batch: batch ?? true,
     }),
   });
 }
@@ -308,6 +314,18 @@ export function resumeMigration(
   model?: string,
 ): Promise<MigrationJob> {
   return fetchJSON(`${BASE}/migration/jobs/${jobId}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: model ?? "sonnet" }),
+  });
+}
+
+export function retryMigrationNote(
+  jobId: string,
+  noteId: string,
+  model?: string,
+): Promise<MigrationNote> {
+  return fetchJSON(`${BASE}/migration/jobs/${jobId}/notes/${noteId}/retry`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: model ?? "sonnet" }),
