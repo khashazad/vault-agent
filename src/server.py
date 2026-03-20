@@ -791,17 +791,20 @@ async def zotero_status(request: Request):
 # --- Migration routes ---
 
 
+# Estimate migration cost, optionally using taxonomy for accurate system prompt sizing.
 @app.post(
     "/migration/estimate",
     response_model=CostEstimate,
     tags=["Migration"],
     summary="Estimate migration cost",
 )
-async def migration_estimate(request: Request, model: str = "sonnet"):
+async def migration_estimate(
+    request: Request, model: str = "sonnet", taxonomy_id: str | None = None
+):
     config = _get_config(request)
     from src.migration.migrator import estimate_cost
 
-    return estimate_cost(config.vault_path, model)
+    return estimate_cost(config.vault_path, model, taxonomy_id)
 
 
 @app.post(
@@ -899,6 +902,7 @@ async def migration_job_list(
     return {"jobs": [j.model_dump() for j in jobs]}
 
 
+# Create migration job. Defaults to batch mode (50% cost reduction).
 @app.post(
     "/migration/jobs",
     response_model=MigrationJob,
@@ -911,30 +915,67 @@ async def migration_job_create(request: Request):
     target_vault = body.get("target_vault")
     taxonomy_id = body.get("taxonomy_id")
     model = body.get("model", "sonnet")
+    batch = body.get("batch", True)
 
     if not target_vault:
         return JSONResponse({"error": "target_vault is required"}, status_code=400)
 
-    from src.migration.migrator import create_migration_job, run_migration
+    from src.migration.migrator import (
+        create_migration_job,
+        run_migration,
+        submit_migration_batch,
+    )
 
     job = create_migration_job(config.vault_path, target_vault, taxonomy_id)
 
-    # Start migration in background
-    asyncio.create_task(run_migration(config, job.id, model))
+    if batch:
+        try:
+            await submit_migration_batch(config, job.id, model)
+            # Re-fetch job after batch submission updated it
+            job = get_migration_store().get_job(job.id) or job
+        except Exception:
+            logger.exception("Batch submission failed, falling back to real-time")
+            asyncio.create_task(run_migration(config, job.id, model))
+    else:
+        asyncio.create_task(run_migration(config, job.id, model))
 
     return job.model_dump()
 
 
+# In-memory throttle for batch polling (job_id -> last poll time).
+_batch_poll_times: dict[str, float] = {}
+_BATCH_POLL_INTERVAL = 30.0
+
+
+# Get migration job, lazy-polling batch status if applicable.
 @app.get(
     "/migration/jobs/{job_id}",
     response_model=MigrationJob,
     tags=["Migration"],
     summary="Get migration job status",
 )
-async def migration_job_get(job_id: str):
+async def migration_job_get(job_id: str, request: Request):
+    import time
+
     job = get_migration_store().get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Migration job not found")
+
+    # Lazy-poll batch status if job is batch-mode and still migrating
+    if job.batch_id and job.status == "migrating":
+        now = time.monotonic()
+        last_poll = _batch_poll_times.get(job_id, 0.0)
+        if now - last_poll >= _BATCH_POLL_INTERVAL:
+            _batch_poll_times[job_id] = now
+            try:
+                config = _get_config(request)
+                from src.migration.migrator import poll_migration_batch
+
+                await poll_migration_batch(config, job_id)
+                job = get_migration_store().get_job(job_id) or job
+            except Exception:
+                logger.exception("Error polling migration batch for job %s", job_id)
+
     return job.model_dump()
 
 
@@ -1001,22 +1042,32 @@ async def migration_job_apply(job_id: str):
     return result
 
 
+# Cancel migration job; also cancels in-flight batch if applicable.
 @app.post(
     "/migration/jobs/{job_id}/cancel",
     tags=["Migration"],
     summary="Cancel migration job",
 )
-async def migration_job_cancel(job_id: str):
+async def migration_job_cancel(job_id: str, request: Request):
     store = get_migration_store()
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Migration job not found")
+
+    if job.batch_id:
+        try:
+            config = _get_config(request)
+            client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
+            await client.messages.batches.cancel(job.batch_id)
+        except Exception:
+            logger.warning("Failed to cancel batch %s", job.batch_id)
+
     job.status = "cancelled"
     store.set_job(job)
     return {"id": job_id, "status": "cancelled"}
 
 
-# Resume a failed migration job, optionally with a different model.
+# Resume a failed migration job (always real-time, even if originally batch).
 @app.post(
     "/migration/jobs/{job_id}/resume",
     response_model=MigrationJob,
@@ -1049,6 +1100,57 @@ async def migration_job_resume(job_id: str, request: Request):
     # Re-fetch after reset
     job = store.get_job(job_id)
     return job.model_dump()
+
+
+# Retry a single failed migration note via real-time API.
+@app.post(
+    "/migration/jobs/{job_id}/notes/{note_id}/retry",
+    tags=["Migration"],
+    summary="Retry failed migration note",
+)
+async def migration_note_retry(job_id: str, note_id: str, request: Request):
+    store = get_migration_store()
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Migration job not found")
+    note = store.get_note(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Migration note not found")
+    if note.status != "failed":
+        return JSONResponse(
+            {
+                "error": f"Only failed notes can be retried, current status: {note.status}"
+            },
+            status_code=400,
+        )
+
+    taxonomy = store.get_taxonomy(job.taxonomy_id) if job.taxonomy_id else None
+    if not taxonomy:
+        return JSONResponse({"error": "No taxonomy found for job"}, status_code=400)
+
+    config = _get_config(request)
+    body = (
+        await request.json()
+        if request.headers.get("content-type", "").startswith("application/json")
+        else {}
+    )
+    model = body.get("model", "sonnet") if isinstance(body, dict) else "sonnet"
+
+    from src.migration.migrator import migrate_note
+
+    try:
+        note.status = "processing"
+        note.error = None
+        store.update_note(job_id, note)
+
+        result = await migrate_note(config, note, taxonomy, model)
+        store.update_note(job_id, result)
+        return result.model_dump()
+    except Exception as err:
+        note.status = "failed"
+        note.error = str(err)
+        store.update_note(job_id, note)
+        return _handle_anthropic_error(err, f"Error retrying note {note_id}")
 
 
 @app.get(

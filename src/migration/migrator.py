@@ -37,6 +37,12 @@ _META_RE = re.compile(
 _CONCURRENCY = 5
 # ~4 chars per token is a rough estimate for English text
 _CHARS_PER_TOKEN = 4
+_NO_CHANGES = "NO_CHANGES_NEEDED"
+
+
+# Check if LLM response is the NO_CHANGES_NEEDED shortcut.
+def _is_no_changes(content: str) -> bool:
+    return content.strip().startswith(_NO_CHANGES)
 
 
 # Extract the MIGRATION_META HTML comment block from LLM output.
@@ -76,14 +82,21 @@ def _parse_migration_meta(content: str) -> tuple[str, str | None, list[str]]:
 #
 # Uses a rough 4-chars-per-token heuristic and accounts for prompt
 # caching (first call pays cache_write, subsequent calls pay cache_read).
+# When taxonomy_id is provided, builds the actual system prompt to get
+# a more accurate system token estimate.
 #
 # Args:
 #     vault_path: Absolute path to the source vault.
 #     model: Model key from MODELS pricing dict.
+#     taxonomy_id: Optional taxonomy ID for accurate system prompt sizing.
 #
 # Returns:
 #     CostEstimate with note count, token estimates, and USD cost.
-def estimate_cost(vault_path: str, model: str = DEFAULT_MODEL) -> CostEstimate:
+def estimate_cost(
+    vault_path: str,
+    model: str = DEFAULT_MODEL,
+    taxonomy_id: str | None = None,
+) -> CostEstimate:
     total_chars = 0
     total_notes = 0
 
@@ -93,25 +106,37 @@ def estimate_cost(vault_path: str, model: str = DEFAULT_MODEL) -> CostEstimate:
         total_chars += len(full.read_text(encoding="utf-8"))
 
     est_input = total_chars // _CHARS_PER_TOKEN
-    # Rough: system prompt ~2k tokens shared (cached after first), output ~80% of input
+    # Rough: output ~80% of input
     est_output = int(est_input * 0.8)
     pricing = MODELS[model]
-    # First call pays cache_write, rest pay cache_read for system prompt
+
+    # Estimate system prompt tokens from actual taxonomy if available
     system_tokens = 2000
+    if taxonomy_id:
+        store = get_migration_store()
+        taxonomy = store.get_taxonomy(taxonomy_id)
+        if taxonomy:
+            system, _ = build_migration_prompt(taxonomy, "", "")
+            system_tokens = len(system) // _CHARS_PER_TOKEN
+
+    # First call pays cache_write, rest pay cache_read for system prompt
     cache_write_cost = system_tokens * pricing["cache_write"] / 1_000_000
     cache_read_cost = (
-        system_tokens * (total_notes - 1) * pricing["cache_read"] / 1_000_000
+        system_tokens * max(total_notes - 1, 0) * pricing["cache_read"] / 1_000_000
     )
     input_cost = est_input * pricing["input"] / 1_000_000
     output_cost = est_output * pricing["output"] / 1_000_000
     total_cost = cache_write_cost + cache_read_cost + input_cost + output_cost
+    batch_cost = total_cost * 0.5
 
     return CostEstimate(
         total_notes=total_notes,
         total_chars=total_chars,
         estimated_input_tokens=est_input,
         estimated_output_tokens=est_output,
+        estimated_system_tokens=system_tokens,
         estimated_cost_usd=round(total_cost, 4),
+        batch_estimated_cost_usd=round(batch_cost, 4),
         model=model,
     )
 
@@ -355,3 +380,193 @@ async def resume_migration(
     store.set_job(job)
 
     await run_migration(config, job_id, model)
+
+
+# Submit all pending notes in a migration job to the Anthropic Batch API.
+#
+# Builds one batch request per note using the shared taxonomy prompt,
+# sets the job to batch mode, and returns the batch ID for polling.
+#
+# Args:
+#     config: App config with API key.
+#     job_id: Migration job identifier.
+#     model: Model key from MODELS pricing dict.
+#
+# Returns:
+#     Batch ID string for polling.
+async def submit_migration_batch(
+    config: AppConfig,
+    job_id: str,
+    model: str = DEFAULT_MODEL,
+) -> str:
+    store = get_migration_store()
+    job = store.get_job(job_id)
+    if not job:
+        raise ValueError(f"Migration job {job_id} not found")
+
+    taxonomy = store.get_taxonomy(job.taxonomy_id) if job.taxonomy_id else None
+    if not taxonomy:
+        raise ValueError(f"No taxonomy found for job {job_id}")
+
+    notes, _ = store.get_notes_by_job(job_id, status="pending", limit=10000)
+    if not notes:
+        raise ValueError(f"No pending notes in job {job_id}")
+
+    # Build batch requests — one per note, shared system prompt
+    requests = []
+    for note in notes:
+        system, user = build_migration_prompt(
+            taxonomy, note.original_content, note.source_path
+        )
+        requests.append(
+            {
+                "custom_id": note.id,
+                "params": {
+                    "model": MODELS[model]["id"],
+                    "max_tokens": _MIGRATION_MAX_TOKENS,
+                    "system": [
+                        {
+                            "type": "text",
+                            "text": system,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    "messages": [{"role": "user", "content": user}],
+                },
+            }
+        )
+
+    client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
+    batch = await client.messages.batches.create(requests=requests)
+
+    job.batch_id = batch.id
+    job.batch_mode = True
+    job.status = "migrating"
+    store.set_job(job)
+
+    logger.info(
+        "Migration batch submitted: job=%s batch=%s notes=%d",
+        job_id,
+        batch.id,
+        len(notes),
+    )
+    return batch.id
+
+
+# Poll a migration batch and process results when complete.
+#
+# Checks batch status via the Anthropic API. When ended, iterates
+# results and updates each note: parses MIGRATION_META, detects
+# NO_CHANGES_NEEDED shortcut (auto-approves), generates diffs, and
+# records usage with batch discount.
+#
+# Args:
+#     config: App config with API key.
+#     job_id: Migration job identifier.
+#
+# Returns:
+#     Batch processing status string.
+async def poll_migration_batch(
+    config: AppConfig,
+    job_id: str,
+) -> str:
+    store = get_migration_store()
+    job = store.get_job(job_id)
+    if not job or not job.batch_id:
+        raise ValueError(f"No batch ID for job {job_id}")
+
+    client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
+    batch = await client.messages.batches.retrieve(job.batch_id)
+
+    if batch.processing_status != "ended":
+        # Update progress from request_counts
+        counts = batch.request_counts
+        job.processed_notes = (
+            counts.succeeded + counts.errored + counts.expired + counts.canceled
+        )
+        store.set_job(job)
+        return batch.processing_status
+
+    # Batch ended — process all results
+    total_usage = TokenUsage(
+        input_tokens=0,
+        output_tokens=0,
+        cache_write_tokens=0,
+        cache_read_tokens=0,
+        api_calls=0,
+        tool_calls=0,
+        total_cost_usd=0.0,
+    )
+
+    async for result in await client.messages.batches.results(job.batch_id):
+        note = store.get_note(result.custom_id)
+        if not note:
+            continue
+
+        if result.result.type == "succeeded":
+            msg = result.result.message
+            raw_output = msg.content[0].text
+
+            if _is_no_changes(raw_output):
+                # Already compliant — auto-approve with original content
+                _, target_folder, _ = _parse_migration_meta(raw_output)
+                if target_folder:
+                    filename = Path(note.source_path).name
+                    note.target_path = f"{target_folder}/{filename}"
+                note.no_changes = True
+                note.proposed_content = note.original_content
+                note.diff = ""
+                note.status = "approved"
+            else:
+                clean_content, target_folder, _ = _parse_migration_meta(raw_output)
+                if target_folder:
+                    filename = Path(note.source_path).name
+                    note.target_path = f"{target_folder}/{filename}"
+                note.proposed_content = clean_content
+                note.diff = generate_diff(
+                    note.source_path, note.original_content, clean_content
+                )
+                note.status = "proposed"
+
+            inp, out, cw, cr = extract_usage(msg)
+            # Reverse-lookup model key from model ID
+            model_key = next(
+                (k for k, v in MODELS.items() if v["id"] == msg.model),
+                DEFAULT_MODEL,
+            )
+            note.usage = build_token_usage(
+                inp,
+                out,
+                cw,
+                cr,
+                api_calls=1,
+                tool_calls=0,
+                model_key=model_key,
+                is_batch=True,
+            )
+            total_usage.input_tokens += inp
+            total_usage.output_tokens += out
+            total_usage.cache_write_tokens += cw
+            total_usage.cache_read_tokens += cr
+            total_usage.api_calls += 1
+            total_usage.total_cost_usd += note.usage.total_cost_usd
+        else:
+            # errored / expired / canceled
+            note.status = "failed"
+            note.error = f"Batch result: {result.result.type}"
+
+        store.update_note(job_id, note)
+
+    job.processed_notes = job.total_notes
+    job.total_usage = total_usage
+    job.estimated_cost_usd = total_usage.total_cost_usd
+    job.status = "review"
+    store.set_job(job)
+
+    logger.info(
+        "Migration batch complete: job=%s notes=%d cost=$%.4f",
+        job_id,
+        job.total_notes,
+        total_usage.total_cost_usd,
+    )
+    return "ended"

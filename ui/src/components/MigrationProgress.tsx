@@ -4,32 +4,13 @@ import {
   cancelMigration,
   resumeMigration,
 } from "../api/client";
-import type { MigrationJob, MigrationJobStatus } from "../types";
+import type { MigrationJob } from "../types";
+import { StatusBadge } from "./StatusBadge";
 
 interface Props {
   jobId: string;
   model?: "haiku" | "sonnet";
   onReviewReady: () => void;
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-accent/15 text-accent",
-  migrating: "bg-blue-500/15 text-blue-400",
-  review: "bg-green-bg text-green",
-  applying: "bg-accent/15 text-accent",
-  completed: "bg-green-bg text-green",
-  failed: "bg-red-bg text-red",
-  cancelled: "bg-surface text-muted border border-border",
-};
-
-function StatusBadge({ status }: { status: MigrationJobStatus }) {
-  return (
-    <span
-      className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_STYLES[status] ?? "bg-surface text-muted"}`}
-    >
-      {status}
-    </span>
-  );
 }
 
 const TERMINAL_STATUSES = ["completed", "cancelled"];
@@ -167,12 +148,21 @@ export function MigrationProgress({ jobId, model, onReviewReady }: Props) {
             </div>
           </div>
 
+          {job.batch_mode && (
+            <p className="text-[13px] text-blue-400">
+              Batch processing — typically completes within 1 hour
+            </p>
+          )}
+
           {job.estimated_cost_usd != null && (
             <p className="text-[13px] text-muted">
               Estimated cost:{" "}
               <span className="text-text">
                 ${job.estimated_cost_usd.toFixed(2)}
               </span>
+              {job.batch_mode && (
+                <span className="text-green ml-1">(50% batch discount)</span>
+              )}
             </p>
           )}
 

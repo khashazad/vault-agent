@@ -5,6 +5,14 @@ export const STATUS_COLORS: Record<string, string> = {
   partially_applied: "bg-accent/15 text-accent",
   skipped: "bg-surface text-muted border border-border",
   revision_requested: "bg-accent/15 text-yellow",
+  migrating: "bg-blue-500/15 text-blue-400",
+  review: "bg-green-bg text-green",
+  applying: "bg-accent/15 text-accent",
+  completed: "bg-green-bg text-green",
+  failed: "bg-red-bg text-red",
+  cancelled: "bg-surface text-muted border border-border",
+  processing: "bg-blue-500/15 text-blue-400",
+  proposed: "bg-yellow-bg text-yellow",
 };
 
 export function StatusBadge({ status }: { status: string }) {

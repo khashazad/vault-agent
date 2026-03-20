@@ -51,6 +51,7 @@ class MigrationNote(BaseModel):
     status: MigrationNoteStatus = "pending"
     error: str | None = None
     usage: TokenUsage | None = None
+    no_changes: bool = False
 
 
 MigrationJobStatus = Literal[
@@ -75,6 +76,8 @@ class MigrationJob(BaseModel):
     total_usage: TokenUsage | None = None
     estimated_cost_usd: float | None = None
     created_at: str
+    batch_id: str | None = None
+    batch_mode: bool = False
 
 
 class CostEstimate(BaseModel):
@@ -82,5 +85,7 @@ class CostEstimate(BaseModel):
     total_chars: int
     estimated_input_tokens: int
     estimated_output_tokens: int
+    estimated_system_tokens: int = 0
     estimated_cost_usd: float
+    batch_estimated_cost_usd: float = 0.0
     model: str

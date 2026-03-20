@@ -217,6 +217,7 @@ export interface MigrationNote {
   status: MigrationNoteStatus;
   error: string | null;
   usage: TokenUsage | null;
+  no_changes: boolean;
 }
 
 export type MigrationJobStatus =
@@ -239,6 +240,8 @@ export interface MigrationJob {
   total_usage: TokenUsage | null;
   estimated_cost_usd: number | null;
   created_at: string;
+  batch_id: string | null;
+  batch_mode: boolean;
 }
 
 export interface CostEstimate {
@@ -246,7 +249,9 @@ export interface CostEstimate {
   total_chars: number;
   estimated_input_tokens: number;
   estimated_output_tokens: number;
+  estimated_system_tokens: number;
   estimated_cost_usd: number;
+  batch_estimated_cost_usd: number;
   model: string;
 }
 
