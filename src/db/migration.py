@@ -107,6 +107,44 @@ class MigrationStore:
             job.processed_notes += 1
             self.set_job(job)
 
+    # List migration jobs ordered by creation time (newest first).
+    #
+    # Args:
+    #     status: Optional status filter.
+    #     limit: Max rows to return.
+    #
+    # Returns:
+    #     List of matching MigrationJob objects.
+    def list_jobs(
+        self, status: str | None = None, limit: int = 10
+    ) -> list[MigrationJob]:
+        where = ""
+        params: list = []
+        if status:
+            where = "WHERE status = ?"
+            params.append(status)
+        params.append(limit)
+        rows = self._conn.execute(
+            f"SELECT data FROM migration_jobs {where} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [MigrationJob.model_validate_json(r["data"]) for r in rows]
+
+    # Reset notes stuck in 'processing' back to 'pending' for a given job.
+    #
+    # Args:
+    #     job_id: Parent job identifier.
+    #
+    # Returns:
+    #     Number of notes reset.
+    def reset_stuck_notes(self, job_id: str) -> int:
+        notes, _ = self.get_notes_by_job(job_id, status="processing", limit=10000)
+        for note in notes:
+            note.status = "pending"
+            note.error = None
+            self.set_note(job_id, note)
+        return len(notes)
+
     # --- Notes ---
 
     # Upsert a migration note into the store.

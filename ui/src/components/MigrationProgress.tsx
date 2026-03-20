@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { fetchMigrationJob, cancelMigration } from "../api/client";
+import {
+  fetchMigrationJob,
+  cancelMigration,
+  resumeMigration,
+} from "../api/client";
 import type { MigrationJob, MigrationJobStatus } from "../types";
 
 interface Props {
   jobId: string;
+  model?: "haiku" | "sonnet";
   onReviewReady: () => void;
 }
 
@@ -27,11 +32,15 @@ function StatusBadge({ status }: { status: MigrationJobStatus }) {
   );
 }
 
-export function MigrationProgress({ jobId, onReviewReady }: Props) {
+const TERMINAL_STATUSES = ["completed", "cancelled"];
+
+export function MigrationProgress({ jobId, model, onReviewReady }: Props) {
   const [job, setJob] = useState<MigrationJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const reviewFiredRef = useRef(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     reviewFiredRef.current = false;
@@ -46,26 +55,32 @@ export function MigrationProgress({ jobId, onReviewReady }: Props) {
           reviewFiredRef.current = true;
           onReviewReady();
         }
+
+        // Stop polling on terminal or paused states
+        if (
+          TERMINAL_STATUSES.includes(data.status) ||
+          data.status === "failed"
+        ) {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     }
 
     poll();
-    const id = setInterval(poll, 2000);
+    intervalRef.current = setInterval(poll, 2000);
 
-    return () => clearInterval(id);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, [jobId, onReviewReady]);
-
-  useEffect(() => {
-    if (
-      job &&
-      !["pending", "migrating"].includes(job.status) &&
-      job.status !== "review"
-    ) {
-      // No need to keep polling for terminal states
-    }
-  }, [job]);
 
   async function handleCancel() {
     setCancelling(true);
@@ -77,6 +92,43 @@ export function MigrationProgress({ jobId, onReviewReady }: Props) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function handleResume() {
+    setResuming(true);
+    try {
+      await resumeMigration(jobId, model);
+      // Restart polling
+      reviewFiredRef.current = false;
+      const poll = async () => {
+        try {
+          const data = await fetchMigrationJob(jobId);
+          setJob(data);
+          setError(null);
+          if (data.status === "review" && !reviewFiredRef.current) {
+            reviewFiredRef.current = true;
+            onReviewReady();
+          }
+          if (
+            TERMINAL_STATUSES.includes(data.status) ||
+            data.status === "failed"
+          ) {
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+              intervalRef.current = null;
+            }
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      };
+      poll();
+      intervalRef.current = setInterval(poll, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResuming(false);
     }
   }
 
@@ -132,6 +184,22 @@ export function MigrationProgress({ jobId, onReviewReady }: Props) {
             >
               {cancelling ? "Cancelling..." : "Cancel"}
             </button>
+          )}
+
+          {job.status === "failed" && (
+            <div className="space-y-2">
+              <p className="text-[13px] text-red">
+                Migration failed. {job.processed_notes} of {job.total_notes}{" "}
+                notes were processed before the failure.
+              </p>
+              <button
+                onClick={handleResume}
+                disabled={resuming}
+                className="text-[13px] px-3 py-1 rounded bg-accent text-crust disabled:opacity-50 transition-colors"
+              >
+                {resuming ? "Resuming..." : "Resume Migration"}
+              </button>
+            </div>
           )}
         </>
       )}

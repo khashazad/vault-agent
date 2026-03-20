@@ -292,6 +292,28 @@ export function cancelMigration(
   });
 }
 
+export function fetchMigrationJobs(opts?: {
+  status?: string;
+  limit?: number;
+}): Promise<{ jobs: MigrationJob[] }> {
+  const params = new URLSearchParams();
+  if (opts?.status) params.set("status", opts.status);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return fetchJSON(`${BASE}/migration/jobs${qs ? `?${qs}` : ""}`);
+}
+
+export function resumeMigration(
+  jobId: string,
+  model?: string,
+): Promise<MigrationJob> {
+  return fetchJSON(`${BASE}/migration/jobs/${jobId}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: model ?? "sonnet" }),
+  });
+}
+
 export function fetchMigrationRegistry(): Promise<MigrationRegistry> {
   return fetchJSON(`${BASE}/migration/registry`);
 }
