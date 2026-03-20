@@ -46,6 +46,40 @@ describe("preprocessObsidian", () => {
     expect(result).toContain('<span class="wikilink">A</span>');
     expect(result).toContain('<span class="wikilink">B</span>');
   });
+
+  it("converts image embeds to img tags", () => {
+    const result = preprocessObsidian("![[photo.png]]");
+    expect(result).toContain(
+      '<img src="/vault/assets/photo.png" alt="photo.png" class="obsidian-embed-image" />',
+    );
+  });
+
+  it("converts image embeds with various extensions", () => {
+    for (const ext of ["jpg", "jpeg", "gif", "svg", "webp", "bmp", "avif"]) {
+      const result = preprocessObsidian(`![[image.${ext}]]`);
+      expect(result).toContain(`src="/vault/assets/image.${ext}"`);
+      expect(result).toContain('class="obsidian-embed-image"');
+    }
+  });
+
+  it("uses display text as alt for image embeds", () => {
+    const result = preprocessObsidian("![[photo.png|My Photo]]");
+    expect(result).toContain('alt="My Photo"');
+    expect(result).toContain('src="/vault/assets/photo.png"');
+  });
+
+  it("keeps non-image embeds as spans", () => {
+    const result = preprocessObsidian("![[Some Note]]");
+    expect(result).toContain('<span class="embed-link">Some Note</span>');
+    expect(result).not.toContain("<img");
+  });
+
+  it("encodes spaces in image embed paths", () => {
+    const result = preprocessObsidian("![[my folder/photo image.png]]");
+    expect(result).toContain(
+      'src="/vault/assets/my%20folder/photo%20image.png"',
+    );
+  });
 });
 
 describe("extractFrontmatter", () => {
