@@ -217,13 +217,14 @@ export async function mockApi(page: Page) {
     return route.fallback();
   });
 
-  // Changeset list
-  await page.route("**/changesets?*", (route) =>
-    route.fulfill({ json: MOCK_CHANGESET_SUMMARIES })
-  );
+  // Changeset list — skip document (page navigation) requests
+  await page.route("**/changesets?*", (route) => {
+    if (route.request().resourceType() === "document") return route.fallback();
+    return route.fulfill({ json: MOCK_CHANGESET_SUMMARIES });
+  });
   await page.route("**/changesets", (route) => {
+    if (route.request().resourceType() === "document") return route.fallback();
     if (route.request().url().includes("?")) return route.fallback();
-    // Bare /changesets with no query string (list all)
     if (route.request().method() === "GET" && !route.request().url().includes("/changesets/")) {
       return route.fulfill({ json: MOCK_CHANGESET_SUMMARIES });
     }
@@ -261,6 +262,7 @@ export async function mockApi(page: Page) {
     route.fulfill({ status: 204 })
   );
   await page.route("**/changesets/*", (route) => {
+    if (route.request().resourceType() === "document") return route.fallback();
     if (route.request().method() === "DELETE") {
       return route.fulfill({ status: 204 });
     }

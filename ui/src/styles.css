@@ -478,6 +478,62 @@
     font-family: var(--font-mono);
     font-size: 12px;
   }
+
+  /* Glass/blur effect cards */
+  .glass-card {
+    backdrop-filter: blur(12px);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+    border: 1px solid color-mix(in srgb, white 10%, transparent);
+  }
+
+  /* Purple gradient CTA buttons */
+  .btn-gradient {
+    background: linear-gradient(
+      to right,
+      var(--color-purple),
+      var(--color-accent)
+    );
+    color: var(--color-crust);
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 10px 24px;
+    border: none;
+    cursor: pointer;
+  }
+  .btn-gradient:hover {
+    opacity: 0.9;
+  }
+
+  /* Floating action button */
+  .fab {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    color: var(--color-crust);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+  }
+  .fab:hover {
+    transform: scale(1.05);
+  }
+
+  /* Stat numbers */
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 1.875rem;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1;
+  }
 }
 
 @layer base {
