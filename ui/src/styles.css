@@ -26,8 +26,15 @@
   --color-purple-bg: rgba(203, 166, 247, 0.1);
   --color-crust: #11111b;
   --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-mono: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+  --font-mono:
+    "JetBrains Mono", "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+  --font-display: "Space Grotesk", sans-serif;
+  --color-surface-dim: #121221;
+  --color-surface-high: #292839;
+  --color-surface-bright: #383849;
+  --color-outline: #968e9a;
   --radius-DEFAULT: 6px;
   --animate-pulse-dot: pulse-dot 1s infinite;
   @keyframes pulse-dot {
@@ -548,5 +555,21 @@
   button {
     cursor: pointer;
     font-family: inherit;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-elevated);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border);
   }
 }

@@ -208,7 +208,7 @@ export function AnnotationsPage() {
   // Processing results view
   if (step === "processing") {
     return (
-      <div className="flex flex-col gap-4 flex-1 min-h-0">
+      <div className="flex flex-col gap-4 flex-1 min-h-0 py-6 px-8">
         <div className="flex items-center gap-1 text-xs mb-4">
           <button
             onClick={handleBackToLibrary}
@@ -285,7 +285,7 @@ export function AnnotationsPage() {
 
   // Annotations view
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 py-6 px-8">
       <div className="flex items-center gap-1 text-xs mb-4">
         <button
           onClick={handleBackToLibrary}
