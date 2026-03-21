@@ -36,7 +36,7 @@ export function TaxonomyPage() {
   const [tab, setTab] = useState<Tab>("folders");
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5 py-6 px-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">

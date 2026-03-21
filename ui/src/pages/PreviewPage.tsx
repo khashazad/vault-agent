@@ -47,7 +47,7 @@ export function PreviewPage() {
   const [showFrontmatter, setShowFrontmatter] = useState(true);
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl">
+    <div className="flex flex-col gap-4 max-w-4xl py-6 px-8">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-xs text-muted">
         <span className="uppercase tracking-wide">Vault</span>

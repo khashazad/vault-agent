@@ -21,7 +21,7 @@ function FolderIcon({ size = 13 }: { size?: number }) {
 function itemClassName(isActive: boolean) {
   return `flex items-center gap-1.5 py-1.5 rounded text-left cursor-pointer border-none w-full transition-colors ${
     isActive
-      ? "bg-accent/15 text-accent font-medium"
+      ? "bg-purple/10 text-purple font-medium"
       : "bg-transparent text-foreground hover:bg-surface"
   }`;
 }

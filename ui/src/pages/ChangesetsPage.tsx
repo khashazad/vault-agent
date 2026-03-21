@@ -176,7 +176,7 @@ export function ChangesetsPage() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 py-6 px-8">
       <h2 className="text-base font-semibold m-0">Changeset History</h2>
 
       {error && <ErrorAlert message={error} />}
