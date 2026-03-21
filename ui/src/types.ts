@@ -260,6 +260,24 @@ export interface MigrationNotesResponse {
   total: number;
 }
 
+// --- Vault config types ---
+
+export interface VaultConfigResponse {
+  vault_path: string | null;
+  vault_name: string | null;
+}
+
+export interface VaultPickerResponse {
+  path: string | null;
+  cancelled: boolean;
+}
+
+export interface VaultHistoryEntry {
+  path: string;
+  name: string;
+  last_opened: string;
+}
+
 export interface MigrationRegistry {
   taxonomy_id: string;
   folders: string[];

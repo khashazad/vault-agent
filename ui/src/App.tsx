@@ -1,6 +1,11 @@
 import { RouterProvider } from "react-router";
 import { router } from "./router";
+import { VaultProvider } from "./context/VaultContext";
 
 export default function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <VaultProvider>
+      <RouterProvider router={router} />
+    </VaultProvider>
+  );
 }

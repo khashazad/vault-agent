@@ -1,4 +1,5 @@
 import { NavLink } from "react-router";
+import { useVault } from "../context/VaultContext";
 
 const NAV_ITEMS = [
   {
@@ -103,6 +104,8 @@ const NAV_ITEMS = [
 ];
 
 export function Sidebar() {
+  const { vaultName, vaultPath } = useVault();
+
   return (
     <aside className="w-[248px] h-screen flex flex-col bg-surface border-r border-border shrink-0">
       {/* Branding */}
@@ -131,17 +134,17 @@ export function Sidebar() {
         </NavLink>
       </div>
 
-      {/* User section */}
+      {/* Vault section */}
       <div className="px-5 pb-4 flex items-center gap-2.5">
         <div className="w-7 h-7 rounded-full bg-elevated flex items-center justify-center text-[10px] font-medium text-muted">
-          VA
+          {vaultName ? vaultName[0].toUpperCase() : "V"}
         </div>
         <div className="flex flex-col">
           <span className="text-xs font-medium text-text leading-tight">
-            Archivist Main
+            {vaultName || "No vault"}
           </span>
           <span className="text-[10px] text-muted leading-tight">
-            Source Vault
+            Connected
           </span>
         </div>
       </div>
@@ -172,7 +175,7 @@ export function Sidebar() {
           Vault
         </span>
         <span className="block text-xs text-text font-mono truncate mt-0.5">
-          ~/vault
+          {vaultName || vaultPath || "Not connected"}
         </span>
       </div>
     </aside>

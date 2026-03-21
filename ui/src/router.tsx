@@ -32,5 +32,5 @@ export const router = createBrowserRouter([
       { path: "preview", element: <PreviewPage /> },
     ],
   },
-  { path: "*", element: <Navigate to="/library" replace /> },
+  { path: "*", element: <Navigate to="/connect" replace /> },
 ]);
