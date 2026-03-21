@@ -43,6 +43,11 @@ const MOCK_CHANGESET_SUMMARIES = {
 
 const MOCK_RESPONSES: Record<string, unknown> = {
   "/health": { status: "ok", vault_path: "/mock/vault" },
+  "/vault/config": {
+    vault_path: "/mock/vault",
+    vault_name: "vault",
+  },
+  "/vault/history": { vaults: [] },
   "/zotero/status": {
     configured: true,
     last_version: 42,
