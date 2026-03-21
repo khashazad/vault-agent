@@ -1,5 +1,12 @@
-import { NavLink } from "react-router";
+import { useState, useEffect, useCallback } from "react";
+import { NavLink, useLocation, useSearchParams } from "react-router";
 import { useVault } from "../context/VaultContext";
+import { fetchZoteroCollections } from "../api/client";
+import {
+  CollectionTree,
+  CollectionTreeSkeleton,
+} from "../components/CollectionTree";
+import type { ZoteroCollection } from "../types";
 
 const NAV_ITEMS = [
   {
@@ -105,52 +112,59 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const { vaultName, vaultPath } = useVault();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isLibraryRoute = location.pathname.startsWith("/library");
+
+  const [collections, setCollections] = useState<ZoteroCollection[]>([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [collectionsExpanded, setCollectionsExpanded] = useState(true);
+
+  const selectedCollectionKey = searchParams.get("collection");
+
+  const loadCollections = useCallback(async () => {
+    setCollectionsLoading(true);
+    try {
+      const res = await fetchZoteroCollections();
+      setCollections(res.collections);
+    } catch {
+      // Non-fatal
+    } finally {
+      setCollectionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isLibraryRoute) loadCollections();
+  }, [isLibraryRoute, loadCollections]);
+
+  function handleSelectCollection(key: string | null) {
+    if (key) {
+      setSearchParams({ collection: key });
+    } else {
+      setSearchParams({});
+    }
+  }
 
   return (
-    <aside className="w-[248px] h-screen flex flex-col bg-surface border-r border-border shrink-0">
+    <aside className="w-[248px] h-screen flex flex-col bg-surface shrink-0">
       {/* Branding */}
       <div className="px-5 pt-5 pb-4">
         <NavLink
           to="/connect"
           className="flex items-center gap-2.5 no-underline"
         >
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#cba6f7] to-[#89b4fa] flex items-center justify-center">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#11111b"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-              <polyline points="10 17 15 12 10 7" />
-              <line x1="15" x2="3" y1="12" y2="12" />
-            </svg>
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#cba6f7] to-[#89b4fa] flex items-center justify-center text-[#11111b] text-xs font-bold">
+            VA
           </div>
-          <span className="text-sm font-semibold text-text">Vault Agent</span>
+          <span className="text-sm font-bold text-text font-display">
+            Vault Agent
+          </span>
         </NavLink>
       </div>
 
-      {/* Vault section */}
-      <div className="px-5 pb-4 flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-full bg-elevated flex items-center justify-center text-[10px] font-medium text-muted">
-          {vaultName ? vaultName[0].toUpperCase() : "V"}
-        </div>
-        <div className="flex flex-col">
-          <span className="text-xs font-medium text-text leading-tight">
-            {vaultName || "No vault"}
-          </span>
-          <span className="text-[10px] text-muted leading-tight">
-            Connected
-          </span>
-        </div>
-      </div>
-
       {/* Nav */}
-      <nav className="flex-1 px-3 flex flex-col gap-0.5">
+      <nav className="px-3 flex flex-col gap-0.5">
         {NAV_ITEMS.map(({ to, label, icon }) => (
           <NavLink
             key={to}
@@ -158,7 +172,7 @@ export function Sidebar() {
             className={({ isActive }) =>
               `flex items-center gap-2.5 px-3 h-10 rounded-lg text-sm no-underline transition-colors ${
                 isActive
-                  ? "bg-accent/15 text-accent font-medium border-l-2 border-accent -ml-0.5 pl-[10px]"
+                  ? "bg-purple/10 text-purple font-medium border-l-2 border-purple -ml-0.5 pl-[10px]"
                   : "text-muted hover:text-text hover:bg-elevated/50"
               }`
             }
@@ -169,8 +183,48 @@ export function Sidebar() {
         ))}
       </nav>
 
+      {/* Collections section — only on /library* routes */}
+      {isLibraryRoute && (
+        <div className="flex-1 flex flex-col min-h-0 mt-4">
+          <button
+            onClick={() => setCollectionsExpanded(!collectionsExpanded)}
+            className="mx-5 mb-1 flex items-center justify-between bg-transparent border-none cursor-pointer p-0"
+          >
+            <span className="text-[10px] text-muted uppercase tracking-wide font-semibold">
+              Collections
+            </span>
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="currentColor"
+              className={`text-muted transition-transform ${collectionsExpanded ? "rotate-90" : ""}`}
+            >
+              <path d="M3 1l5 4-5 4V1z" />
+            </svg>
+          </button>
+
+          {collectionsExpanded && (
+            <div className="flex-1 overflow-y-auto px-3 pb-2">
+              {collectionsLoading ? (
+                <CollectionTreeSkeleton />
+              ) : collections.length > 0 ? (
+                <CollectionTree
+                  collections={collections}
+                  selectedKey={selectedCollectionKey}
+                  onSelect={handleSelectCollection}
+                />
+              ) : null}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Spacer when not on library route */}
+      {!isLibraryRoute && <div className="flex-1" />}
+
       {/* Footer */}
-      <div className="px-5 py-4 border-t border-border">
+      <div className="px-5 py-4 border-t border-border/30">
         <span className="text-[10px] text-muted uppercase tracking-wide">
           Vault
         </span>
