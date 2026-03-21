@@ -5,9 +5,9 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page);
 });
 
-test("page loads with header visible", async ({ page }) => {
+test("page loads with sidebar and branding visible", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("header")).toBeVisible();
+  await expect(page.locator("aside")).toBeVisible();
   await expect(page.getByText("Vault Agent")).toBeVisible();
 });
 

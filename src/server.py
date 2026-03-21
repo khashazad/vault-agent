@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import subprocess
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -32,6 +34,11 @@ from src.models import (
     RefreshResponse,
     RejectResponse,
     TaxonomyProposal,
+    VaultConfigRequest,
+    VaultConfigResponse,
+    VaultHistoryEntry,
+    VaultHistoryResponse,
+    VaultPickerResponse,
     VaultMapResponse,
     ZoteroAnnotationItem,
     ZoteroCollection,
@@ -52,7 +59,8 @@ from src.agent.agent import (
 )
 from src.agent.changeset import apply_changeset
 from src.agent.diff import generate_diff
-from src.db import get_changeset_store, get_batch_job_store, get_migration_store
+from src.db import get_changeset_store, get_batch_job_store, get_migration_store, get_settings_store
+from src.db.settings import SettingsStore
 from src.zotero.background import ZoteroPaperCacheSyncer
 
 from src.logging_config import setup_logging
@@ -70,10 +78,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not hasattr(app.state, "config"):
         app.state.config = load_config()
     config = app.state.config
-    logger.info("vault: %s", config.vault_path)
+    logger.info("vault: %s", config.vault_path or "not configured")
     zotero_ok = bool(config.zotero_api_key and config.zotero_library_id)
     logger.info("zotero: %s", "configured" if zotero_ok else "not configured")
-    if zotero_ok:
+    if zotero_ok and config.vault_path:
         paper_cache_syncer = ZoteroPaperCacheSyncer(config)
         paper_cache_syncer.start()
     yield
@@ -83,6 +91,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def _get_config(request: Request):
     return request.app.state.config
+
+
+# Raise HTTP 400 if no vault is configured.
+#
+# Raises:
+#     HTTPException: When vault_path is None.
+def _require_vault(request: Request):
+    config = _get_config(request)
+    if not config.vault_path:
+        raise HTTPException(
+            status_code=400,
+            detail="No vault configured. Select a vault via PUT /vault/config.",
+        )
 
 
 app = FastAPI(
@@ -225,9 +246,156 @@ async def health(request: Request):
     description="Returns the vault structure including total note count and per-note summaries with paths, titles, wikilinks, and headings.",
 )
 async def vault_map(request: Request):
+    _require_vault(request)
     config = _get_config(request)
     vm = build_vault_map(config.vault_path)
     return {"totalNotes": vm.total_notes, "notes": vm.notes}
+
+
+# Return current vault configuration.
+@app.get(
+    "/vault/config",
+    response_model=VaultConfigResponse,
+    tags=["Vault"],
+    summary="Get vault config",
+    description="Returns the currently configured vault path and name, or null if no vault is set.",
+)
+async def vault_config_get(request: Request):
+    config = _get_config(request)
+    return {
+        "vault_path": config.vault_path,
+        "vault_name": Path(config.vault_path).name if config.vault_path else None,
+    }
+
+
+# Set the vault path, persisting to DB and updating runtime config.
+@app.put(
+    "/vault/config",
+    response_model=VaultConfigResponse,
+    tags=["Vault"],
+    summary="Set vault config",
+    description="Validate and persist a new vault path. Must be a directory containing .obsidian/.",
+)
+async def vault_config_set(request: Request, body: VaultConfigRequest):
+    p = Path(body.vault_path).expanduser().resolve()
+    if not p.is_dir():
+        raise HTTPException(status_code=400, detail="Path does not exist or is not a directory")
+    if not (p / ".obsidian").is_dir():
+        raise HTTPException(status_code=400, detail="Not an Obsidian vault (missing .obsidian/ directory)")
+
+    vault_path = str(p)
+    settings = get_settings_store()
+    settings.set("vault_path", vault_path)
+
+    # Update vault history
+    _update_vault_history(settings, vault_path, p.name)
+
+    config = _get_config(request)
+    config.vault_path = vault_path
+
+    # Start Zotero syncer if applicable and not already running
+    global paper_cache_syncer
+    zotero_ok = bool(config.zotero_api_key and config.zotero_library_id)
+    if zotero_ok and paper_cache_syncer is None:
+        paper_cache_syncer = ZoteroPaperCacheSyncer(config)
+        paper_cache_syncer.start()
+
+    return {
+        "vault_path": vault_path,
+        "vault_name": p.name,
+    }
+
+
+# Append or update a vault in the history list (max 20, most recent first).
+#
+# Args:
+#     settings: SettingsStore instance.
+#     vault_path: Absolute vault path.
+#     name: Vault directory name.
+def _update_vault_history(settings: SettingsStore, vault_path: str, name: str) -> None:
+    raw = settings.get("vault_history")
+    history: list[dict] = json.loads(raw) if raw else []
+    now = datetime.now(timezone.utc).isoformat()
+
+    history = [h for h in history if h.get("path") != vault_path]
+    history.insert(0, {"path": vault_path, "name": name, "last_opened": now})
+    history = history[:20]
+
+    settings.set("vault_history", json.dumps(history))
+
+
+# Open native macOS folder picker via osascript.
+@app.post(
+    "/vault/picker",
+    response_model=VaultPickerResponse,
+    tags=["Vault"],
+    summary="Open native folder picker",
+    description="Opens a macOS Finder dialog to select a vault folder. macOS only.",
+)
+async def vault_picker():
+    if sys.platform != "darwin":
+        raise HTTPException(status_code=501, detail="Native picker is only available on macOS")
+
+    loop = asyncio.get_event_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["osascript", "-e", 'POSIX path of (choose folder with prompt "Select Obsidian Vault")'],
+                    capture_output=True,
+                    text=True,
+                ),
+            ),
+            timeout=300,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=408, detail="Folder picker timed out")
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        # osascript returns -128 / "User canceled" on cancel
+        if stderr and "User canceled" not in stderr:
+            logger.warning("osascript picker failed: %s", stderr)
+        return {"path": None, "cancelled": True}
+
+    selected = result.stdout.strip().rstrip("/")
+    return {"path": selected, "cancelled": False}
+
+
+# Return previously opened vaults, filtered to existing directories.
+@app.get(
+    "/vault/history",
+    response_model=VaultHistoryResponse,
+    tags=["Vault"],
+    summary="Get vault history",
+    description="Returns previously opened vaults that still exist on disk.",
+)
+async def vault_history_get():
+    raw = get_settings_store().get("vault_history")
+    history: list[dict] = json.loads(raw) if raw else []
+    vaults = [
+        VaultHistoryEntry(**h)
+        for h in history
+        if Path(h.get("path", "")).is_dir()
+    ]
+    return {"vaults": vaults}
+
+
+# Remove a single vault from history.
+@app.delete(
+    "/vault/history",
+    tags=["Vault"],
+    summary="Delete vault history entry",
+    description="Removes a single vault from the history list.",
+)
+async def vault_history_delete(path: str):
+    settings = get_settings_store()
+    raw = settings.get("vault_history")
+    history: list[dict] = json.loads(raw) if raw else []
+    history = [h for h in history if h.get("path") != path]
+    settings.set("vault_history", json.dumps(history))
+    return {"ok": True}
 
 
 # --- Changeset routes ---
@@ -317,6 +485,7 @@ async def update_change_status(
     description="Write approved changes to the vault filesystem. Optionally pass specific change_ids; otherwise all approved changes are applied.",
 )
 async def apply(changeset_id: str, request: Request, body: ApplyRequest | None = None):
+    _require_vault(request)
     cs = _get_changeset_or_404(changeset_id)
 
     if cs.status in ("applied", "rejected", "skipped"):
@@ -397,6 +566,7 @@ async def request_changes(changeset_id: str, body: FeedbackRequest):
     description="Re-run the agent with stored feedback from request-changes. Status must be revision_requested.",
 )
 async def regenerate(changeset_id: str, request: Request):
+    _require_vault(request)
     cs = _get_changeset_or_404(changeset_id)
     if cs.status != "revision_requested":
         return JSONResponse(
@@ -429,6 +599,7 @@ async def regenerate(changeset_id: str, request: Request):
     description="Sync papers from Zotero, process annotations through the agent, and create changesets. Supports filtering by collection or paper keys.",
 )
 async def zotero_sync(request: Request, body: ZoteroSyncRequest | None = None):
+    _require_vault(request)
     _require_zotero(request)
     config = _get_config(request)
     from src.zotero.orchestrator import sync_zotero
@@ -637,6 +808,7 @@ async def zotero_paper_annotations(paper_key: str, request: Request):
 async def zotero_paper_sync(
     paper_key: str, request: Request, body: ZoteroPaperSyncRequest
 ):
+    _require_vault(request)
     _require_zotero(request)
     config = _get_config(request)
     try:
@@ -801,6 +973,7 @@ async def zotero_status(request: Request):
 async def migration_estimate(
     request: Request, model: str = "sonnet", taxonomy_id: str | None = None
 ):
+    _require_vault(request)
     config = _get_config(request)
     from src.migration.migrator import estimate_cost
 
@@ -910,6 +1083,7 @@ async def migration_job_list(
     summary="Create migration job",
 )
 async def migration_job_create(request: Request):
+    _require_vault(request)
     config = _get_config(request)
     body = await request.json()
     target_vault = body.get("target_vault")
@@ -1182,6 +1356,7 @@ async def migration_registry():
     description="Serve a file from the vault directory. Path traversal is prevented via validate_path.",
 )
 async def vault_asset(file_path: str, request: Request):
+    _require_vault(request)
     from src.vault import validate_path
 
     config = _get_config(request)

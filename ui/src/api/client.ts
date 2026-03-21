@@ -8,6 +8,9 @@ import type {
   MigrationRegistry,
   TokenUsage,
   TaxonomyProposal,
+  VaultConfigResponse,
+  VaultHistoryEntry,
+  VaultPickerResponse,
   ZoteroStatus,
   ZoteroPapersResponse,
   ZoteroPaperAnnotationsResponse,
@@ -185,6 +188,39 @@ export function updateChangeContent(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ proposed_content: proposedContent }),
+  });
+}
+
+// --- Vault config API ---
+
+export function fetchVaultConfig(): Promise<VaultConfigResponse> {
+  return fetchJSON(`${BASE}/vault/config`);
+}
+
+export function setVaultConfig(
+  vaultPath: string,
+): Promise<VaultConfigResponse> {
+  return fetchJSON(`${BASE}/vault/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vault_path: vaultPath }),
+  });
+}
+
+export function openVaultPicker(): Promise<VaultPickerResponse> {
+  return fetchJSON(`${BASE}/vault/picker`, { method: "POST" });
+}
+
+export function fetchVaultHistory(): Promise<{
+  vaults: VaultHistoryEntry[];
+}> {
+  return fetchJSON(`${BASE}/vault/history`);
+}
+
+export function deleteVaultHistory(path: string): Promise<void> {
+  const params = new URLSearchParams({ path });
+  return fetchVoid(`${BASE}/vault/history?${params.toString()}`, {
+    method: "DELETE",
   });
 }
 

@@ -5,17 +5,15 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page);
 });
 
-test("navigate to History tab and see changeset list", async ({ page }) => {
-  await page.goto("/");
-  await page.getByText("History").click();
+test("navigate to Changesets page and see changeset list", async ({ page }) => {
+  await page.goto("/changesets");
   await expect(page.getByText("Changeset History")).toBeVisible();
   await expect(page.getByText(/cshist01/)).toBeVisible();
   await expect(page.getByText(/cshist02/)).toBeVisible();
 });
 
 test("status filter tabs are visible", async ({ page }) => {
-  await page.goto("/");
-  await page.getByText("History").click();
+  await page.goto("/changesets");
   await expect(page.getByRole("button", { name: "All", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pending", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Applied", exact: true })).toBeVisible();
@@ -23,8 +21,7 @@ test("status filter tabs are visible", async ({ page }) => {
 });
 
 test("click changeset card to see detail", async ({ page }) => {
-  await page.goto("/");
-  await page.getByText("History").click();
+  await page.goto("/changesets");
   await expect(page.getByText(/cshist01/)).toBeVisible();
 
   // Click first changeset card
@@ -33,8 +30,7 @@ test("click changeset card to see detail", async ({ page }) => {
 });
 
 test("back button returns to list from detail", async ({ page }) => {
-  await page.goto("/");
-  await page.getByText("History").click();
+  await page.goto("/changesets");
   await page.getByText(/cshist01/).click();
   await expect(page.getByText("Changeset Detail")).toBeVisible();
 
@@ -44,8 +40,7 @@ test("back button returns to list from detail", async ({ page }) => {
 });
 
 test("delete button shows popover and sends DELETE request", async ({ page }) => {
-  await page.goto("/");
-  await page.getByText("History").click();
+  await page.goto("/changesets");
   await expect(page.getByText(/cshist01/)).toBeVisible();
 
   await page.getByTestId("delete-cshist01-abcd-1234").click();
@@ -59,12 +54,11 @@ test("delete button shows popover and sends DELETE request", async ({ page }) =>
   expect(req.method()).toBe("DELETE");
 });
 
-test("Sync tab still works after visiting History", async ({ page }) => {
-  await page.goto("/");
-  await page.getByText("History").click();
+test("sidebar navigation between Library and Changesets", async ({ page }) => {
+  await page.goto("/changesets");
   await expect(page.getByText("Changeset History")).toBeVisible();
 
-  // Switch back to Sync
-  await page.getByText("Sync").click();
+  // Click Library in sidebar
+  await page.getByRole("link", { name: "Library" }).click();
   await expect(page.getByText("Zotero Library")).toBeVisible();
 });

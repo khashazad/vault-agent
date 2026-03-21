@@ -25,10 +25,34 @@ class VaultMap(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = Field(description="Server status (ok)")
-    vaultConfigured: bool = Field(description="Whether VAULT_PATH is set")
+    vaultConfigured: bool = Field(description="Whether a vault is configured")
     timestamp: str = Field(description="Current UTC timestamp in ISO 8601")
 
 
 class VaultMapResponse(BaseModel):
     totalNotes: int = Field(description="Total number of notes in the vault")
     notes: list[VaultNoteSummary] = Field(description="Per-note summaries")
+
+
+class VaultConfigResponse(BaseModel):
+    vault_path: str | None = Field(description="Absolute path to the configured vault")
+    vault_name: str | None = Field(description="Directory basename of the vault")
+
+
+class VaultConfigRequest(BaseModel):
+    vault_path: str = Field(description="Absolute path to an Obsidian vault")
+
+
+class VaultPickerResponse(BaseModel):
+    path: str | None = Field(description="Selected folder path, None if cancelled")
+    cancelled: bool = Field(description="Whether the user cancelled the dialog")
+
+
+class VaultHistoryEntry(BaseModel):
+    path: str = Field(description="Absolute vault path")
+    name: str = Field(description="Vault directory name")
+    last_opened: str = Field(description="ISO 8601 timestamp of last connection")
+
+
+class VaultHistoryResponse(BaseModel):
+    vaults: list[VaultHistoryEntry] = Field(description="Previously opened vaults")

@@ -18,10 +18,15 @@ from .content import ContentItem, SourceMetadata, SourceType
 from .tools import CreateNoteInput, UpdateNoteInput
 from .vault import (
     HealthResponse,
+    VaultConfigRequest,
+    VaultConfigResponse,
+    VaultHistoryEntry,
+    VaultHistoryResponse,
     VaultMap,
     VaultMapResponse,
     VaultNote,
     VaultNoteSummary,
+    VaultPickerResponse,
 )
 from .zotero import (
     BatchJobStatusResponse,
@@ -58,6 +63,11 @@ __all__ = [
     "VaultMap",
     "HealthResponse",
     "VaultMapResponse",
+    "VaultConfigResponse",
+    "VaultConfigRequest",
+    "VaultPickerResponse",
+    "VaultHistoryEntry",
+    "VaultHistoryResponse",
     # tools
     "CreateNoteInput",
     "UpdateNoteInput",
