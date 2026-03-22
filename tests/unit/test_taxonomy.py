@@ -108,3 +108,47 @@ class TestBuildTagHierarchy:
 
     def test_empty(self):
         assert build_tag_hierarchy({}) == []
+
+
+from src.vault.taxonomy import build_vault_taxonomy
+
+
+class TestBuildVaultTaxonomy:
+    def test_basic_scan(self, tmp_vault):
+        taxonomy = build_vault_taxonomy(str(tmp_vault))
+        assert taxonomy.total_notes == 4
+
+    def test_folders_extracted(self, tmp_vault):
+        taxonomy = build_vault_taxonomy(str(tmp_vault))
+        assert "Projects" in taxonomy.folders
+        assert "Topics" in taxonomy.folders
+        assert "Papers" in taxonomy.folders
+        assert "daily" in taxonomy.folders
+
+    def test_tags_extracted(self, tmp_vault):
+        taxonomy = build_vault_taxonomy(str(tmp_vault))
+        tag_names = {t.name for t in taxonomy.tags}
+        assert "project" in tag_names
+        assert "ml" in tag_names
+        assert "daily" in tag_names
+
+    def test_tags_have_counts(self, tmp_vault):
+        taxonomy = build_vault_taxonomy(str(tmp_vault))
+        tag_map = {t.name: t.count for t in taxonomy.tags}
+        assert tag_map["ml"] >= 1
+
+    def test_tag_hierarchy_built(self, tmp_vault):
+        taxonomy = build_vault_taxonomy(str(tmp_vault))
+        root_names = {n.name for n in taxonomy.tag_hierarchy}
+        assert "source" in root_names
+
+    def test_link_targets_extracted(self, tmp_vault):
+        taxonomy = build_vault_taxonomy(str(tmp_vault))
+        link_titles = {lt.title for lt in taxonomy.link_targets}
+        assert "Machine Learning" in link_titles
+        assert "Projects/My Project" in link_titles
+
+    def test_link_targets_have_counts(self, tmp_vault):
+        taxonomy = build_vault_taxonomy(str(tmp_vault))
+        link_map = {lt.title: lt.count for lt in taxonomy.link_targets}
+        assert link_map["Machine Learning"] >= 1
