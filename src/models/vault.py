@@ -1,8 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from src.models.migration import TagNode
+from .migration import TagNode
 
 
 class VaultNoteSummary(BaseModel):
@@ -99,6 +99,15 @@ class TaxonomyCurationOp(BaseModel):
         default=None, description="New name (rename) or merge destination"
     )
 
+    @model_validator(mode="after")
+    def _validate_value_for_op(self) -> "TaxonomyCurationOp":
+        delete_ops = {"delete_tag", "delete_folder", "delete_link"}
+        if self.op in delete_ops and self.value is not None:
+            raise ValueError(f"'value' must be None for {self.op}")
+        if self.op not in delete_ops and not self.value:
+            raise ValueError(f"'value' is required for {self.op}")
+        return self
+
 
 # Request body for taxonomy curation endpoint.
 class TaxonomyCurationRequest(BaseModel):
@@ -110,4 +119,4 @@ class TaxonomyCurationRequest(BaseModel):
 # Response from taxonomy curation endpoint.
 class TaxonomyCurationResponse(BaseModel):
     changeset_id: str = Field(description="ID of the generated changeset")
-    changes_count: int = Field(description="Number of notes affected")
+    change_count: int = Field(description="Number of notes affected")
