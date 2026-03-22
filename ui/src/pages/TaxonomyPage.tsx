@@ -282,7 +282,7 @@ export function TaxonomyPage() {
   const TABS: Tab[] = ["folders", "tags", "links"];
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col flex-1 min-h-0" onContextMenu={(e) => e.preventDefault()}>
       {/* Header bar */}
       <div className="px-6 py-4 flex items-center justify-between shrink-0">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
