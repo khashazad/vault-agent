@@ -63,6 +63,7 @@ function TagTreeNode({
   onToggle,
   filter,
   onContextMenu,
+  highlightedTag,
 }: {
   node: TagNode;
   depth: number;
@@ -70,6 +71,7 @@ function TagTreeNode({
   onToggle: (name: string) => void;
   filter: string;
   onContextMenu: (e: React.MouseEvent, name: string) => void;
+  highlightedTag: string | null;
 }) {
   const hasChildren = node.children.length > 0;
   const isExpanded = expanded.has(node.name);
@@ -81,10 +83,16 @@ function TagTreeNode({
     !matchesSelf && hasChildren && nodeMatchesFilter(node, lowerFilter);
   if (lowerFilter && !matchesSelf && !matchesDescendant) return null;
 
+  const isHighlighted = highlightedTag === node.name;
+
   return (
     <>
       <div
-        className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-elevated/50 transition-colors cursor-default"
+        className={`flex items-center gap-1.5 py-1 px-2 rounded transition-colors cursor-default ${
+          isHighlighted
+            ? "bg-accent/15 ring-1 ring-accent/40"
+            : "hover:bg-elevated/50"
+        }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onContextMenu={(e) => onContextMenu(e, node.name)}
       >
@@ -119,6 +127,7 @@ function TagTreeNode({
             onToggle={onToggle}
             filter={filter}
             onContextMenu={onContextMenu}
+            highlightedTag={highlightedTag}
           />
         ))}
     </>
@@ -282,7 +291,10 @@ export function TaxonomyPage() {
   const TABS: Tab[] = ["folders", "tags", "links"];
 
   return (
-    <div className="flex flex-col flex-1 min-h-0" onContextMenu={(e) => e.preventDefault()}>
+    <div
+      className="flex flex-col flex-1 min-h-0"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {/* Header bar */}
       <div className="px-6 py-4 flex items-center justify-between shrink-0">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
@@ -323,123 +335,180 @@ export function TaxonomyPage() {
         </div>
       </div>
 
-      {/* Inline stats bar */}
-      {taxonomy && (
-        <div className="flex items-center gap-6 px-6 py-2 text-[11px] text-muted shrink-0">
-          <span>
-            <strong className="text-text">{taxonomy.total_notes}</strong> notes
-          </span>
-          <span>
-            <strong className="text-text">{taxonomy.tags.length}</strong> tags
-          </span>
-          <span>
-            <strong className="text-text">{taxonomy.folders.length}</strong>{" "}
-            folders
-          </span>
-          <span>
-            <strong className="text-text">
-              {taxonomy.link_targets.length}
-            </strong>{" "}
-            links
-          </span>
-        </div>
-      )}
-
-      {/* Main content — full width, fills remaining height */}
+      {/* Main grid — fills remaining height */}
       <div className="flex-1 overflow-y-auto px-6 pb-4 min-h-0">
-        <div className="glass-card p-4 flex flex-col gap-3 min-h-full">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-            {activeTab === "folders"
-              ? "Folder Paths"
-              : activeTab === "tags"
-                ? "Tag Hierarchy"
-                : "Link Targets"}
-          </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 min-h-full">
+          {/* Left panel — 2 cols */}
+          <div className="md:col-span-2 glass-card p-4 flex flex-col gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+              {activeTab === "folders"
+                ? "Folder Paths"
+                : activeTab === "tags"
+                  ? "Tag Hierarchy"
+                  : "Link Targets"}
+            </h3>
 
-          {/* Search for tags tab */}
-          {activeTab === "tags" && (
-            <input
-              type="text"
-              placeholder="Filter tags..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-3 py-1.5 text-xs bg-elevated/50 border border-white/10 rounded-md text-text placeholder:text-muted/50 outline-none focus:border-accent/50"
-            />
-          )}
+            {/* Search for tags tab */}
+            {activeTab === "tags" && (
+              <input
+                type="text"
+                placeholder="Filter tags..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-1.5 text-xs bg-elevated/50 border border-white/10 rounded-md text-text placeholder:text-muted/50 outline-none focus:border-accent/50"
+              />
+            )}
 
-          <div className="flex flex-col gap-0.5">
-            {/* Folders */}
-            {activeTab === "folders" &&
-              taxonomy?.folders.map((f) => (
-                <div
-                  key={f}
-                  className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-elevated/50 transition-colors"
-                  onContextMenu={(e) => handleContextMenu(e, f, "folder")}
-                >
-                  <FolderIcon />
-                  <span className="text-xs font-mono text-text">{f}</span>
-                </div>
-              ))}
+            <div className="flex flex-col gap-0.5 flex-1 overflow-y-auto">
+              {/* Folders */}
+              {activeTab === "folders" &&
+                taxonomy?.folders.map((f) => {
+                  const isHighlighted =
+                    contextMenu?.type === "folder" && contextMenu.target === f;
+                  return (
+                    <div
+                      key={f}
+                      className={`flex items-center gap-2 py-1.5 px-2 rounded transition-colors ${
+                        isHighlighted
+                          ? "bg-accent/15 ring-1 ring-accent/40"
+                          : "hover:bg-elevated/50"
+                      }`}
+                      onContextMenu={(e) => handleContextMenu(e, f, "folder")}
+                    >
+                      <FolderIcon />
+                      <span className="text-xs font-mono text-text">{f}</span>
+                    </div>
+                  );
+                })}
 
-            {/* Tags — hierarchy */}
-            {activeTab === "tags" &&
-              !searchQuery &&
-              taxonomy?.tag_hierarchy.map((node) => (
-                <TagTreeNode
-                  key={node.name}
-                  node={node}
-                  depth={0}
-                  expanded={expandedTags}
-                  onToggle={toggleTag}
-                  filter=""
-                  onContextMenu={(e, name) => handleContextMenu(e, name, "tag")}
-                />
-              ))}
+              {/* Tags — hierarchy */}
+              {activeTab === "tags" &&
+                !searchQuery &&
+                taxonomy?.tag_hierarchy.map((node) => (
+                  <TagTreeNode
+                    key={node.name}
+                    node={node}
+                    depth={0}
+                    expanded={expandedTags}
+                    onToggle={toggleTag}
+                    filter=""
+                    onContextMenu={(e, name) =>
+                      handleContextMenu(e, name, "tag")
+                    }
+                    highlightedTag={
+                      contextMenu?.type === "tag" ? contextMenu.target : null
+                    }
+                  />
+                ))}
 
-            {/* Tags — filtered flat list with counts */}
-            {activeTab === "tags" &&
-              searchQuery &&
-              filteredTags.map((t) => (
-                <div
-                  key={t.name}
-                  className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-elevated/50 transition-colors"
-                  onContextMenu={(e) => handleContextMenu(e, t.name, "tag")}
-                >
-                  <span className="text-xs font-mono text-text">{t.name}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
-                    {t.count}
+              {/* Tags — filtered flat list with counts */}
+              {activeTab === "tags" &&
+                searchQuery &&
+                filteredTags.map((t) => {
+                  const isHighlighted =
+                    contextMenu?.type === "tag" &&
+                    contextMenu.target === t.name;
+                  return (
+                    <div
+                      key={t.name}
+                      className={`flex items-center justify-between py-1.5 px-2 rounded transition-colors ${
+                        isHighlighted
+                          ? "bg-accent/15 ring-1 ring-accent/40"
+                          : "hover:bg-elevated/50"
+                      }`}
+                      onContextMenu={(e) => handleContextMenu(e, t.name, "tag")}
+                    >
+                      <span className="text-xs font-mono text-text">
+                        {t.name}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                        {t.count}
+                      </span>
+                    </div>
+                  );
+                })}
+
+              {/* Tags — empty filter state */}
+              {activeTab === "tags" &&
+                searchQuery &&
+                filteredTags.length === 0 && (
+                  <span className="text-xs text-muted py-2">
+                    No tags match "{searchQuery}"
+                  </span>
+                )}
+
+              {/* Link targets */}
+              {activeTab === "links" &&
+                taxonomy &&
+                [...taxonomy.link_targets]
+                  .sort((a, b) => b.count - a.count)
+                  .map((lt) => {
+                    const isHighlighted =
+                      contextMenu?.type === "link" &&
+                      contextMenu.target === lt.title;
+                    return (
+                      <div
+                        key={lt.title}
+                        className={`flex items-center justify-between py-1.5 px-2 rounded transition-colors ${
+                          isHighlighted
+                            ? "bg-accent/15 ring-1 ring-accent/40"
+                            : "hover:bg-elevated/50"
+                        }`}
+                        onContextMenu={(e) =>
+                          handleContextMenu(e, lt.title, "link")
+                        }
+                      >
+                        <span className="text-xs text-text">{lt.title}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                          {lt.count}
+                        </span>
+                      </div>
+                    );
+                  })}
+            </div>
+          </div>
+
+          {/* Right panel — stats */}
+          <div className="flex flex-col gap-4">
+            <div className="glass-card p-4 flex flex-col gap-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                Vault Overview
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="stat-value">
+                    {taxonomy?.total_notes ?? 0}
+                  </span>
+                  <span className="block text-[10px] text-muted mt-1">
+                    Total Notes
                   </span>
                 </div>
-              ))}
-
-            {/* Tags — empty filter state */}
-            {activeTab === "tags" &&
-              searchQuery &&
-              filteredTags.length === 0 && (
-                <span className="text-xs text-muted py-2">
-                  No tags match "{searchQuery}"
-                </span>
-              )}
-
-            {/* Link targets */}
-            {activeTab === "links" &&
-              taxonomy &&
-              [...taxonomy.link_targets]
-                .sort((a, b) => b.count - a.count)
-                .map((lt) => (
-                  <div
-                    key={lt.title}
-                    className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-elevated/50 transition-colors"
-                    onContextMenu={(e) =>
-                      handleContextMenu(e, lt.title, "link")
-                    }
-                  >
-                    <span className="text-xs text-text">{lt.title}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
-                      {lt.count}
-                    </span>
-                  </div>
-                ))}
+                <div>
+                  <span className="stat-value">
+                    {taxonomy?.tags.length ?? 0}
+                  </span>
+                  <span className="block text-[10px] text-muted mt-1">
+                    Unique Tags
+                  </span>
+                </div>
+                <div>
+                  <span className="stat-value">
+                    {taxonomy?.folders.length ?? 0}
+                  </span>
+                  <span className="block text-[10px] text-muted mt-1">
+                    Folders
+                  </span>
+                </div>
+                <div>
+                  <span className="stat-value">
+                    {taxonomy?.link_targets.length ?? 0}
+                  </span>
+                  <span className="block text-[10px] text-muted mt-1">
+                    Link Targets
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

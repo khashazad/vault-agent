@@ -83,14 +83,13 @@ describe("TaxonomyPage", () => {
     expect(screen.queryByText("research")).not.toBeInTheDocument();
   });
 
-  it("shows inline vault stats", async () => {
+  it("shows vault stats in sidebar card", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText(/142/)).toBeInTheDocument();
-      expect(screen.getByText(/notes/)).toBeInTheDocument();
-      expect(screen.getByText(/tags/)).toBeInTheDocument();
-      expect(screen.getByText(/folders/)).toBeInTheDocument();
-      expect(screen.getByText(/links/)).toBeInTheDocument();
+      expect(screen.getByText("142")).toBeInTheDocument();
+      expect(screen.getByText("5")).toBeInTheDocument();
+      expect(screen.getByText("4")).toBeInTheDocument();
+      expect(screen.getByText("2")).toBeInTheDocument();
     });
   });
 
