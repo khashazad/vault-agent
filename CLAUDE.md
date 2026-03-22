@@ -47,6 +47,16 @@ Vault Config Flow:
   PUT /vault/config  → persist path in SettingsStore (SQLite)
   GET /vault/config  → read from SettingsStore → app.state.config
 
+Clawdy Inbox Flow:
+  ClawdyService polls copy vault on interval (default 5min)
+    → git pull on copy vault
+    → diff_vaults() compares all .md files between main and copy vault
+    → Creates Changeset with source_type="clawdy" (replace_note, create_note, delete_note)
+    → User reviews in ClawdyInboxPage, approves/rejects per change
+  POST /clawdy/converge/{id}
+    → converge_vaults() syncs rejected changes back to copy vault
+    → git commit + push on copy vault
+
 Changeset Apply (shared across all flows):
   PATCH /changesets/{id}/changes/{change_id} → approve/reject individual changes
   POST /changesets/{id}/apply → write approved changes to vault filesystem
@@ -82,6 +92,9 @@ Changeset Apply (shared across all flows):
 - **`src/migration/registry.py`** — `VaultRegistry` read-only taxonomy lookup. `from_active()` class method loads active taxonomy.
 - **`src/migration/taxonomy.py`** — `import_taxonomy()` validation and conversion; `validate_taxonomy()` checks folders, tag names, link targets.
 - **`src/migration/writer.py`** — `apply_migration()` writes approved notes to target vault; `copy_vault_assets()` copies `.obsidian/` and `Files/`.
+- **`src/clawdy/__init__.py`** — Module init.
+- **`src/clawdy/git.py`** — Git subprocess wrappers: `pull`, `commit`, `push`, `status`, `is_git_repo`.
+- **`src/clawdy/service.py`** — `diff_vaults()`, `create_clawdy_changeset()`, `converge_vaults()`, `ClawdyService` background poller.
 
 ## Tech Stack
 
@@ -140,6 +153,7 @@ React 19 + TypeScript 5.6 + Vite 6 + Tailwind CSS 4 + React Router 7. Catppuccin
   /changesets/:id  → ChangesetDetailPage (split-pane review + feedback)
   /migration       → MigrationPage (migration job dashboard)
   /taxonomy        → TaxonomyPage (vault taxonomy: folders/tags/links)
+  /clawdy         → ClawdyInboxPage (clawdy inbox: config, status, changeset list)
 * → redirect to /connect
 ```
 
@@ -158,6 +172,7 @@ React 19 + TypeScript 5.6 + Vite 6 + Tailwind CSS 4 + React Router 7. Catppuccin
 - **`ChangesetDetailPage`** — Split-pane: diff viewer (left) + feedback annotations (right); draggable divider; cost display; regeneration workflow
 - **`MigrationPage`** — Renders `MigrationDashboard` component
 - **`TaxonomyPage`** — Three-tab taxonomy view (folders/tags/links); hierarchical tag tree; curation modal; vault stats sidebar
+- **`ClawdyInboxPage`** — Clawdy config/status bar; clawdy-filtered changeset list with pagination
 
 ### Shared components
 
@@ -227,6 +242,14 @@ React 19 + TypeScript 5.6 + Vite 6 + Tailwind CSS 4 + React Router 7. Catppuccin
 - `POST /migration/jobs/{id}/resume` — Resume failed job (resets stuck notes)
 - `GET /migration/registry` — Get active taxonomy via VaultRegistry
 
+### Clawdy Inbox
+
+- `GET /clawdy/config` — Current clawdy config (copy vault path, interval, enabled)
+- `PUT /clawdy/config` — Update clawdy config
+- `GET /clawdy/status` — Clawdy service status (last poll, last error, pending count)
+- `POST /clawdy/trigger` — Trigger immediate poll
+- `POST /clawdy/converge/{changeset_id}` — Sync rejected changes back to copy vault, commit and push
+
 ### Changeset lifecycle
 
 - Changesets persisted in SQLite; no automatic expiry
@@ -258,6 +281,9 @@ ZOTERO_LIBRARY_TYPE=user           # Optional — default "user"
 
 ### Additive-only writes
 Two write operations: create note and append section. No modifications to existing prose, no deletions, no moves, no renames. Worst case is an unwanted new note or a bad append, both trivially reverted with `git checkout`. Migration writes go to a separate target vault directory.
+
+### Clawdy write policy
+`replace_note` and `delete_note` operations are available but scoped exclusively to `source_type="clawdy"` changesets. These are needed because OpenClaw may modify or remove files in the copy vault, and convergence must mirror those operations.
 
 ### Direct Anthropic SDK
 No LangChain/LlamaIndex. Single-call synthesis for Zotero, per-note migration calls with prompt caching. The SDK is used directly for both streaming and batch API.
@@ -461,13 +487,17 @@ vault-agent/
 │   │   ├── sync.py            # Annotation → ContentItem conversion
 │   │   ├── orchestrator.py    # Sync coordination
 │   │   └── background.py      # Background cache refresh
-│   └── migration/
+│   ├── migration/
+│   │   ├── __init__.py
+│   │   ├── migrator.py        # Migration engine: estimate, run, batch, resume
+│   │   ├── prompts.py         # Taxonomy-driven LLM prompt builder
+│   │   ├── registry.py        # VaultRegistry: read-only taxonomy lookup
+│   │   ├── taxonomy.py        # import_taxonomy(), validate_taxonomy()
+│   │   └── writer.py          # apply_migration(), copy_vault_assets()
+│   └── clawdy/
 │       ├── __init__.py
-│       ├── migrator.py        # Migration engine: estimate, run, batch, resume
-│       ├── prompts.py         # Taxonomy-driven LLM prompt builder
-│       ├── registry.py        # VaultRegistry: read-only taxonomy lookup
-│       ├── taxonomy.py        # import_taxonomy(), validate_taxonomy()
-│       └── writer.py          # apply_migration(), copy_vault_assets()
+│       ├── git.py             # Git subprocess wrappers
+│       └── service.py         # Vault diffing, changeset creation, convergence, poll service
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py            # Root fixtures: tmp_vault, app_config
@@ -482,14 +512,18 @@ vault-agent/
 │   │   ├── test_agent_cost.py
 │   │   ├── test_zotero_parsing.py
 │   │   ├── test_taxonomy.py
-│   │   └── test_migration_writer.py
+│   │   ├── test_migration_writer.py
+│   │   ├── test_clawdy_git.py
+│   │   └── test_clawdy_service.py
 │   ├── integration/
 │   │   ├── conftest.py        # :memory: store fixtures
 │   │   ├── test_store.py
 │   │   ├── test_vault_io.py
 │   │   ├── test_changeset_apply.py
 │   │   ├── test_vault_map.py
-│   │   └── test_server_routes.py
+│   │   ├── test_server_routes.py
+│   │   ├── test_clawdy_apply.py
+│   │   └── test_clawdy_routes.py
 │   └── e2e/
 │       ├── package.json       # Playwright dependency
 │       ├── playwright.config.ts
@@ -525,7 +559,8 @@ vault-agent/
 │       │   ├── ChangesetsPage.tsx
 │       │   ├── ChangesetDetailPage.tsx
 │       │   ├── MigrationPage.tsx
-│       │   └── TaxonomyPage.tsx
+│       │   ├── TaxonomyPage.tsx
+│       │   └── ClawdyInboxPage.tsx
 │       ├── components/
 │       │   ├── Layout.tsx
 │       │   ├── Sidebar.tsx
