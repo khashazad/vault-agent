@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.clawdy.service import diff_vaults, create_clawdy_changeset
+from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults
 
 
 def _write(vault: Path, rel: str, content: str):
@@ -94,3 +94,41 @@ class TestCreateClawdyChangeset:
         delete = [c for c in cs.changes if c.tool_name == "delete_note"][0]
         assert delete.proposed_content == ""
         assert delete.original_content == "# OnlyMain\n\nContent."
+
+
+class TestConvergeVaults:
+    def test_rejected_replace_copies_main_to_copy(self, main_vault, copy_vault):
+        # A.md was modified in copy; rejecting should restore main's version
+        changes_map = {
+            "Notes/A.md": {"tool_name": "replace_note", "status": "rejected"}
+        }
+        converge_vaults(str(main_vault), str(copy_vault), changes_map)
+        copy_content = (copy_vault / "Notes/A.md").read_text()
+        main_content = (main_vault / "Notes/A.md").read_text()
+        assert copy_content == main_content
+
+    def test_rejected_create_deletes_from_copy(self, main_vault, copy_vault):
+        changes_map = {
+            "Notes/OnlyCopy.md": {"tool_name": "create_note", "status": "rejected"}
+        }
+        converge_vaults(str(main_vault), str(copy_vault), changes_map)
+        assert not (copy_vault / "Notes/OnlyCopy.md").exists()
+
+    def test_rejected_delete_restores_in_copy(self, main_vault, copy_vault):
+        changes_map = {
+            "Notes/OnlyMain.md": {"tool_name": "delete_note", "status": "rejected"}
+        }
+        converge_vaults(str(main_vault), str(copy_vault), changes_map)
+        assert (copy_vault / "Notes/OnlyMain.md").exists()
+        copy_content = (copy_vault / "Notes/OnlyMain.md").read_text()
+        main_content = (main_vault / "Notes/OnlyMain.md").read_text()
+        assert copy_content == main_content
+
+    def test_applied_changes_no_op(self, main_vault, copy_vault):
+        original_copy_content = (copy_vault / "Notes/A.md").read_text()
+        changes_map = {
+            "Notes/A.md": {"tool_name": "replace_note", "status": "applied"}
+        }
+        converge_vaults(str(main_vault), str(copy_vault), changes_map)
+        # Applied changes are already in sync — copy unchanged
+        assert (copy_vault / "Notes/A.md").read_text() == original_copy_content

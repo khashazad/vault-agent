@@ -2,7 +2,6 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-
 from src.agent.diff import generate_diff
 from src.models import Changeset, ProposedChange
 from src.vault import iter_markdown_files
@@ -29,14 +28,12 @@ def diff_vaults(
     main_vault: str, copy_vault: str
 ) -> tuple[list[FileChange], list[FileCreate], list[FileDelete]]:
     main_files: dict[str, str] = {}
-    for _, rel in iter_markdown_files(main_vault):
-        content = Path(main_vault, rel).read_text(encoding="utf-8")
-        main_files[rel] = content
+    for full_path, rel in iter_markdown_files(main_vault):
+        main_files[rel] = full_path.read_text(encoding="utf-8")
 
     copy_files: dict[str, str] = {}
-    for _, rel in iter_markdown_files(copy_vault):
-        content = Path(copy_vault, rel).read_text(encoding="utf-8")
-        copy_files[rel] = content
+    for full_path, rel in iter_markdown_files(copy_vault):
+        copy_files[rel] = full_path.read_text(encoding="utf-8")
 
     modified: list[FileChange] = []
     created: list[FileCreate] = []
@@ -116,3 +113,39 @@ def create_clawdy_changeset(
         source_type="clawdy",
         created_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+# Sync the copy vault to match the main vault for rejected changes.
+#
+# For rejected changes, overwrites copy vault files with main vault content.
+# For applied changes, no action needed (main vault already updated).
+#
+# Args:
+#     main_vault: Path to the main vault.
+#     copy_vault: Path to the copy vault.
+#     changes_map: Dict of {relative_path: {"tool_name": str, "status": str}}.
+def converge_vaults(
+    main_vault: str,
+    copy_vault: str,
+    changes_map: dict[str, dict[str, str]],
+) -> None:
+    for rel_path, info in changes_map.items():
+        if info["status"] != "rejected":
+            continue
+
+        main_file = Path(main_vault, rel_path)
+        copy_file = Path(copy_vault, rel_path)
+
+        if info["tool_name"] == "replace_note":
+            # Rejected modification: restore main's version in copy
+            copy_file.write_text(main_file.read_text(encoding="utf-8"), encoding="utf-8")
+
+        elif info["tool_name"] == "create_note":
+            # Rejected creation: delete from copy
+            if copy_file.exists():
+                copy_file.unlink()
+
+        elif info["tool_name"] == "delete_note":
+            # Rejected deletion: restore file in copy from main
+            copy_file.parent.mkdir(parents=True, exist_ok=True)
+            copy_file.write_text(main_file.read_text(encoding="utf-8"), encoding="utf-8")
