@@ -7,6 +7,7 @@ import {
   requestChanges,
   regenerateChangeset,
   deleteChangeset,
+  convergeClawdy,
 } from "../api/client";
 import { formatError, formatTokens } from "../utils";
 import { ErrorAlert } from "../components/ErrorAlert";
@@ -111,6 +112,7 @@ export function ChangesetDetailPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [converging, setConverging] = useState(false);
   const [splitPercent, setSplitPercent] = useState(72);
   const dragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -139,8 +141,27 @@ export function ChangesetDetailPage() {
   }, [changesetId, loadDetail]);
 
   function backToList() {
-    navigate("/changesets");
+    if (detail?.source_type === "clawdy") {
+      navigate("/clawdy");
+    } else {
+      navigate("/changesets");
+    }
   }
+
+  const handleConverge = useCallback(async () => {
+    if (!changesetId) return;
+    setConverging(true);
+    setError(null);
+    try {
+      await convergeClawdy(changesetId);
+      const cs = await fetchChangeset(changesetId);
+      setDetail(cs);
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setConverging(false);
+    }
+  }, [changesetId]);
 
   const handleRequestChanges = useCallback(async () => {
     if (!changesetId || annotations.length === 0) return;
@@ -215,6 +236,15 @@ export function ChangesetDetailPage() {
   const isInteractive =
     detail?.status === "pending" || detail?.status === "partially_applied";
   const showRegenerate = detail?.status === "revision_requested";
+  const isClawdy = detail?.source_type === "clawdy";
+  const allResolved = detail?.changes.every(
+    (c) => c.status === "applied" || c.status === "rejected",
+  );
+  const showConverge =
+    isClawdy &&
+    allResolved &&
+    detail?.status !== "applied" &&
+    detail?.status !== "rejected";
 
   return (
     <div className="flex flex-col gap-4 flex-1 min-h-0 py-6 px-8">
@@ -261,6 +291,15 @@ export function ChangesetDetailPage() {
               <div className="ml-auto">
                 <CostDisplay usage={usage} />
               </div>
+            )}
+            {showConverge && (
+              <button
+                onClick={handleConverge}
+                disabled={converging}
+                className="text-xs bg-green/15 text-green border border-green/30 rounded px-3 py-1 cursor-pointer hover:bg-green/25 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {converging ? "Syncing..." : "Finalize & Sync"}
+              </button>
             )}
             <div className="relative">
               <button
