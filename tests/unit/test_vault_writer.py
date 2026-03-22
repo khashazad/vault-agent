@@ -1,5 +1,5 @@
 from src.models import UpdateNoteInput
-from src.vault.writer import compute_update
+from src.vault.writer import compute_update, replace_note, delete_note
 
 
 SAMPLE_NOTE = """---
@@ -92,3 +92,43 @@ class TestComputeUpdate:
         result = compute_update(note, inp)
         assert "More content." in result
         assert "Some content." in result
+
+
+class TestReplaceNote:
+    def test_replaces_existing_file(self, tmp_vault):
+        vault = str(tmp_vault)
+        path = "Projects/My Project.md"
+        new_content = "# Replaced\n\nNew content."
+        result = replace_note(vault, path, new_content)
+        assert "Replaced" in result
+        full = tmp_vault / path
+        assert full.read_text() == new_content
+
+    def test_raises_on_missing_file(self, tmp_vault):
+        import pytest
+        with pytest.raises(FileNotFoundError):
+            replace_note(str(tmp_vault), "Nonexistent.md", "content")
+
+    def test_rejects_path_traversal(self, tmp_vault):
+        import pytest
+        with pytest.raises(ValueError, match="escapes"):
+            replace_note(str(tmp_vault), "../outside.md", "content")
+
+
+class TestDeleteNote:
+    def test_deletes_existing_file(self, tmp_vault):
+        vault = str(tmp_vault)
+        path = "daily/2024-01-01.md"
+        result = delete_note(vault, path)
+        assert "Deleted" in result
+        assert not (tmp_vault / path).exists()
+
+    def test_raises_on_missing_file(self, tmp_vault):
+        import pytest
+        with pytest.raises(FileNotFoundError):
+            delete_note(str(tmp_vault), "Nonexistent.md")
+
+    def test_rejects_path_traversal(self, tmp_vault):
+        import pytest
+        with pytest.raises(ValueError, match="escapes"):
+            delete_note(str(tmp_vault), "../outside.md")
