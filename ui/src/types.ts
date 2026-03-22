@@ -40,7 +40,7 @@ export interface ProposedChange {
   original_content: string | null;
   proposed_content: string;
   diff: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "applied";
 }
 
 export interface RoutingInfo {
