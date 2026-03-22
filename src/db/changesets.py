@@ -22,15 +22,12 @@ class ChangesetStore:
                 id         TEXT PRIMARY KEY,
                 status     TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL,
-                data       TEXT NOT NULL,
-                source_type TEXT NOT NULL DEFAULT 'web'
+                data       TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_changesets_status
                 ON changesets(status);
             CREATE INDEX IF NOT EXISTS idx_changesets_created_at
                 ON changesets(created_at);
-            CREATE INDEX IF NOT EXISTS idx_changesets_source_type
-                ON changesets(source_type);
         """)
         self._conn.commit()
         self._maybe_add_source_type_column()
