@@ -24,6 +24,7 @@ export default defineConfig({
           if (req.headers.accept?.includes("text/html")) return "/index.html";
         },
       },
+      "/clawdy": "http://localhost:3456",
     },
   },
   preview: {
