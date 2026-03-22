@@ -57,6 +57,10 @@ src-tauri/Cargo.lock
 
 # AI artifacts
 .ai/
+.superpowers/
+
+# Git worktrees
+.worktrees/
 
 # Playwright test results
 tests/e2e/test-results/
