@@ -331,3 +331,52 @@ class TestMigrationRoutes:
         called_target = mock_create.call_args[0][1]
         assert "~" not in called_target
         assert called_target.startswith("/")
+
+
+class TestVaultTaxonomyRoutes:
+    async def test_get_taxonomy(self, client):
+        resp = await client.get("/vault/taxonomy")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "folders" in data
+        assert "tags" in data
+        assert "tag_hierarchy" in data
+        assert "link_targets" in data
+        assert data["total_notes"] == 4
+
+    async def test_get_taxonomy_has_tags(self, client):
+        resp = await client.get("/vault/taxonomy")
+        data = resp.json()
+        tag_names = {t["name"] for t in data["tags"]}
+        assert "project" in tag_names
+        assert "ml" in tag_names
+
+    async def test_apply_rename_tag(self, client):
+        resp = await client.post(
+            "/vault/taxonomy/apply",
+            json={"operations": [{"op": "rename_tag", "target": "ml", "value": "machine-learning"}]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "changeset_id" in data
+        assert data["change_count"] >= 1
+
+        # Verify changeset was created
+        cs_resp = await client.get(f"/changesets/{data['changeset_id']}")
+        assert cs_resp.status_code == 200
+
+    async def test_apply_rename_link(self, client):
+        resp = await client.post(
+            "/vault/taxonomy/apply",
+            json={"operations": [{"op": "rename_link", "target": "Machine Learning", "value": "ML Overview"}]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["change_count"] >= 1
+
+    async def test_apply_no_ops_returns_400(self, client):
+        resp = await client.post(
+            "/vault/taxonomy/apply",
+            json={"operations": []},
+        )
+        assert resp.status_code == 400

@@ -33,6 +33,8 @@ from src.models import (
     PaperCacheStatusResponse,
     RefreshResponse,
     RejectResponse,
+    TaxonomyCurationRequest,
+    TaxonomyCurationResponse,
     TaxonomyProposal,
     VaultConfigRequest,
     VaultConfigResponse,
@@ -40,6 +42,7 @@ from src.models import (
     VaultHistoryResponse,
     VaultPickerResponse,
     VaultMapResponse,
+    VaultTaxonomy,
     ZoteroAnnotationItem,
     ZoteroCollection,
     ZoteroCollectionsResponse,
@@ -52,6 +55,7 @@ from src.models import (
     ZoteroSyncResponse,
 )
 from src.vault.reader import build_vault_map
+from src.vault.taxonomy import build_vault_taxonomy, apply_taxonomy_curation
 from src.agent.agent import (
     generate_zotero_note,
     submit_zotero_note_batch,
@@ -250,6 +254,41 @@ async def vault_map(request: Request):
     config = _get_config(request)
     vm = build_vault_map(config.vault_path)
     return {"totalNotes": vm.total_notes, "notes": vm.notes}
+
+
+# Return vault taxonomy with folders, tags, and link targets.
+@app.get(
+    "/vault/taxonomy",
+    response_model=VaultTaxonomy,
+    tags=["Vault"],
+    summary="Get vault taxonomy",
+)
+async def vault_taxonomy(request: Request):
+    _require_vault(request)
+    config = _get_config(request)
+    return build_vault_taxonomy(config.vault_path)
+
+
+# Apply taxonomy curation operations, returning a changeset for review.
+@app.post(
+    "/vault/taxonomy/apply",
+    response_model=TaxonomyCurationResponse,
+    tags=["Vault"],
+    summary="Apply taxonomy curation",
+)
+async def vault_taxonomy_apply(request: Request, body: TaxonomyCurationRequest):
+    _require_vault(request)
+    if not body.operations:
+        raise HTTPException(status_code=400, detail="No operations provided")
+    config = _get_config(request)
+    changeset = apply_taxonomy_curation(config.vault_path, body.operations)
+    if not changeset.changes:
+        raise HTTPException(status_code=400, detail="No notes affected by these operations")
+    get_changeset_store().set(changeset)
+    return TaxonomyCurationResponse(
+        changeset_id=changeset.id,
+        change_count=len(changeset.changes),
+    )
 
 
 # Return current vault configuration.
