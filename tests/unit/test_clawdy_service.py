@@ -1,8 +1,10 @@
+import asyncio
 from pathlib import Path
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
-from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults
+from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults, ClawdyService
 
 
 def _write(vault: Path, rel: str, content: str):
@@ -132,3 +134,84 @@ class TestConvergeVaults:
         converge_vaults(str(main_vault), str(copy_vault), changes_map)
         # Applied changes are already in sync — copy unchanged
         assert (copy_vault / "Notes/A.md").read_text() == original_copy_content
+
+
+class TestClawdyServiceInit:
+    def test_init_with_defaults(self):
+        settings = MagicMock()
+        settings.get.return_value = None
+        svc = ClawdyService(settings_store=settings, changeset_store=MagicMock())
+        assert svc.enabled is False
+        assert svc.copy_vault_path is None
+        assert svc.interval == 300
+
+    def test_init_loads_config(self):
+        settings = MagicMock()
+        settings.get.side_effect = lambda k: {
+            "clawdy_copy_vault_path": "/some/path",
+            "clawdy_interval": "60",
+            "clawdy_enabled": "true",
+        }.get(k)
+        svc = ClawdyService(settings_store=settings, changeset_store=MagicMock())
+        assert svc.copy_vault_path == "/some/path"
+        assert svc.interval == 60
+        assert svc.enabled is True
+
+
+class TestClawdyServicePoll:
+    def test_poll_skips_when_disabled(self):
+        settings = MagicMock()
+        settings.get.return_value = None
+        cs_store = MagicMock()
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = False
+        svc.poll(main_vault="/main")
+        cs_store.set.assert_not_called()
+
+    def test_poll_skips_when_no_copy_vault(self):
+        settings = MagicMock()
+        settings.get.return_value = None
+        cs_store = MagicMock()
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = None
+        svc.poll(main_vault="/main")
+        cs_store.set.assert_not_called()
+
+    @patch("src.clawdy.service.pull")
+    @patch("src.clawdy.service.create_clawdy_changeset")
+    def test_poll_creates_changeset_on_changes(self, mock_create, mock_pull):
+        from tests.factories import make_changeset
+        mock_cs = make_changeset(source_type="clawdy", items=[], routing=None)
+        mock_create.return_value = mock_cs
+        mock_pull.return_value = ""
+
+        settings = MagicMock()
+        settings.get.return_value = None
+        cs_store = MagicMock()
+        cs_store.get_all_filtered.return_value = ([], 0)
+
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = "/copy"
+        svc.poll(main_vault="/main")
+
+        cs_store.set.assert_called_once_with(mock_cs)
+
+    @patch("src.clawdy.service.pull")
+    @patch("src.clawdy.service.create_clawdy_changeset")
+    def test_poll_skips_when_pending_changeset_exists(self, mock_create, mock_pull):
+        from tests.factories import make_changeset
+        mock_pull.return_value = ""
+
+        settings = MagicMock()
+        settings.get.return_value = None
+        cs_store = MagicMock()
+        cs_store.get_all_filtered.return_value = ([make_changeset()], 1)
+
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = "/copy"
+        svc.poll(main_vault="/main")
+
+        mock_create.assert_not_called()

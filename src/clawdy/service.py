@@ -1,8 +1,13 @@
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
 from src.agent.diff import generate_diff
+from src.clawdy.git import pull
+from src.db.changesets import ChangesetStore
+from src.db.settings import SettingsStore
 from src.models import Changeset, ProposedChange
 from src.vault import iter_markdown_files
 
@@ -149,3 +154,79 @@ def converge_vaults(
             # Rejected deletion: restore file in copy from main
             copy_file.parent.mkdir(parents=True, exist_ok=True)
             copy_file.write_text(main_file.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+# Background service that polls the copy vault and creates changesets.
+class ClawdyService:
+    # Initialize from SettingsStore config.
+    #
+    # Args:
+    #     settings_store: SettingsStore for reading config.
+    #     changeset_store: ChangesetStore for persisting changesets.
+    def __init__(self, settings_store: SettingsStore, changeset_store: ChangesetStore):
+        self._settings = settings_store
+        self._changeset_store = changeset_store
+        self._task: asyncio.Task | None = None
+        self.last_poll: str | None = None
+        self.last_error: str | None = None
+
+        self.copy_vault_path = self._settings.get("clawdy_copy_vault_path")
+        interval_str = self._settings.get("clawdy_interval")
+        self.interval = int(interval_str) if interval_str else 300
+        enabled_str = self._settings.get("clawdy_enabled")
+        self.enabled = enabled_str == "true" if enabled_str else False
+
+    # Run a single poll cycle: pull, diff, create changeset.
+    #
+    # Args:
+    #     main_vault: Path to the main vault.
+    def poll(self, main_vault: str) -> None:
+        if not self.enabled or not self.copy_vault_path:
+            return
+
+        # Check for pending clawdy changeset
+        pending, count = self._changeset_store.get_all_filtered(
+            status="pending", source_type="clawdy", limit=1
+        )
+        if count > 0:
+            logger.debug("clawdy: skipping poll, pending changeset exists")
+            return
+
+        try:
+            pull(self.copy_vault_path)
+        except Exception as e:
+            self.last_error = str(e)
+            logger.warning("clawdy: git pull failed: %s", e)
+            return
+
+        try:
+            cs = create_clawdy_changeset(main_vault, self.copy_vault_path)
+            if cs:
+                self._changeset_store.set(cs)
+                logger.info("clawdy: created changeset %s with %d changes", cs.id, len(cs.changes))
+            self.last_error = None
+            self.last_poll = datetime.now(timezone.utc).isoformat()
+        except Exception as e:
+            self.last_error = str(e)
+            logger.exception("clawdy: diff/changeset creation failed")
+
+    # Start the background poll loop.
+    #
+    # Args:
+    #     main_vault: Path to the main vault.
+    async def start(self, main_vault: str) -> None:
+        self._task = asyncio.create_task(self._poll_loop(main_vault))
+
+    # Stop the background poll loop.
+    def stop(self) -> None:
+        if self._task:
+            self._task.cancel()
+            self._task = None
+
+    async def _poll_loop(self, main_vault: str) -> None:
+        while True:
+            try:
+                self.poll(main_vault)
+            except Exception:
+                logger.exception("clawdy: unexpected error in poll loop")
+            await asyncio.sleep(self.interval)
