@@ -90,7 +90,7 @@ function TagTreeNode({
       <div
         className={`flex items-center gap-1.5 py-1 px-2 rounded transition-colors cursor-default ${
           isHighlighted
-            ? "bg-accent/15 ring-1 ring-accent/40"
+            ? "bg-orange/10 ring-1 ring-orange/40"
             : "hover:bg-elevated/50"
         }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -370,7 +370,7 @@ export function TaxonomyPage() {
                       key={f}
                       className={`flex items-center gap-2 py-1.5 px-2 rounded transition-colors ${
                         isHighlighted
-                          ? "bg-accent/15 ring-1 ring-accent/40"
+                          ? "bg-orange/10 ring-1 ring-orange/40"
                           : "hover:bg-elevated/50"
                       }`}
                       onContextMenu={(e) => handleContextMenu(e, f, "folder")}
@@ -413,7 +413,7 @@ export function TaxonomyPage() {
                       key={t.name}
                       className={`flex items-center justify-between py-1.5 px-2 rounded transition-colors ${
                         isHighlighted
-                          ? "bg-accent/15 ring-1 ring-accent/40"
+                          ? "bg-orange/10 ring-1 ring-orange/40"
                           : "hover:bg-elevated/50"
                       }`}
                       onContextMenu={(e) => handleContextMenu(e, t.name, "tag")}
@@ -451,7 +451,7 @@ export function TaxonomyPage() {
                         key={lt.title}
                         className={`flex items-center justify-between py-1.5 px-2 rounded transition-colors ${
                           isHighlighted
-                            ? "bg-accent/15 ring-1 ring-accent/40"
+                            ? "bg-orange/10 ring-1 ring-orange/40"
                             : "hover:bg-elevated/50"
                         }`}
                         onContextMenu={(e) =>
