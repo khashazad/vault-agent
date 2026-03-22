@@ -62,12 +62,14 @@ function TagTreeNode({
   expanded,
   onToggle,
   filter,
+  onContextMenu,
 }: {
   node: TagNode;
   depth: number;
   expanded: Set<string>;
   onToggle: (name: string) => void;
   filter: string;
+  onContextMenu: (e: React.MouseEvent, name: string) => void;
 }) {
   const hasChildren = node.children.length > 0;
   const isExpanded = expanded.has(node.name);
@@ -84,6 +86,7 @@ function TagTreeNode({
       <div
         className="flex items-center gap-1.5 py-1 px-2 rounded hover:bg-elevated/50 transition-colors cursor-default"
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onContextMenu={(e) => onContextMenu(e, node.name)}
       >
         {hasChildren ? (
           <button
@@ -115,6 +118,7 @@ function TagTreeNode({
             expanded={expanded}
             onToggle={onToggle}
             filter={filter}
+            onContextMenu={onContextMenu}
           />
         ))}
     </>
@@ -153,6 +157,14 @@ export function TaxonomyPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set());
 
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    target: string;
+    type: "tag" | "folder" | "link";
+  } | null>(null);
+
   // Modal state
   const [modalOp, setModalOp] = useState<ModalOp | null>(null);
   const [modalTarget, setModalTarget] = useState("");
@@ -176,6 +188,15 @@ export function TaxonomyPage() {
   useEffect(() => {
     scan();
   }, [scan]);
+
+  // Dismiss context menu on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setContextMenu(null);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const toggleTag = useCallback((name: string) => {
     setExpandedTags((prev) => {
@@ -223,6 +244,14 @@ export function TaxonomyPage() {
     }
   }, [modalOp, modalTarget, modalValue, closeModal, navigate]);
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, target: string, type: "tag" | "folder" | "link") => {
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY, target, type });
+    },
+    [],
+  );
+
   // Filter tags
   const filteredTags =
     taxonomy?.tags.filter((t) =>
@@ -253,9 +282,9 @@ export function TaxonomyPage() {
   const TABS: Tab[] = ["folders", "tags", "links"];
 
   return (
-    <div className="flex flex-col gap-5 py-6 px-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Header bar */}
+      <div className="px-6 py-4 flex items-center justify-between shrink-0">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
           Taxonomy Management
         </h2>
@@ -269,29 +298,56 @@ export function TaxonomyPage() {
         </button>
       </div>
 
-      {error && <ErrorAlert message={error} />}
+      {error && (
+        <div className="px-6 shrink-0">
+          <ErrorAlert message={error} />
+        </div>
+      )}
 
       {/* Tab bar */}
-      <div className="flex gap-1 bg-surface rounded-lg p-1 self-start">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setActiveTab(t)}
-            className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer border-none ${
-              activeTab === t
-                ? "bg-accent/15 text-accent"
-                : "bg-transparent text-muted hover:text-text"
-            }`}
-          >
-            {TAB_LABELS[t]}
-          </button>
-        ))}
+      <div className="px-6 shrink-0">
+        <div className="flex gap-1 bg-surface rounded-lg p-1 self-start w-fit">
+          {TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setActiveTab(t)}
+              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer border-none ${
+                activeTab === t
+                  ? "bg-accent/15 text-accent"
+                  : "bg-transparent text-muted hover:text-text"
+              }`}
+            >
+              {TAB_LABELS[t]}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Main grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Left panel — 2 cols */}
-        <div className="md:col-span-2 glass-card p-4 flex flex-col gap-3">
+      {/* Inline stats bar */}
+      {taxonomy && (
+        <div className="flex items-center gap-6 px-6 py-2 text-[11px] text-muted shrink-0">
+          <span>
+            <strong className="text-text">{taxonomy.total_notes}</strong> notes
+          </span>
+          <span>
+            <strong className="text-text">{taxonomy.tags.length}</strong> tags
+          </span>
+          <span>
+            <strong className="text-text">{taxonomy.folders.length}</strong>{" "}
+            folders
+          </span>
+          <span>
+            <strong className="text-text">
+              {taxonomy.link_targets.length}
+            </strong>{" "}
+            links
+          </span>
+        </div>
+      )}
+
+      {/* Main content — full width, fills remaining height */}
+      <div className="flex-1 overflow-y-auto px-6 pb-4 min-h-0">
+        <div className="glass-card p-4 flex flex-col gap-3 min-h-full">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
             {activeTab === "folders"
               ? "Folder Paths"
@@ -311,13 +367,14 @@ export function TaxonomyPage() {
             />
           )}
 
-          <div className="flex flex-col gap-0.5 max-h-[480px] overflow-y-auto">
+          <div className="flex flex-col gap-0.5">
             {/* Folders */}
             {activeTab === "folders" &&
               taxonomy?.folders.map((f) => (
                 <div
                   key={f}
                   className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-elevated/50 transition-colors"
+                  onContextMenu={(e) => handleContextMenu(e, f, "folder")}
                 >
                   <FolderIcon />
                   <span className="text-xs font-mono text-text">{f}</span>
@@ -335,6 +392,7 @@ export function TaxonomyPage() {
                   expanded={expandedTags}
                   onToggle={toggleTag}
                   filter=""
+                  onContextMenu={(e, name) => handleContextMenu(e, name, "tag")}
                 />
               ))}
 
@@ -345,6 +403,7 @@ export function TaxonomyPage() {
                 <div
                   key={t.name}
                   className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-elevated/50 transition-colors"
+                  onContextMenu={(e) => handleContextMenu(e, t.name, "tag")}
                 >
                   <span className="text-xs font-mono text-text">{t.name}</span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
@@ -353,7 +412,7 @@ export function TaxonomyPage() {
                 </div>
               ))}
 
-            {/* Tags — hierarchy with filter */}
+            {/* Tags — empty filter state */}
             {activeTab === "tags" &&
               searchQuery &&
               filteredTags.length === 0 && (
@@ -371,6 +430,9 @@ export function TaxonomyPage() {
                   <div
                     key={lt.title}
                     className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-elevated/50 transition-colors"
+                    onContextMenu={(e) =>
+                      handleContextMenu(e, lt.title, "link")
+                    }
                   >
                     <span className="text-xs text-text">{lt.title}</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
@@ -380,102 +442,90 @@ export function TaxonomyPage() {
                 ))}
           </div>
         </div>
+      </div>
 
-        {/* Right panel */}
-        <div className="flex flex-col gap-4">
-          {/* Vault overview */}
-          <div className="glass-card p-4 flex flex-col gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-              Vault Overview
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="stat-value">{taxonomy?.total_notes ?? 0}</span>
-                <span className="block text-[10px] text-muted mt-1">
-                  Total Notes
-                </span>
-              </div>
-              <div>
-                <span className="stat-value">{taxonomy?.tags.length ?? 0}</span>
-                <span className="block text-[10px] text-muted mt-1">
-                  Unique Tags
-                </span>
-              </div>
-              <div>
-                <span className="stat-value">
-                  {taxonomy?.folders.length ?? 0}
-                </span>
-                <span className="block text-[10px] text-muted mt-1">
-                  Folders
-                </span>
-              </div>
-              <div>
-                <span className="stat-value">
-                  {taxonomy?.link_targets.length ?? 0}
-                </span>
-                <span className="block text-[10px] text-muted mt-1">
-                  Link Targets
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Curation actions */}
-          <div className="glass-card p-4 flex flex-col gap-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-              Curation Actions
-            </h3>
-            <div className="flex flex-col gap-2">
-              {activeTab === "tags" && (
-                <>
-                  <button
-                    onClick={() => openModal("rename_tag")}
-                    className="btn-gradient text-xs py-2 px-4 text-left"
-                  >
-                    Rename Tag
-                  </button>
-                  <button
-                    onClick={() => openModal("merge_tags")}
-                    className="btn-gradient text-xs py-2 px-4 text-left"
-                  >
-                    Merge Tags
-                  </button>
-                  <button
-                    onClick={() => openModal("delete_tag")}
-                    className="btn-gradient text-xs py-2 px-4 text-left"
-                  >
-                    Delete Tag
-                  </button>
-                </>
-              )}
-              {activeTab === "folders" && (
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu(null);
+          }}
+        >
+          <div
+            className="fixed z-50 bg-surface border border-white/10 rounded-lg shadow-xl py-1 min-w-[160px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {contextMenu.type === "tag" && (
+              <>
                 <button
-                  onClick={() => openModal("rename_folder")}
-                  className="btn-gradient text-xs py-2 px-4 text-left"
+                  className="w-full text-left px-3 py-1.5 text-xs text-text hover:bg-elevated/50 bg-transparent border-none cursor-pointer"
+                  onClick={() => {
+                    openModal("rename_tag", contextMenu.target);
+                    setContextMenu(null);
+                  }}
                 >
-                  Rename Folder
+                  Rename Tag
                 </button>
-              )}
-              {activeTab === "links" && (
-                <>
-                  <button
-                    onClick={() => openModal("rename_link")}
-                    className="btn-gradient text-xs py-2 px-4 text-left"
-                  >
-                    Rename Link
-                  </button>
-                  <button
-                    onClick={() => openModal("merge_links")}
-                    className="btn-gradient text-xs py-2 px-4 text-left"
-                  >
-                    Merge Links
-                  </button>
-                </>
-              )}
-            </div>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-text hover:bg-elevated/50 bg-transparent border-none cursor-pointer"
+                  onClick={() => {
+                    openModal("merge_tags", contextMenu.target);
+                    setContextMenu(null);
+                  }}
+                >
+                  Merge Tags
+                </button>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-red hover:bg-elevated/50 bg-transparent border-none cursor-pointer"
+                  onClick={() => {
+                    openModal("delete_tag", contextMenu.target);
+                    setContextMenu(null);
+                  }}
+                >
+                  Delete Tag
+                </button>
+              </>
+            )}
+            {contextMenu.type === "folder" && (
+              <button
+                className="w-full text-left px-3 py-1.5 text-xs text-text hover:bg-elevated/50 bg-transparent border-none cursor-pointer"
+                onClick={() => {
+                  openModal("rename_folder", contextMenu.target);
+                  setContextMenu(null);
+                }}
+              >
+                Rename Folder
+              </button>
+            )}
+            {contextMenu.type === "link" && (
+              <>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-text hover:bg-elevated/50 bg-transparent border-none cursor-pointer"
+                  onClick={() => {
+                    openModal("rename_link", contextMenu.target);
+                    setContextMenu(null);
+                  }}
+                >
+                  Rename Link
+                </button>
+                <button
+                  className="w-full text-left px-3 py-1.5 text-xs text-text hover:bg-elevated/50 bg-transparent border-none cursor-pointer"
+                  onClick={() => {
+                    openModal("merge_links", contextMenu.target);
+                    setContextMenu(null);
+                  }}
+                >
+                  Merge Links
+                </button>
+              </>
+            )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Curation modal */}
       {modalOp && (
