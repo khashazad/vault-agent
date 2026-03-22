@@ -1,4 +1,8 @@
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+from .migration import TagNode
 
 
 class VaultNoteSummary(BaseModel):
@@ -56,3 +60,63 @@ class VaultHistoryEntry(BaseModel):
 
 class VaultHistoryResponse(BaseModel):
     vaults: list[VaultHistoryEntry] = Field(description="Previously opened vaults")
+
+
+# Tag name with usage count across vault notes.
+class TagInfo(BaseModel):
+    name: str = Field(description="Full tag name e.g. 'research/ai'")
+    count: int = Field(description="Number of notes using this tag")
+
+
+# Wikilink target with usage count.
+class LinkTargetInfo(BaseModel):
+    title: str = Field(description="Wikilink target text")
+    count: int = Field(description="Usage count across vault")
+
+
+# Full vault taxonomy: folders, tags, link targets.
+class VaultTaxonomy(BaseModel):
+    folders: list[str] = Field(description="Unique folder paths, sorted")
+    tags: list[TagInfo] = Field(description="Flat tag list with counts")
+    tag_hierarchy: list[TagNode] = Field(
+        description="Tags grouped into tree via slash separators"
+    )
+    link_targets: list[LinkTargetInfo] = Field(
+        description="Wikilink targets with usage counts"
+    )
+    total_notes: int = Field(description="Total notes scanned")
+
+
+# Single curation operation on a tag, folder, or link target.
+class TaxonomyCurationOp(BaseModel):
+    op: Literal[
+        "rename_tag", "merge_tags", "delete_tag",
+        "rename_folder", "move_folder", "delete_folder",
+        "rename_link", "merge_links", "delete_link",
+    ] = Field(description="Curation operation type")
+    target: str = Field(description="Tag, folder, or link target to operate on")
+    value: str | None = Field(
+        default=None, description="New name (rename) or merge destination"
+    )
+
+    @model_validator(mode="after")
+    def _validate_value_for_op(self) -> "TaxonomyCurationOp":
+        delete_ops = {"delete_tag", "delete_folder", "delete_link"}
+        if self.op in delete_ops and self.value is not None:
+            raise ValueError(f"'value' must be None for {self.op}")
+        if self.op not in delete_ops and not self.value:
+            raise ValueError(f"'value' is required for {self.op}")
+        return self
+
+
+# Request body for taxonomy curation endpoint.
+class TaxonomyCurationRequest(BaseModel):
+    operations: list[TaxonomyCurationOp] = Field(
+        description="List of curation operations to apply"
+    )
+
+
+# Response from taxonomy curation endpoint.
+class TaxonomyCurationResponse(BaseModel):
+    changeset_id: str = Field(description="ID of the generated changeset")
+    change_count: int = Field(description="Number of notes affected")

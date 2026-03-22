@@ -1,9 +1,12 @@
 import type {
   Changeset,
   ChangesetSummary,
+  LinkTargetInfo,
   ProposedChange,
   ContentItem,
   PassageAnnotation,
+  TagInfo,
+  VaultTaxonomy,
   ZoteroPaperSummary,
   ZoteroAnnotationItem,
   ZoteroCollection,
@@ -131,6 +134,49 @@ export function makeCollection(
     parent_collection: null,
     num_items: 5,
     num_collections: 0,
+    ...overrides,
+  };
+}
+
+export function makeTagInfo(overrides?: Partial<TagInfo>): TagInfo {
+  return { name: "research", count: 10, ...overrides };
+}
+
+export function makeLinkTargetInfo(
+  overrides?: Partial<LinkTargetInfo>,
+): LinkTargetInfo {
+  return { title: "Machine Learning", count: 5, ...overrides };
+}
+
+export function makeVaultTaxonomy(
+  overrides?: Partial<VaultTaxonomy>,
+): VaultTaxonomy {
+  return {
+    folders: ["Papers", "Topics", "Projects", "daily"],
+    tags: [
+      makeTagInfo({ name: "research", count: 15 }),
+      makeTagInfo({ name: "research/ai", count: 8 }),
+      makeTagInfo({ name: "research/ml", count: 5 }),
+      makeTagInfo({ name: "paper", count: 20 }),
+      makeTagInfo({ name: "daily", count: 45 }),
+    ],
+    tag_hierarchy: [
+      { name: "daily", children: [], description: null },
+      { name: "paper", children: [], description: null },
+      {
+        name: "research",
+        children: [
+          { name: "ai", children: [], description: null },
+          { name: "ml", children: [], description: null },
+        ],
+        description: null,
+      },
+    ],
+    link_targets: [
+      makeLinkTargetInfo({ title: "Machine Learning", count: 12 }),
+      makeLinkTargetInfo({ title: "Projects/My Project", count: 3 }),
+    ],
+    total_notes: 142,
     ...overrides,
   };
 }

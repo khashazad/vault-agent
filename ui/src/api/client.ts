@@ -6,11 +6,14 @@ import type {
   MigrationNote,
   MigrationNotesResponse,
   MigrationRegistry,
+  TaxonomyCurationOp,
+  TaxonomyCurationResponse,
   TokenUsage,
   TaxonomyProposal,
   VaultConfigResponse,
   VaultHistoryEntry,
   VaultPickerResponse,
+  VaultTaxonomy,
   ZoteroStatus,
   ZoteroPapersResponse,
   ZoteroPaperAnnotationsResponse,
@@ -370,4 +373,20 @@ export function retryMigrationNote(
 
 export function fetchMigrationRegistry(): Promise<MigrationRegistry> {
   return fetchJSON(`${BASE}/migration/registry`);
+}
+
+// --- Vault taxonomy API ---
+
+export function fetchVaultTaxonomy(): Promise<VaultTaxonomy> {
+  return fetchJSON(`${BASE}/vault/taxonomy`);
+}
+
+export function applyTaxonomyCuration(
+  operations: TaxonomyCurationOp[],
+): Promise<TaxonomyCurationResponse> {
+  return fetchJSON(`${BASE}/vault/taxonomy/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ operations }),
+  });
 }

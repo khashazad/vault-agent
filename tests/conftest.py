@@ -21,7 +21,7 @@ def tmp_vault(tmp_path: Path) -> Path:
         "Topics/Machine Learning.md": (
             "---\ntags: [topic, ml]\n---\n\n"
             "# Machine Learning\n\n"
-            "A broad topic note.\n\n"
+            "A broad topic note about #research/ai.\n\n"
             "## Key Concepts\n\n"
             "- Supervised learning\n- Unsupervised learning\n\n"
             "## Related\n\n[[Projects/My Project]]\n"
