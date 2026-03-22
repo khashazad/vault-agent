@@ -24,7 +24,7 @@ def tmp_vault(tmp_path: Path) -> Path:
             "A broad topic note about #research/ai.\n\n"
             "## Key Concepts\n\n"
             "- Supervised learning\n- Unsupervised learning\n\n"
-            "## Related\n\n[[Projects/My Project]]\n"
+            "## Related\n\n[[Projects/My Project]]\n\n![[diagram.png]]\n"
         ),
         "Papers/Some Paper.md": (
             "---\ntags: [source/paper]\ncreated: 2024-06-15\n"

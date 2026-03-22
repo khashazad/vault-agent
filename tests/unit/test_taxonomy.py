@@ -152,3 +152,11 @@ class TestBuildVaultTaxonomy:
         taxonomy = build_vault_taxonomy(str(tmp_vault))
         link_map = {lt.title: lt.count for lt in taxonomy.link_targets}
         assert link_map["Machine Learning"] >= 1
+
+    def test_image_embeds_excluded_from_link_targets(self, tmp_vault):
+        taxonomy = build_vault_taxonomy(str(tmp_vault))
+        link_titles = {lt.title for lt in taxonomy.link_targets}
+        assert "diagram.png" not in link_titles
+        # Non-image links still present
+        assert "Machine Learning" in link_titles
+        assert "Projects/My Project" in link_titles

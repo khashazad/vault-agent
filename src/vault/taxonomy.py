@@ -17,6 +17,10 @@ INLINE_TAG_RE = re.compile(r"(?<!\w)#([a-zA-Z][\w/-]*)")
 HEADING_LINE_RE = re.compile(r"^#{1,6}\s+", re.MULTILINE)
 FENCED_CODE_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 
+IMAGE_EXTENSIONS = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tiff", ".ico",
+})
+
 
 # Extract all tags from a note's frontmatter and body content.
 #
@@ -126,6 +130,7 @@ def build_vault_taxonomy(vault_path: str) -> VaultTaxonomy:
     links = [
         LinkTargetInfo(title=t, count=c)
         for t, c in sorted(link_counter.items(), key=lambda x: -x[1])
+        if not any(t.lower().endswith(ext) for ext in IMAGE_EXTENSIONS)
     ]
 
     return VaultTaxonomy(
