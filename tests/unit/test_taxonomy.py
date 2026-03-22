@@ -1,4 +1,4 @@
-from src.vault.taxonomy import extract_tags
+from src.vault.taxonomy import extract_tags, build_tag_hierarchy
 
 
 class TestExtractTags:
@@ -64,3 +64,47 @@ class TestExtractTags:
         body = "See #project2024 for details."
         tags = extract_tags(fm, body)
         assert tags == {"project2024"}
+
+
+class TestBuildTagHierarchy:
+    def test_flat_tags(self):
+        tags = {"paper": 10, "daily": 5}
+        hierarchy = build_tag_hierarchy(tags)
+        names = {n.name for n in hierarchy}
+        assert names == {"paper", "daily"}
+        assert all(n.children == [] for n in hierarchy)
+
+    def test_slash_grouping(self):
+        tags = {"research": 2, "research/ai": 10, "research/ml": 5}
+        hierarchy = build_tag_hierarchy(tags)
+        # Should have one root: "research" with two children
+        assert len(hierarchy) == 1
+        root = hierarchy[0]
+        assert root.name == "research"
+        child_names = {c.name for c in root.children}
+        assert child_names == {"ai", "ml"}
+
+    def test_deep_nesting(self):
+        tags = {"a/b/c": 3}
+        hierarchy = build_tag_hierarchy(tags)
+        assert len(hierarchy) == 1
+        assert hierarchy[0].name == "a"
+        assert len(hierarchy[0].children) == 1
+        assert hierarchy[0].children[0].name == "b"
+        assert len(hierarchy[0].children[0].children) == 1
+        assert hierarchy[0].children[0].children[0].name == "c"
+
+    def test_mixed_flat_and_hierarchical(self):
+        tags = {"paper": 10, "research/ai": 5, "research/ml": 3, "daily": 20}
+        hierarchy = build_tag_hierarchy(tags)
+        root_names = {n.name for n in hierarchy}
+        assert root_names == {"paper", "research", "daily"}
+
+    def test_sorted_output(self):
+        tags = {"zebra": 1, "alpha": 2, "middle": 3}
+        hierarchy = build_tag_hierarchy(tags)
+        names = [n.name for n in hierarchy]
+        assert names == ["alpha", "middle", "zebra"]
+
+    def test_empty(self):
+        assert build_tag_hierarchy({}) == []
