@@ -22,14 +22,37 @@ class ChangesetStore:
                 id         TEXT PRIMARY KEY,
                 status     TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL,
-                data       TEXT NOT NULL
+                data       TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'web'
             );
             CREATE INDEX IF NOT EXISTS idx_changesets_status
                 ON changesets(status);
             CREATE INDEX IF NOT EXISTS idx_changesets_created_at
                 ON changesets(created_at);
+            CREATE INDEX IF NOT EXISTS idx_changesets_source_type
+                ON changesets(source_type);
         """)
         self._conn.commit()
+        self._maybe_add_source_type_column()
+
+    # Add source_type column to existing tables and backfill from JSON data.
+    def _maybe_add_source_type_column(self) -> None:
+        cols = [
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(changesets)").fetchall()
+        ]
+        if "source_type" not in cols:
+            self._conn.execute(
+                "ALTER TABLE changesets ADD COLUMN source_type TEXT NOT NULL DEFAULT 'web'"
+            )
+            self._conn.execute(
+                "UPDATE changesets SET source_type = json_extract(data, '$.source_type') "
+                "WHERE json_extract(data, '$.source_type') IS NOT NULL"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_changesets_source_type ON changesets(source_type)"
+            )
+            self._conn.commit()
 
     # Upsert a changeset into the store.
     #
@@ -38,17 +61,19 @@ class ChangesetStore:
     def set(self, changeset: Changeset) -> None:
         self._conn.execute(
             """
-            INSERT INTO changesets (id, status, created_at, data)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO changesets (id, status, created_at, data, source_type)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 status = excluded.status,
-                data   = excluded.data
+                data   = excluded.data,
+                source_type = excluded.source_type
             """,
             (
                 changeset.id,
                 changeset.status,
                 changeset.created_at,
                 changeset.model_dump_json(),
+                changeset.source_type,
             ),
         )
         self._conn.commit()
@@ -69,12 +94,13 @@ class ChangesetStore:
             return None
         return Changeset.model_validate_json(row["data"])
 
-    # Retrieve changesets with optional status filter and pagination.
+    # Retrieve changesets with optional status/source_type filter and pagination.
     #
     # Args:
     #     status: Filter by changeset status (None = all).
     #     offset: Number of rows to skip.
     #     limit: Max rows to return.
+    #     source_type: Filter by source type (None = all).
     #
     # Returns:
     #     Tuple of (matching changesets, total count).
@@ -83,9 +109,17 @@ class ChangesetStore:
         status: str | None = None,
         offset: int = 0,
         limit: int = 25,
+        source_type: str | None = None,
     ) -> tuple[list[Changeset], int]:
-        where = "WHERE status = ?" if status else ""
-        params = (status,) if status else ()
+        conditions = []
+        params: list = []
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        if source_type:
+            conditions.append("source_type = ?")
+            params.append(source_type)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
         total = self._conn.execute(
             f"SELECT COUNT(*) as cnt FROM changesets {where}", params
