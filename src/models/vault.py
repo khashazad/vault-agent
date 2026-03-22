@@ -120,3 +120,27 @@ class TaxonomyCurationRequest(BaseModel):
 class TaxonomyCurationResponse(BaseModel):
     changeset_id: str = Field(description="ID of the generated changeset")
     change_count: int = Field(description="Number of notes affected")
+
+
+# Request body for updating clawdy sync configuration.
+class ClawdyConfigRequest(BaseModel):
+    copy_vault_path: str | None = None
+    interval: int | None = None
+    enabled: bool | None = None
+
+
+# Current clawdy sync configuration.
+class ClawdyConfigResponse(BaseModel):
+    copy_vault_path: str | None
+    interval: int
+    enabled: bool
+
+
+# Clawdy sync status including poll state and pending changesets.
+class ClawdyStatusResponse(BaseModel):
+    enabled: bool
+    copy_vault_path: str | None
+    interval: int
+    last_poll: str | None
+    last_error: str | None
+    pending_changeset_count: int

@@ -17,6 +17,9 @@ from .changesets import (
 from .content import ContentItem, SourceMetadata, SourceType
 from .tools import CreateNoteInput, DeleteNoteInput, ReplaceNoteInput, UpdateNoteInput
 from .vault import (
+    ClawdyConfigRequest,
+    ClawdyConfigResponse,
+    ClawdyStatusResponse,
     HealthResponse,
     LinkTargetInfo,
     TagInfo,
@@ -80,6 +83,9 @@ __all__ = [
     "TaxonomyCurationOp",
     "TaxonomyCurationRequest",
     "TaxonomyCurationResponse",
+    "ClawdyConfigRequest",
+    "ClawdyConfigResponse",
+    "ClawdyStatusResponse",
     # tools
     "CreateNoteInput",
     "UpdateNoteInput",
