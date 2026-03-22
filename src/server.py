@@ -27,6 +27,8 @@ from src.models import (
     ChangesetSummary,
     ChangeStatusResponse,
     ClawdyConfigRequest,
+    ClawdyConfigResponse,
+    ClawdyStatusResponse,
     CostEstimate,
     FeedbackRequest,
     HealthResponse,
@@ -67,8 +69,8 @@ from src.agent.diff import generate_diff
 from src.db import get_changeset_store, get_batch_job_store, get_migration_store, get_settings_store
 from src.db.settings import SettingsStore
 from src.zotero.background import ZoteroPaperCacheSyncer
-from src.clawdy.service import ClawdyService
-from src.clawdy.git import is_git_repo
+from src.clawdy.service import ClawdyService, converge_vaults
+from src.clawdy.git import is_git_repo, commit as git_commit, push as git_push
 
 from src.logging_config import setup_logging
 
@@ -1409,7 +1411,7 @@ async def migration_registry():
 
 
 # Get clawdy sync configuration.
-@app.get("/clawdy/config", tags=["Clawdy"])
+@app.get("/clawdy/config", tags=["Clawdy"], response_model=ClawdyConfigResponse)
 async def get_clawdy_config():
     ss = get_settings_store()
     return {
@@ -1447,7 +1449,7 @@ async def put_clawdy_config(body: ClawdyConfigRequest):
 
 
 # Get clawdy sync status.
-@app.get("/clawdy/status", tags=["Clawdy"])
+@app.get("/clawdy/status", tags=["Clawdy"], response_model=ClawdyStatusResponse)
 async def get_clawdy_status():
     _, pending_count = get_changeset_store().get_all_filtered(
         status="pending", source_type="clawdy", limit=0
@@ -1489,9 +1491,6 @@ async def converge_clawdy(changeset_id: str, request: Request):
     config = _get_config(request)
     if not clawdy_service or not clawdy_service.copy_vault_path:
         raise HTTPException(400, "Clawdy not configured")
-
-    from src.clawdy.service import converge_vaults
-    from src.clawdy.git import commit as git_commit, push as git_push
 
     changes_map = {}
     for change in cs.changes:

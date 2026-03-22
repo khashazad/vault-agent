@@ -226,7 +226,7 @@ class ClawdyService:
     async def _poll_loop(self, main_vault: str) -> None:
         while True:
             try:
-                self.poll(main_vault)
+                await asyncio.to_thread(self.poll, main_vault)
             except Exception:
                 logger.exception("clawdy: unexpected error in poll loop")
             await asyncio.sleep(self.interval)
