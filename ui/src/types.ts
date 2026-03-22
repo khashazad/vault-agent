@@ -1,4 +1,4 @@
-export type SourceType = "web" | "zotero" | "book";
+export type SourceType = "web" | "zotero" | "book" | "clawdy";
 
 export interface PassageAnnotation {
   id: string;
@@ -318,6 +318,23 @@ export interface VaultHistoryEntry {
   path: string;
   name: string;
   last_opened: string;
+}
+
+// --- Clawdy types ---
+
+export interface ClawdyConfig {
+  copy_vault_path: string | null;
+  interval: number;
+  enabled: boolean;
+}
+
+export interface ClawdyStatus {
+  enabled: boolean;
+  copy_vault_path: string | null;
+  interval: number;
+  last_poll: string | null;
+  last_error: string | null;
+  pending_changeset_count: number;
 }
 
 export interface MigrationRegistry {
