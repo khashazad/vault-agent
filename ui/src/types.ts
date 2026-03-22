@@ -197,6 +197,48 @@ export interface TaxonomyProposal {
   created_at: string;
 }
 
+// --- Vault taxonomy types ---
+
+export interface TagInfo {
+  name: string;
+  count: number;
+}
+
+export interface LinkTargetInfo {
+  title: string;
+  count: number;
+}
+
+export interface VaultTaxonomy {
+  folders: string[];
+  tags: TagInfo[];
+  tag_hierarchy: TagNode[];
+  link_targets: LinkTargetInfo[];
+  total_notes: number;
+}
+
+export type TaxonomyCurationOpType =
+  | "rename_tag"
+  | "merge_tags"
+  | "delete_tag"
+  | "rename_folder"
+  | "move_folder"
+  | "delete_folder"
+  | "rename_link"
+  | "merge_links"
+  | "delete_link";
+
+export interface TaxonomyCurationOp {
+  op: TaxonomyCurationOpType;
+  target: string;
+  value?: string;
+}
+
+export interface TaxonomyCurationResponse {
+  changeset_id: string;
+  change_count: number;
+}
+
 export type MigrationNoteStatus =
   | "pending"
   | "processing"

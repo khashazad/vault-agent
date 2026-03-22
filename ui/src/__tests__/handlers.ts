@@ -5,6 +5,7 @@ import {
   makeChangesetSummary,
   makePaper,
   makeAnnotation,
+  makeVaultTaxonomy,
 } from "./factories";
 
 export const handlers = [
@@ -132,6 +133,13 @@ export const handlers = [
       skipped_papers: [],
       library_version: 101,
     }),
+  ),
+
+  // Vault taxonomy
+  http.get("/vault/taxonomy", () => HttpResponse.json(makeVaultTaxonomy())),
+
+  http.post("/vault/taxonomy/apply", () =>
+    HttpResponse.json({ changeset_id: "cs-curation-1", change_count: 3 }),
   ),
 ];
 
