@@ -8,9 +8,10 @@ from src.models import (
     ChangesetSummary,
     ContentItem,
     FeedbackRequest,
+    ProposedChange,
     UpdateNoteInput,
 )
-from tests.factories import make_content_item, make_routing_info
+from tests.factories import make_changeset, make_content_item, make_proposed_change, make_routing_info
 
 
 class TestChangesetMigration:
@@ -148,3 +149,39 @@ class TestUpdateNoteInput:
         )
         assert inp.heading == "Notes"
         assert inp.content == "New content."
+
+
+class TestClawdySourceType:
+    def test_source_type_accepts_clawdy(self):
+        item = ContentItem(text="test", source="test", source_type="clawdy")
+        assert item.source_type == "clawdy"
+
+    def test_changeset_clawdy_defaults(self):
+        cs = make_changeset(source_type="clawdy", items=[], routing=None)
+        assert cs.source_type == "clawdy"
+        assert cs.items == []
+        assert cs.routing is None
+
+    def test_changeset_items_defaults_to_empty(self):
+        cs = make_changeset(items=None)
+        assert cs.items == []
+
+
+class TestClawdyToolNames:
+    def test_proposed_change_replace_note(self):
+        pc = make_proposed_change(
+            tool_name="replace_note",
+            input={"path": "Notes/test.md", "content": "new content"},
+            original_content="old content",
+            proposed_content="new content",
+        )
+        assert pc.tool_name == "replace_note"
+
+    def test_proposed_change_delete_note(self):
+        pc = make_proposed_change(
+            tool_name="delete_note",
+            input={"path": "Notes/test.md"},
+            original_content="old content",
+            proposed_content="",
+        )
+        assert pc.tool_name == "delete_note"

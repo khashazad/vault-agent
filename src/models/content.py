@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-SourceType = Literal["web", "zotero", "book"]
+SourceType = Literal["web", "zotero", "book", "clawdy"]
 
 
 class SourceMetadata(BaseModel):

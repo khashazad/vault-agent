@@ -15,7 +15,7 @@ from .changesets import (
     TokenUsage,
 )
 from .content import ContentItem, SourceMetadata, SourceType
-from .tools import CreateNoteInput, UpdateNoteInput
+from .tools import CreateNoteInput, DeleteNoteInput, ReplaceNoteInput, UpdateNoteInput
 from .vault import (
     HealthResponse,
     LinkTargetInfo,
@@ -83,6 +83,8 @@ __all__ = [
     # tools
     "CreateNoteInput",
     "UpdateNoteInput",
+    "ReplaceNoteInput",
+    "DeleteNoteInput",
     # changesets
     "RoutingInfo",
     "ProposedChange",

@@ -13,3 +13,12 @@ class UpdateNoteInput(BaseModel):
     operation: Literal["append_section"]
     heading: str | None = Field(default=None, max_length=500)
     content: str | None = Field(default=None, max_length=200_000)
+
+
+class ReplaceNoteInput(BaseModel):
+    path: str = Field(max_length=500)
+    content: str = Field(max_length=200_000)
+
+
+class DeleteNoteInput(BaseModel):
+    path: str = Field(max_length=500)
