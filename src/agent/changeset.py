@@ -1,10 +1,11 @@
-from src.models import Changeset, CreateNoteInput, UpdateNoteInput
-from src.vault.writer import create_note, update_note
+from src.models import Changeset, CreateNoteInput, DeleteNoteInput, ReplaceNoteInput, UpdateNoteInput
+from src.vault.writer import create_note, delete_note, replace_note, update_note
 
 
 # Write approved changes from a changeset to the vault filesystem.
 #
-# Iterates changeset.changes and applies each via create_note or update_note.
+# Iterates changeset.changes and applies each via create_note, update_note,
+# replace_note, or delete_note.
 # If approved_ids is provided, only those changes are applied; otherwise
 # applies all changes with status 'approved'.
 #
@@ -40,6 +41,16 @@ def apply_changeset(
             elif change.tool_name == "update_note":
                 inp = UpdateNoteInput(**change.input)
                 update_note(vault_path, inp)
+                applied.append(change.id)
+
+            elif change.tool_name == "replace_note":
+                inp = ReplaceNoteInput(**change.input)
+                replace_note(vault_path, inp.path, inp.content)
+                applied.append(change.id)
+
+            elif change.tool_name == "delete_note":
+                inp = DeleteNoteInput(**change.input)
+                delete_note(vault_path, inp.path)
                 applied.append(change.id)
 
             change.status = "applied"
