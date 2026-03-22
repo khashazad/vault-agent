@@ -18,6 +18,11 @@ from .content import ContentItem, SourceMetadata, SourceType
 from .tools import CreateNoteInput, UpdateNoteInput
 from .vault import (
     HealthResponse,
+    LinkTargetInfo,
+    TagInfo,
+    TaxonomyCurationOp,
+    TaxonomyCurationRequest,
+    TaxonomyCurationResponse,
     VaultConfigRequest,
     VaultConfigResponse,
     VaultHistoryEntry,
@@ -27,6 +32,7 @@ from .vault import (
     VaultNote,
     VaultNoteSummary,
     VaultPickerResponse,
+    VaultTaxonomy,
 )
 from .zotero import (
     BatchJobStatusResponse,
@@ -68,6 +74,12 @@ __all__ = [
     "VaultPickerResponse",
     "VaultHistoryEntry",
     "VaultHistoryResponse",
+    "TagInfo",
+    "LinkTargetInfo",
+    "VaultTaxonomy",
+    "TaxonomyCurationOp",
+    "TaxonomyCurationRequest",
+    "TaxonomyCurationResponse",
     # tools
     "CreateNoteInput",
     "UpdateNoteInput",
