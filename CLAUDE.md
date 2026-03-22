@@ -2,52 +2,98 @@
 
 ## Project Overview
 
-A **FastAPI backend server** running on Python that takes Zotero annotations and synthesizes them into Obsidian vault notes using Claude as the AI reasoning layer. Annotations are submitted via HTTP API (through Zotero sync), synthesized by a single Claude LLM call into a paper note, and written to the filesystem as Obsidian-compatible markdown after user approval.
+A **FastAPI + React** application that manages an Obsidian vault through three core capabilities:
+
+1. **Zotero Sync** — Fetches Zotero annotations, synthesizes them into Obsidian-compatible paper notes via a single Claude LLM call, and writes to the vault after user approval.
+2. **Vault Migration** — Job-based async system that transforms every note in a vault according to a curated taxonomy. Supports per-note LLM calls with prompt caching, Anthropic Batch API (50% cost), and cost estimation.
+3. **Vault Taxonomy** — Scans vault structure (tags, link targets, folders), supports curation operations (rename/merge/delete), and produces changesets for review before applying.
+
+Vault configuration is UI-driven: users select a vault folder via a native file picker, persisted in SQLite (not env var).
 
 ## Architecture
 
 ```
 Zotero Sync Flow:
-  POST /zotero/papers/{paper_key}/sync (or POST /zotero/sync for batch)
+  POST /zotero/papers/{paper_key}/sync
     → Fetch annotations from Zotero API
     → Build ContentItem list from annotations
     → Single Claude LLM call synthesizes annotations into a paper note
     → Proposed note wrapped in a Changeset with diff (persisted in SQLite)
     → Response: full Changeset with diff and routing info
 
-  Apply (POST /changesets/{id}/apply):
-    → Client approves/rejects individual changes
-    → Approved changes written to vault filesystem
+Migration Flow:
+  POST /migration/taxonomy/import → validate + store taxonomy proposal
+  PUT /migration/taxonomy/{id}    → curate (edit folders/tags/links)
+  POST /migration/taxonomy/{id}/activate → set as active taxonomy
+  POST /migration/jobs            → scan vault, create MigrationNote per file
+  POST /migration/estimate        → estimate token cost before running
+  run_migration() or submit_migration_batch()
+    → Per-note LLM call with taxonomy-driven system prompt (cached)
+    → Parses MIGRATION_META (target_folder, new_link_targets)
+    → Generates diff, sets note status to "proposed"
+  POST /migration/jobs/{id}/apply → write approved notes to target vault
+
+Taxonomy Flow:
+  GET /vault/taxonomy
+    → Single-pass scan: extract tags, wikilinks, folders from all .md files
+    → Build tag hierarchy from slash-separated names
+    → Return VaultTaxonomy (folders, tags, hierarchy, link_targets, total_notes)
+  POST /vault/taxonomy/apply
+    → Apply TaxonomyCurationOp list (rename/merge/delete for tags, links, folders)
+    → Return Changeset with ProposedChange per affected note
+
+Vault Config Flow:
+  POST /vault/picker → native file dialog → path
+  PUT /vault/config  → persist path in SettingsStore (SQLite)
+  GET /vault/config  → read from SettingsStore → app.state.config
+
+Changeset Apply (shared across all flows):
+  PATCH /changesets/{id}/changes/{change_id} → approve/reject individual changes
+  POST /changesets/{id}/apply → write approved changes to vault filesystem
 ```
 
 ### Key Modules
 
-- **`src/server.py`** — FastAPI entry point. Route definitions, middleware, request validation.
-- **`src/models/`** — Pydantic models package (`ContentItem`, `Changeset`, `VaultNote`, `VaultMap`, Zotero types, etc.). Split into `content.py`, `changesets.py`, `vault.py`, `tools.py`, `search.py`, `zotero.py`.
-- **`src/config.py`** — Loads env vars, validates VAULT_PATH, API keys, and optional Zotero config.
-- **`src/vault/reader.py`** — Scans the Obsidian vault filesystem. Parses frontmatter, extracts wikilinks, builds the vault map string for the LLM context.
-- **`src/vault/writer.py`** — Filesystem write operations: create note, append to note. All operations are additive-only (no destructive edits).
-- **`src/agent/agent.py`** — Single-call Zotero note synthesis (`generate_zotero_note`), batch API support, retry logic, cost tracking.
-- **`src/agent/prompts.py`** — Zotero synthesis prompt builder. Produces (system, user) message pair from annotations and metadata, with optional feedback for regeneration.
-- **`src/db/`** — SQLite-backed persistent stores package (WAL journal mode). `changesets.py` (`ChangesetStore`), `batch_jobs.py` (`BatchJobStore`), `migration.py` (`MigrationStore`). Lazy singletons in `__init__.py`. Stores data in `.vault-agent.db`.
-- **`src/agent/changeset.py`** — `apply_changeset(vault_path, changeset, approved_ids?)`. Iterates approved `ProposedChange` objects and dispatches to `create_note` / `update_note`.
-- **`src/agent/diff.py`** — `generate_diff(path, original, proposed)`. Wraps `difflib.unified_diff` to produce unified diffs for display in the UI.
-- **`src/vault/__init__.py`** — Path validation utility (`validate_path`) preventing traversal outside vault root.
-- **`src/zotero/client.py`** — Zotero API client wrapping `pyzotero`. Fetches papers, annotations, collections.
-- **`src/zotero/sync.py`** — Zotero highlight sync logic. Converts annotations to `ContentItem` list and runs agent.
+- **`src/server.py`** — FastAPI entry point. 42 route definitions, CORS middleware, exception handler, lifespan config loading.
+- **`src/config.py`** — `AppConfig` dataclass. Loads `vault_path` from DB via `SettingsStore` (not env var). `ANTHROPIC_API_KEY` and Zotero keys from env.
+- **`src/logging_config.py`** — Rich-based logging setup. Routes uvicorn logs through `RichHandler`.
+- **`src/models/`** — Pydantic models split into `content.py`, `changesets.py`, `vault.py`, `tools.py`, `zotero.py`, `migration.py`.
+- **`src/db/`** — SQLite stores (WAL mode), all lazy singletons in `__init__.py`:
+  - `ChangesetStore` — changeset + proposed change CRUD
+  - `BatchJobStore` — Zotero batch job tracking
+  - `MigrationStore` — migration jobs, notes, taxonomy proposals
+  - `SettingsStore` — key-value config persistence (vault_path, etc.)
+- **`src/vault/reader.py`** — Scans vault filesystem. Parses frontmatter, extracts wikilinks, builds vault map for LLM context.
+- **`src/vault/writer.py`** — Additive-only filesystem writes: create note, append section.
+- **`src/vault/taxonomy.py`** — `build_vault_taxonomy()` single-pass scan; `apply_taxonomy_curation()` for rename/merge/delete operations.
+- **`src/vault/__init__.py`** — `validate_path()` preventing traversal; `iter_markdown_files()` yielding all `.md` files.
+- **`src/agent/agent.py`** — Single-call Zotero note synthesis (`generate_zotero_note`), batch API support, cost tracking.
+- **`src/agent/prompts.py`** — Zotero synthesis prompt builder. Produces (system, user) pair from annotations and metadata.
+- **`src/agent/utils.py`** — Model pricing table (`MODELS`), `DEFAULT_MODEL = "sonnet"`, `compute_cost()`, `create_with_retry()` with exponential backoff, `extract_usage()`.
+- **`src/agent/changeset.py`** — `apply_changeset()`. Dispatches approved `ProposedChange` objects to `create_note` / `update_note`.
+- **`src/agent/diff.py`** — `generate_diff()` wrapping `difflib.unified_diff`.
+- **`src/agent/wikify.py`** — Post-processing wikilink auto-linker.
+- **`src/zotero/client.py`** — Zotero API client wrapping `pyzotero`.
+- **`src/zotero/sync.py`** — Annotation → `ContentItem` conversion and agent invocation.
 - **`src/zotero/orchestrator.py`** — Coordination layer for Zotero sync operations.
-- **`src/zotero/background.py`** — Background sync tasks for paper cache refresh.
+- **`src/zotero/background.py`** — Background paper cache refresh.
+- **`src/migration/migrator.py`** — Core migration engine: `estimate_cost()`, `migrate_note()`, `run_migration()` (concurrent, semaphore=5), `create_migration_job()`, `submit_migration_batch()`, `poll_migration_batch()`, `resume_migration()`.
+- **`src/migration/prompts.py`** — `build_migration_prompt()` producing taxonomy-driven (system, user) pair with folder/tag/link rules.
+- **`src/migration/registry.py`** — `VaultRegistry` read-only taxonomy lookup. `from_active()` class method loads active taxonomy.
+- **`src/migration/taxonomy.py`** — `import_taxonomy()` validation and conversion; `validate_taxonomy()` checks folders, tag names, link targets.
+- **`src/migration/writer.py`** — `apply_migration()` writes approved notes to target vault; `copy_vault_assets()` copies `.obsidian/` and `Files/`.
 
 ## Tech Stack
 
 - **Runtime**: Python 3.11+
 - **Framework**: FastAPI + Uvicorn
-- **LLM**: Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) via `anthropic` Python SDK (direct SDK, no framework)
+- **LLM**: Claude Sonnet 4.6 (default) and Haiku 4.5 via `anthropic` Python SDK (direct SDK, no framework). Batch API for bulk migration.
+- **Logging**: `rich` for formatted console output
 - **Markdown parsing**: `python-frontmatter` for frontmatter, regex for wikilink extraction
-- **Changeset storage**: SQLite with WAL journal mode (`.vault-agent.db`)
+- **Storage**: SQLite with WAL journal mode (`.vault-agent.db`) — changesets, migration jobs, settings, taxonomy proposals
 - **Filesystem**: `pathlib.Path.rglob()` for vault traversal, `Path.read_text()` / `.write_text()` for I/O
 - **Zotero integration**: `pyzotero` for Zotero API access, background sync with local paper cache
-- **UI**: React 19, TypeScript 5.6, Vite 6, Tailwind CSS 4
+- **UI**: React 19, TypeScript 5.6, Vite 6, Tailwind CSS 4, React Router 7
 - **Backend testing**: pytest + pytest-asyncio + httpx + pytest-cov
 - **Frontend testing**: vitest + @testing-library/react + MSW (Mock Service Worker)
 - **E2E testing**: Playwright (Chromium)
@@ -80,107 +126,156 @@ cd tests/e2e && bunx playwright test --headed      # E2E tests with visible brow
 
 ## UI
 
-A React 19 + TypeScript single-page application built with Vite 6 and Tailwind CSS 4. Catppuccin Mocha dark theme.
+React 19 + TypeScript 5.6 + Vite 6 + Tailwind CSS 4 + React Router 7. Catppuccin Mocha dark theme.
 
-### Workflow (3 steps)
-1. **Papers** — Browse Zotero papers with collection sidebar, search, sync status filter, pagination. Trigger cache refresh from Zotero API.
-2. **Annotations** — View annotations for a selected paper, grouped by color. Toggle individual annotations on/off before processing.
-3. **Processing** — Agent runs, produces a changeset. Review proposed changes via `ChangesetReview` component with diff/preview toggle, approve/reject individual changes, apply to vault.
+### Router structure
 
-### Components
-- **`Layout`** — App shell with header
-- **`ZoteroSync`** — Main workflow component (papers → annotations → processing)
-- **`ChangesetReview`** — Changeset review UI with approve/reject/apply actions
-- **`DiffViewer`** — Structured diff display with line numbers, collapsible context sections
-- **`MarkdownPreview`** — Obsidian-aware markdown renderer (wikilinks, embeds, tags, callouts)
-- **`CollectionTree`** — Hierarchical Zotero collection browser with expand/collapse
-- **`ErrorAlert`** — Error display component
+```
+/connect           → ConnectVaultPage (vault picker, outside Layout)
+/ (Layout wrapper) →
+  / (index)        → redirect to /library
+  /library         → LibraryPage (Zotero paper browser)
+  /library/:key    → AnnotationsPage (paper annotations → processing)
+  /changesets      → ChangesetsPage (paginated changeset history)
+  /changesets/:id  → ChangesetDetailPage (split-pane review + feedback)
+  /migration       → MigrationPage (migration job dashboard)
+  /taxonomy        → TaxonomyPage (vault taxonomy: folders/tags/links)
+* → redirect to /connect
+```
 
-### Features
-- Obsidian-aware markdown rendering (wikilinks, embeds, tags, callouts)
-- Structured diff viewer with line numbers and collapsible sections
-- Dual view modes: diff and markdown preview for each proposed change
+### State management
+
+- **`VaultContext`** (`context/VaultContext.tsx`) — global vault connection state (`vaultPath`, `vaultName`, `isLoading`, `setVault`)
+- Local React hooks (`useState`, `useCallback`, `useEffect`) — no Redux or external state library
+- **`useClickOutside`** (`hooks/useClickOutside.ts`) — click-outside + Escape key detection for popovers/modals
+
+### Pages
+
+- **`ConnectVaultPage`** — First-time vault selection via native file picker; recent vault history
+- **`LibraryPage`** — Zotero paper browser with collection sidebar, search, sync status filter, pagination
+- **`AnnotationsPage`** — Paper annotations grouped by color; selective toggle; model picker; inline changeset review
+- **`ChangesetsPage`** — Paginated changeset history with status filtering and delete
+- **`ChangesetDetailPage`** — Split-pane: diff viewer (left) + feedback annotations (right); draggable divider; cost display; regeneration workflow
+- **`MigrationPage`** — Renders `MigrationDashboard` component
+- **`TaxonomyPage`** — Three-tab taxonomy view (folders/tags/links); hierarchical tag tree; curation modal; vault stats sidebar
+
+### Shared components
+
+`Layout`, `Sidebar`, `ChangesetReview`, `DiffViewer`, `MarkdownPreview`, `CollectionTree`, `AnnotationFeedback`, `ChangesetHistory`, `ErrorAlert`, `MigrationDashboard`, `MigrationNoteReview`, `MigrationProgress`, `TaxonomyEditor`, `Skeleton`, `Pagination`, `StatusBadge`, `ZoteroSync`
 
 ### Development
+
 - Dev server on port 5173 with proxy to backend at port 3456
 - Production build served from `ui/dist/`
 
 ## API Endpoints
 
-### Health & Vault
+### Health & Vault Config
+
 - `GET /health` — Health check, returns vault path and status
-- `GET /vault/map` — Returns vault structure JSON (for debugging)
+- `GET /vault/map` — Returns vault structure JSON
+- `GET /vault/config` — Current vault path from DB
+- `PUT /vault/config` — Set vault path (persists to SettingsStore)
+- `POST /vault/picker` — Open native file dialog, return selected path
+- `GET /vault/history` — Recent vault paths
+- `DELETE /vault/history` — Clear vault history
+- `GET /vault/assets/{file_path}` — Serve vault file assets
+
+### Vault Taxonomy
+
+- `GET /vault/taxonomy` — Scan vault and return taxonomy (folders, tags, hierarchy, link targets)
+- `POST /vault/taxonomy/apply` — Apply curation operations as a changeset
 
 ### Changesets
-- `GET /changesets/{id}` — Get full changeset with all ProposedChange details
-- `PATCH /changesets/{id}/changes/{change_id}` — Set individual change status to `"approved"` | `"rejected"`
-- `POST /changesets/{id}/apply` — Apply approved changes to disk; optional body: `{ change_ids: [...] }`
-- `POST /changesets/{id}/reject` — Reject entire changeset and all its changes
+
+- `GET /changesets` — List changesets (paginated)
+- `GET /changesets/{id}` — Full changeset with ProposedChange details
+- `PATCH /changesets/{id}/changes/{change_id}` — Set change status: `"approved"` | `"rejected"`
+- `POST /changesets/{id}/apply` — Apply approved changes to disk; optional `{ change_ids: [...] }`
+- `POST /changesets/{id}/reject` — Reject entire changeset
+- `POST /changesets/{id}/request-changes` — Submit feedback for revision
+- `POST /changesets/{id}/regenerate` — Regenerate with feedback context
+- `DELETE /changesets/{id}` — Delete changeset
 
 ### Zotero
-- `POST /zotero/sync` — Sync papers from Zotero, process annotations, create changesets
-- `GET /zotero/collections` — List Zotero collections (cached or live)
-- `GET /zotero/papers/cache-status` — Cached paper count, last updated, sync in progress
-- `POST /zotero/papers/refresh` — Trigger background paper cache sync from Zotero
-- `GET /zotero/papers?collection_key=...&offset=0&limit=25&search=...&sync_status=...` — Paginated paper list with sync status
+
+- `POST /zotero/sync` — Batch sync papers from Zotero
+- `GET /zotero/collections` — List Zotero collections
+- `GET /zotero/papers?collection_key=...&offset=0&limit=25&search=...&sync_status=...` — Paginated paper list
+- `GET /zotero/papers/cache-status` — Cache stats and sync status
+- `POST /zotero/papers/refresh` — Trigger background cache sync
 - `GET /zotero/papers/{paper_key}/annotations` — All annotations for a paper
-- `POST /zotero/papers/{paper_key}/sync` — Sync single paper; optional body: `{ excluded_annotation_keys: [...] }`
-- `GET /zotero/status` — Zotero configuration status (configured, last_version, last_synced)
+- `GET /zotero/papers/{paper_key}/batch-status` — Batch job status for paper
+- `POST /zotero/papers/{paper_key}/sync` — Sync single paper; optional `{ excluded_annotation_keys: [...] }`
+- `GET /zotero/status` — Zotero configuration status
+
+### Migration
+
+- `POST /migration/estimate` — Estimate token cost for full vault migration
+- `POST /migration/taxonomy/import` — Import and validate taxonomy proposal
+- `GET /migration/taxonomy/{id}` — Get taxonomy proposal
+- `PUT /migration/taxonomy/{id}` — Update taxonomy (curate folders/tags/links)
+- `POST /migration/taxonomy/{id}/activate` — Set taxonomy as active (deactivates others)
+- `GET /migration/jobs` — List migration jobs
+- `POST /migration/jobs` — Create migration job (scans vault, creates notes)
+- `GET /migration/jobs/{id}` — Get job details
+- `GET /migration/jobs/{id}/notes` — Paginated list of migration notes
+- `PATCH /migration/jobs/{id}/notes/{note_id}` — Update note status/content
+- `POST /migration/jobs/{id}/notes/{note_id}/retry` — Retry failed note
+- `POST /migration/jobs/{id}/apply` — Write approved notes to target vault
+- `POST /migration/jobs/{id}/cancel` — Cancel running job
+- `POST /migration/jobs/{id}/resume` — Resume failed job (resets stuck notes)
+- `GET /migration/registry` — Get active taxonomy via VaultRegistry
 
 ### Changeset lifecycle
 
-- Changesets are persisted in SQLite; no automatic expiry
+- Changesets persisted in SQLite; no automatic expiry
 - Changeset status: `pending` → `applied` | `rejected` | `partially_applied` | `skipped`
 - Individual change status: `pending` → `approved` | `rejected` | `applied`
 
-### ContentItem payload format
+### Migration job lifecycle
 
-```json
-{
-  "text": "The highlighted text",
-  "source": "URL or document title",
-  "annotation": "Optional user note",
-  "source_type": "web" | "zotero" | "book",
-  "source_metadata": {
-    "title": "Paper title",
-    "doi": "10.1234/...",
-    "authors": ["Author One"],
-    "year": "2024",
-    "paper_key": "ZOTERO_KEY"
-  }
-}
-```
+- Job status: `pending` → `migrating` → `review` → `applying` → `completed` | `failed` | `cancelled`
+- Note status: `pending` → `processing` → `proposed` | `approved` (NO_CHANGES_NEEDED) | `failed` → `applied` | `rejected` | `skipped`
+- Taxonomy status: `imported` → `curated` → `active`
 
 ## Environment Setup
 
 Required in `.env` (loaded via `python-dotenv`):
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-VAULT_PATH=/absolute/path/to/obsidian/vault
-PORT=3456
-DB_PATH=.vault-agent.db           # Optional — default ".vault-agent.db"
-ZOTERO_API_KEY=...             # Optional — Zotero integration
-ZOTERO_LIBRARY_ID=...          # Optional — Zotero library ID
-ZOTERO_LIBRARY_TYPE=user       # Optional — default "user"
+ANTHROPIC_API_KEY=sk-ant-...       # Required
+PORT=3456                          # Optional — default 3456
+DB_PATH=.vault-agent.db            # Optional — default ".vault-agent.db"
+ZOTERO_API_KEY=...                 # Optional — Zotero integration
+ZOTERO_LIBRARY_ID=...              # Optional — Zotero library ID
+ZOTERO_LIBRARY_TYPE=user           # Optional — default "user"
 ```
 
-`VAULT_PATH` must point to the root of the Obsidian vault (the directory containing `.obsidian/`).
-`ZOTERO_API_KEY` and `ZOTERO_LIBRARY_ID` are required for Zotero integration endpoints.
+`VAULT_PATH` is **not** an env var. It is set via the UI file picker and persisted in SQLite (`SettingsStore`). On first launch the app shows `ConnectVaultPage`.
 
 ## Key Design Decisions
 
 ### Additive-only writes
-Two write operations: create note and append section. No modifications to existing prose, no deletions, no moves, no renames. Worst case is an unwanted new note or a bad append, both trivially reverted with `git checkout`.
+Two write operations: create note and append section. No modifications to existing prose, no deletions, no moves, no renames. Worst case is an unwanted new note or a bad append, both trivially reverted with `git checkout`. Migration writes go to a separate target vault directory.
 
 ### Direct Anthropic SDK
-Single-call synthesis in ~40 lines. No LangChain/LlamaIndex — a framework adds complexity without value for this use case.
+No LangChain/LlamaIndex. Single-call synthesis for Zotero, per-note migration calls with prompt caching. The SDK is used directly for both streaming and batch API.
 
 ### Changeset approval workflow
-Content is previewed before being written. The synthesis call produces a proposed note, which is wrapped in a `Changeset` with a diff and persisted to SQLite without touching the vault. The client approves or rejects individual changes, then calls `POST /changesets/{id}/apply` to write only approved changes. Git remains useful for reviewing what landed, but the primary safety mechanism is the approval gate.
+Content is previewed before being written. All LLM output is wrapped in a `Changeset` with diffs and persisted to SQLite without touching the vault. The client approves or rejects individual changes, then calls apply. This pattern is shared across Zotero sync, taxonomy curation, and migration.
 
-### Zotero integration
-Papers and annotations are fetched via `pyzotero`. A local paper cache supports paginated browsing, search, and collection filtering. Background sync refreshes the cache from Zotero API. Per-paper sync creates a changeset by converting annotations to `ContentItem` objects and running the agent. Annotations can be excluded before sync.
+### Dynamic vault config
+Vault path is stored in `SettingsStore` (SQLite key-value), not an env var. Users select via native file picker in the UI. History of recent vaults is maintained. Config is loaded into `app.state` at startup and updated in-place on change.
+
+### Migration system
+Job-based: one `MigrationJob` contains one `MigrationNote` per vault file. Each note is independently processed by Claude with a taxonomy-driven system prompt. Two execution modes: concurrent async (semaphore=5) or Anthropic Batch API (50% cost). System prompt is cached across notes via ephemeral cache control. Notes returning `NO_CHANGES_NEEDED` are auto-approved. Target vault is a separate directory; source vault is never modified.
+
+### Taxonomy lifecycle
+`imported` → `curated` → `active`. Only one taxonomy can be active at a time. Activating a taxonomy deactivates all others. The active taxonomy drives migration prompts (folder assignments, tag hierarchy, link targets).
+
+### Prompt caching
+Migration system prompt (taxonomy + rules) uses Anthropic's ephemeral cache control. First call pays cache_write cost; subsequent calls hit cache_read (90% cheaper). This is critical for vault-wide migration where hundreds of notes share the same system prompt.
 
 ## Code Conventions
 
@@ -218,6 +313,18 @@ Rules:
 - Omit Returns section for `-> None` functions
 - Reference examples: `src/vault/reader.py`, `src/db/changesets.py`
 
+### Frontend conventions
+
+- **Pages**: `*Page` suffix, in `ui/src/pages/`. One per route.
+- **Hooks**: `use*` prefix, in `ui/src/hooks/`.
+- **Context**: `ui/src/context/`. `VaultContext` is the only global context.
+- **Components**: `ui/src/components/`. Reusable UI shared across pages.
+- **State**: React Context + local hooks. No Redux or external state library.
+
+### DB store pattern
+
+All stores are lazy singletons via `get_*_store()` in `src/db/__init__.py`. Tests reset the global to inject `:memory:` SQLite. Stores use WAL journal mode and store complex data as JSON columns.
+
 ## Obsidian Conventions
 
 - **Frontmatter**: YAML block with `---`. Always use `tags` (plural array), never `tag`.
@@ -252,13 +359,12 @@ Commentary about the highlight.
 
 ### Testability design
 
-Two refactors enable test imports without side effects:
-- **Lazy store singletons** (`src/db/`): `get_changeset_store()` / `get_batch_job_store()` / `get_migration_store()` in `src/db/__init__.py`. Tests reset the global to inject `:memory:` SQLite.
+- **Lazy store singletons** (`src/db/`): `get_changeset_store()` / `get_batch_job_store()` / `get_migration_store()` / `get_settings_store()` in `src/db/__init__.py`. Tests reset the global to inject `:memory:` SQLite.
 - **Deferred config** (`src/server.py`): `load_config()` runs inside `lifespan()`, stored on `app.state`. Route handlers access config via `request.app.state.config`. Tests set `app.state.config` directly.
 
 ### Backend tests (pytest)
 
-126 tests in `tests/`. Config in `pyproject.toml` under `[tool.pytest.ini_options]`.
+Config in `pyproject.toml` under `[tool.pytest.ini_options]`.
 
 **Root fixtures** (`tests/conftest.py`):
 - `tmp_vault` — temp dir with sample `.md` notes and `.obsidian/` marker
@@ -266,29 +372,25 @@ Two refactors enable test imports without side effects:
 
 **Factories** (`tests/factories.py`): `make_content_item()`, `make_zotero_content_item()`, `make_proposed_change()`, `make_routing_info()`, `make_changeset()` — all accept `**overrides`.
 
-**Unit tests** (`tests/unit/`): Pure functions, no mocks. Covers vault reader/writer, diff, prompts, models, agent cost, zotero parsing.
+**Unit tests** (`tests/unit/`): Pure functions, no mocks. Covers vault reader/writer, diff, prompts, models, agent cost, zotero parsing, taxonomy, migration writer.
 
-**Integration tests** (`tests/integration/`): Uses `:memory:` SQLite stores (via `tests/integration/conftest.py`), `tmp_path` filesystem, and `httpx.AsyncClient` with `ASGITransport` for server route tests. Covers store CRUD, vault I/O, changeset apply, vault map, server routes.
+**Integration tests** (`tests/integration/`): Uses `:memory:` SQLite stores, `tmp_path` filesystem, and `httpx.AsyncClient` with `ASGITransport` for server route tests.
 
 ### Frontend tests (vitest)
 
-46 tests in `ui/src/__tests__/`. Config in `ui/vitest.config.ts` (jsdom environment).
+Config in `ui/vitest.config.ts` (jsdom environment).
 
-**MSW setup** (`ui/src/__tests__/setup.ts`, `handlers.ts`): Mock Service Worker intercepts all API fetch calls with canned responses. Tests override specific handlers via `server.use()` for error/edge cases.
+**MSW setup** (`ui/src/__tests__/setup.ts`, `handlers.ts`): Mock Service Worker intercepts all API fetch calls. Tests override specific handlers via `server.use()`.
 
-**Factories** (`ui/src/__tests__/factories.ts`): `makeContentItem()`, `makeProposedChange()`, `makeChangeset()`, `makePaper()`, `makeAnnotation()`, `makeCollection()`.
+**Factories** (`ui/src/__tests__/factories.ts`): `makeContentItem()`, `makeProposedChange()`, `makeChangeset()`, `makeChangesetSummary()`, `makePaper()`, `makeAnnotation()`, `makePassageAnnotation()`, `makeCollection()`, `makeTagInfo()`, `makeLinkTargetInfo()`, `makeVaultTaxonomy()`.
 
-**Test files**: `utils/obsidian.test.ts`, `utils/diff.test.ts`, `components/ErrorAlert.test.tsx`, `components/CollectionTree.test.tsx`, `components/DiffViewer.test.tsx`, `api/client.test.ts`.
-
-**Extracted module**: `ui/src/utils/diff.ts` — `computeLines()` and `groupLines()` extracted from `DiffViewer.tsx` for direct unit testing.
+**Test files**: Component tests (`ErrorAlert`, `CollectionTree`, `DiffViewer`, `AnnotationFeedback`, `ChangesetHistory`, `ChangesetReview`, `TaxonomyPage`), utility tests (`obsidian`, `diff`), API client tests.
 
 ### E2E tests (Playwright)
 
-19 tests in `tests/e2e/specs/`. Config in `tests/e2e/playwright.config.ts`.
+Config in `tests/e2e/playwright.config.ts`. Uses `page.route()` for API mocking (no real backend). Serves built UI via `vite preview`.
 
-Uses Playwright's `page.route()` for API mocking (no real backend needed). Serves the built UI via `vite preview`. Mock data defined in `tests/e2e/mock-api.ts`.
-
-**Specs**: `health.spec.ts` (page load, header, Zotero config), `history.spec.ts` (changeset history), `papers.spec.ts` (paper list, search, filters, sidebar), `sync-flow.spec.ts` (full paper → annotations → process → review flow).
+**Specs**: `health.spec.ts`, `history.spec.ts`, `papers.spec.ts`, `sync-flow.spec.ts`.
 
 **Prerequisite**: `cd ui && bun run build` before running E2E tests.
 
@@ -298,6 +400,15 @@ Uses Playwright's `page.route()` for API mocking (no real backend needed). Serve
 - **backend** job: `uv sync --dev` → `pytest` with coverage
 - **frontend** job: `bun install` → `vitest`
 - **e2e** job (depends on frontend): build UI → install Playwright → run specs
+
+## Explicit Boundaries
+
+- Never use triple-quote docstrings (`#` comments only)
+- Never destructively edit existing vault notes (additive-only writes; migration writes to separate target vault)
+- Never modify dataview queries, block references, or callouts
+- Never use LangChain/LlamaIndex (direct Anthropic SDK only)
+- Never store vault_path in .env (it's DB-backed via SettingsStore)
+- Never use `tag` (singular) in frontmatter — always `tags` (plural array)
 
 ## File Structure
 
@@ -313,37 +424,50 @@ vault-agent/
 ├── uv.lock
 ├── src/
 │   ├── __init__.py
+│   ├── __main__.py
 │   ├── server.py
 │   ├── config.py
+│   ├── logging_config.py      # Rich-based logging setup
 │   ├── db/
 │   │   ├── __init__.py        # Re-exports, lazy singletons, getters
 │   │   ├── changesets.py      # ChangesetStore
 │   │   ├── batch_jobs.py      # BatchJobStore
-│   │   └── migration.py       # MigrationStore
+│   │   ├── migration.py       # MigrationStore (jobs, notes, taxonomies)
+│   │   └── settings.py        # SettingsStore (key-value config)
 │   ├── models/
 │   │   ├── __init__.py        # Re-exports all models
 │   │   ├── content.py         # ContentItem, SourceMetadata, SourceType
-│   │   ├── changesets.py      # Changeset, ProposedChange, RoutingInfo
-│   │   ├── vault.py           # VaultNote, VaultMap, VaultNoteSummary
-│   │   ├── tools.py           # ReadNoteInput, CreateNoteInput, UpdateNoteInput
+│   │   ├── changesets.py      # Changeset, ProposedChange, RoutingInfo, TokenUsage
+│   │   ├── vault.py           # VaultNote, VaultMap, VaultTaxonomy, VaultConfig models
+│   │   ├── migration.py       # TagNode, LinkTarget, TaxonomyProposal, MigrationJob/Note, CostEstimate
+│   │   ├── tools.py           # CreateNoteInput, UpdateNoteInput
 │   │   └── zotero.py          # Zotero request/response models
 │   ├── vault/
-│   │   ├── __init__.py        # validate_path()
+│   │   ├── __init__.py        # validate_path(), iter_markdown_files()
 │   │   ├── reader.py
-│   │   └── writer.py
+│   │   ├── writer.py
+│   │   └── taxonomy.py        # build_vault_taxonomy(), apply_taxonomy_curation()
 │   ├── agent/
 │   │   ├── __init__.py
 │   │   ├── agent.py
 │   │   ├── prompts.py
+│   │   ├── utils.py           # Model pricing, compute_cost(), create_with_retry()
 │   │   ├── changeset.py       # Applies approved changes to vault
 │   │   ├── diff.py            # Unified diff generation
 │   │   └── wikify.py          # Post-processing wikilink auto-linker
-│   └── zotero/
+│   ├── zotero/
+│   │   ├── __init__.py
+│   │   ├── client.py          # Zotero API client (pyzotero)
+│   │   ├── sync.py            # Annotation → ContentItem conversion
+│   │   ├── orchestrator.py    # Sync coordination
+│   │   └── background.py      # Background cache refresh
+│   └── migration/
 │       ├── __init__.py
-│       ├── client.py          # Zotero API client (pyzotero)
-│       ├── sync.py            # Annotation → ContentItem conversion
-│       ├── orchestrator.py    # Sync coordination
-│       └── background.py     # Background cache refresh
+│       ├── migrator.py        # Migration engine: estimate, run, batch, resume
+│       ├── prompts.py         # Taxonomy-driven LLM prompt builder
+│       ├── registry.py        # VaultRegistry: read-only taxonomy lookup
+│       ├── taxonomy.py        # import_taxonomy(), validate_taxonomy()
+│       └── writer.py          # apply_migration(), copy_vault_assets()
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py            # Root fixtures: tmp_vault, app_config
@@ -356,7 +480,9 @@ vault-agent/
 │   │   ├── test_prompts.py
 │   │   ├── test_models.py
 │   │   ├── test_agent_cost.py
-│   │   └── test_zotero_parsing.py
+│   │   ├── test_zotero_parsing.py
+│   │   ├── test_taxonomy.py
+│   │   └── test_migration_writer.py
 │   ├── integration/
 │   │   ├── conftest.py        # :memory: store fixtures
 │   │   ├── test_store.py
@@ -380,23 +506,44 @@ vault-agent/
 │   ├── vitest.config.ts       # Test config (jsdom, MSW setup)
 │   ├── tsconfig.json
 │   └── src/
-│       ├── main.tsx           # Entry point
-│       ├── App.tsx            # Root component (renders Layout + ZoteroSync)
+│       ├── main.tsx           # Entry point (StrictMode + CSS imports)
+│       ├── App.tsx            # VaultProvider + RouterProvider
+│       ├── router.tsx         # React Router 7 route definitions
 │       ├── types.ts           # TypeScript type definitions
 │       ├── styles.css         # Catppuccin Mocha theme, Obsidian styles
 │       ├── utils.ts           # formatError utility
 │       ├── api/
 │       │   └── client.ts      # API client (fetch wrapper)
+│       ├── context/
+│       │   └── VaultContext.tsx # Global vault state
+│       ├── hooks/
+│       │   └── useClickOutside.ts
+│       ├── pages/
+│       │   ├── ConnectVaultPage.tsx
+│       │   ├── LibraryPage.tsx
+│       │   ├── AnnotationsPage.tsx
+│       │   ├── ChangesetsPage.tsx
+│       │   ├── ChangesetDetailPage.tsx
+│       │   ├── MigrationPage.tsx
+│       │   └── TaxonomyPage.tsx
 │       ├── components/
 │       │   ├── Layout.tsx
+│       │   ├── Sidebar.tsx
 │       │   ├── ZoteroSync.tsx
 │       │   ├── ChangesetReview.tsx
+│       │   ├── ChangesetHistory.tsx
 │       │   ├── DiffViewer.tsx
 │       │   ├── MarkdownPreview.tsx
 │       │   ├── CollectionTree.tsx
 │       │   ├── AnnotationFeedback.tsx
-│       │   ├── ChangesetHistory.tsx
-│       │   └── ErrorAlert.tsx
+│       │   ├── MigrationDashboard.tsx
+│       │   ├── MigrationNoteReview.tsx
+│       │   ├── MigrationProgress.tsx
+│       │   ├── TaxonomyEditor.tsx
+│       │   ├── ErrorAlert.tsx
+│       │   ├── Skeleton.tsx
+│       │   ├── Pagination.tsx
+│       │   └── StatusBadge.tsx
 │       ├── utils/
 │       │   ├── obsidian.ts    # Wikilink/tag/embed preprocessing
 │       │   └── diff.ts        # Diff computation (extracted from DiffViewer)
@@ -412,7 +559,9 @@ vault-agent/
 │           │   ├── CollectionTree.test.tsx
 │           │   ├── DiffViewer.test.tsx
 │           │   ├── AnnotationFeedback.test.tsx
-│           │   └── ChangesetHistory.test.tsx
+│           │   ├── ChangesetHistory.test.tsx
+│           │   ├── ChangesetReview.test.tsx
+│           │   └── TaxonomyPage.test.tsx
 │           └── api/
 │               └── client.test.ts
 ├── .github/
