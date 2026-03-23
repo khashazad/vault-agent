@@ -340,12 +340,9 @@ export function ChangesetDetailPage() {
             </div>
           )}
 
-          <div
-            ref={containerRef}
-            className="flex items-stretch w-full flex-1 min-h-0"
-          >
+          <div ref={containerRef} className="flex flex-1 min-h-0 w-full">
             <div
-              className="flex flex-col gap-4 min-w-0 overflow-auto"
+              className="flex flex-col gap-4 min-w-0 min-h-0"
               style={{ width: isInteractive ? `${splitPercent}%` : "100%" }}
             >
               <ChangesetReview
@@ -353,6 +350,7 @@ export function ChangesetDetailPage() {
                 initialChanges={detail.changes}
                 onDone={backToList}
                 readOnly={!isInteractive}
+                sourceType={detail.source_type}
               />
 
               {showRegenerate && (
@@ -377,14 +375,14 @@ export function ChangesetDetailPage() {
               <>
                 <div
                   onMouseDown={onDragStart}
-                  className="w-1.5 mx-1 self-stretch cursor-col-resize rounded-full bg-border hover:bg-accent transition-colors flex-shrink-0 relative flex flex-col items-center justify-center gap-0.5"
+                  className="w-2 mx-3 self-stretch cursor-col-resize rounded-full bg-border hover:bg-accent transition-colors flex-shrink-0 relative flex flex-col items-center justify-center gap-0.5"
                 >
                   <span className="block w-1 h-1 rounded-full bg-muted/50" />
                   <span className="block w-1 h-1 rounded-full bg-muted/50" />
                   <span className="block w-1 h-1 rounded-full bg-muted/50" />
                 </div>
                 <div
-                  className="min-w-0 overflow-auto sticky top-4 flex-shrink-0"
+                  className="min-w-0 overflow-y-auto flex-shrink-0 pl-2"
                   style={{ width: `${100 - splitPercent}%` }}
                 >
                   <AnnotationFeedback
