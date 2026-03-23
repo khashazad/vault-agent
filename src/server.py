@@ -26,6 +26,9 @@ from src.models import (
     ChangesetListResponse,
     ChangesetSummary,
     ChangeStatusResponse,
+    ClawdyConfigRequest,
+    ClawdyConfigResponse,
+    ClawdyStatusResponse,
     CostEstimate,
     FeedbackRequest,
     HealthResponse,
@@ -66,6 +69,8 @@ from src.agent.diff import generate_diff
 from src.db import get_changeset_store, get_batch_job_store, get_migration_store, get_settings_store
 from src.db.settings import SettingsStore
 from src.zotero.background import ZoteroPaperCacheSyncer
+from src.clawdy.service import ClawdyService, converge_vaults
+from src.clawdy.git import is_git_repo, commit as git_commit, push as git_push, status as git_status
 
 from src.logging_config import setup_logging
 
@@ -73,12 +78,13 @@ setup_logging()
 logger = logging.getLogger("vault-agent")
 
 paper_cache_syncer: ZoteroPaperCacheSyncer | None = None
+clawdy_service: ClawdyService | None = None
 
 
-# Manage app lifecycle: load config, start/stop the Zotero paper cache syncer.
+# Manage app lifecycle: load config, start/stop background services.
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global paper_cache_syncer
+    global paper_cache_syncer, clawdy_service
     if not hasattr(app.state, "config"):
         app.state.config = load_config()
     config = app.state.config
@@ -88,7 +94,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if zotero_ok and config.vault_path:
         paper_cache_syncer = ZoteroPaperCacheSyncer(config)
         paper_cache_syncer.start()
+    # Start clawdy service
+    clawdy_service = ClawdyService(
+        settings_store=get_settings_store(),
+        changeset_store=get_changeset_store(),
+    )
+    await clawdy_service.reconcile(config.vault_path)
     yield
+    if clawdy_service:
+        clawdy_service.stop()
     if paper_cache_syncer is not None:
         paper_cache_syncer.stop()
 
@@ -133,6 +147,7 @@ app = FastAPI(
             "name": "Migration",
             "description": "Vault migration: taxonomy management, per-note migration, and review",
         },
+        {"name": "Clawdy", "description": "Clawdy external agent sync"},
     ],
 )
 
@@ -339,6 +354,9 @@ async def vault_config_set(request: Request, body: VaultConfigRequest):
         paper_cache_syncer = ZoteroPaperCacheSyncer(config)
         paper_cache_syncer.start()
 
+    if clawdy_service:
+        await clawdy_service.reconcile(vault_path)
+
     return {
         "vault_path": vault_path,
         "vault_name": p.name,
@@ -452,8 +470,11 @@ async def list_changesets(
     status: str | None = None,
     offset: int = 0,
     limit: int = 25,
+    source_type: str | None = None,
 ):
-    changesets, total = get_changeset_store().get_all_filtered(status, offset, limit)
+    changesets, total = get_changeset_store().get_all_filtered(
+        status, offset, limit, source_type=source_type
+    )
     summaries = [
         ChangesetSummary(
             id=cs.id,
@@ -1385,6 +1406,131 @@ async def migration_registry():
         "tags": reg.get_tag_hierarchy(),
         "link_targets": reg.get_link_targets(),
     }
+
+
+# --- Clawdy routes ---
+
+
+# Get clawdy sync configuration.
+@app.get("/clawdy/config", tags=["Clawdy"], response_model=ClawdyConfigResponse)
+async def get_clawdy_config():
+    ss = get_settings_store()
+    return {
+        "copy_vault_path": ss.get("clawdy_copy_vault_path"),
+        "interval": int(ss.get("clawdy_interval") or "300"),
+        "enabled": ss.get("clawdy_enabled") == "true",
+    }
+
+
+# Update clawdy sync configuration.
+@app.put("/clawdy/config", tags=["Clawdy"])
+async def put_clawdy_config(body: ClawdyConfigRequest, request: Request):
+    ss = get_settings_store()
+
+    if body.copy_vault_path is not None:
+        if not Path(body.copy_vault_path).is_dir():
+            raise HTTPException(400, "Path does not exist")
+        if not is_git_repo(body.copy_vault_path):
+            raise HTTPException(400, "Path is not a git repository")
+        ss.set("clawdy_copy_vault_path", body.copy_vault_path)
+        ss.delete("clawdy_last_converge")
+        if clawdy_service:
+            clawdy_service.copy_vault_path = body.copy_vault_path
+
+    if body.interval is not None:
+        ss.set("clawdy_interval", str(body.interval))
+        if clawdy_service:
+            clawdy_service.interval = body.interval
+
+    if body.enabled is not None:
+        ss.set("clawdy_enabled", "true" if body.enabled else "false")
+        if clawdy_service:
+            clawdy_service.enabled = body.enabled
+
+    if clawdy_service:
+        config = _get_config(request)
+        await clawdy_service.reconcile(config.vault_path)
+
+    return await get_clawdy_config()
+
+
+# Get clawdy sync status.
+@app.get("/clawdy/status", tags=["Clawdy"], response_model=ClawdyStatusResponse)
+async def get_clawdy_status():
+    _, pending_count = get_changeset_store().get_all_filtered(
+        status="pending", source_type="clawdy", limit=0
+    )
+    return {
+        "enabled": clawdy_service.enabled if clawdy_service else False,
+        "copy_vault_path": clawdy_service.copy_vault_path if clawdy_service else None,
+        "interval": clawdy_service.interval if clawdy_service else 300,
+        "last_poll": clawdy_service.last_poll if clawdy_service else None,
+        "last_error": clawdy_service.last_error if clawdy_service else None,
+        "pending_changeset_count": pending_count,
+        "last_auto_sync": clawdy_service.last_auto_sync if clawdy_service else None,
+        "bidirectional_enabled": get_settings_store().get("clawdy_last_converge") is not None,
+    }
+
+
+# Manually trigger a clawdy poll cycle.
+@app.post("/clawdy/trigger", tags=["Clawdy"])
+async def trigger_clawdy_sync(request: Request):
+    _require_vault(request)
+    if not clawdy_service or not clawdy_service.copy_vault_path:
+        raise HTTPException(400, "Clawdy not configured")
+    config = _get_config(request)
+    await asyncio.to_thread(clawdy_service.poll, config.vault_path)
+    return {"status": "ok", "last_poll": clawdy_service.last_poll}
+
+
+# Run convergence on a fully-resolved clawdy changeset.
+@app.post("/clawdy/converge/{changeset_id}", tags=["Clawdy"])
+async def converge_clawdy(changeset_id: str, request: Request):
+    _require_vault(request)
+    cs = _get_changeset_or_404(changeset_id)
+    if cs.source_type != "clawdy":
+        raise HTTPException(400, "Not a clawdy changeset")
+
+    # Check all changes are in terminal state
+    for change in cs.changes:
+        if change.status not in ("applied", "rejected"):
+            raise HTTPException(400, f"Change {change.id} is still {change.status}")
+
+    config = _get_config(request)
+    if not clawdy_service or not clawdy_service.copy_vault_path:
+        raise HTTPException(400, "Clawdy not configured")
+
+    changes_map = {}
+    for change in cs.changes:
+        path = change.input.get("path", "")
+        changes_map[path] = {"tool_name": change.tool_name, "status": change.status}
+
+    await asyncio.to_thread(
+        converge_vaults, config.vault_path, clawdy_service.copy_vault_path, changes_map
+    )
+
+    # Build commit message
+    applied = sum(1 for c in cs.changes if c.status == "applied")
+    rejected = sum(1 for c in cs.changes if c.status == "rejected")
+    paths = [c.input.get("path", "") for c in cs.changes]
+    message = f"vault-agent: applied {applied}, rejected {rejected} changes\n\n" + "\n".join(f"- {p}" for p in paths)
+
+    repo_status = await asyncio.to_thread(git_status, clawdy_service.copy_vault_path)
+    if repo_status.strip():
+        try:
+            await asyncio.to_thread(git_commit, clawdy_service.copy_vault_path, message)
+            await asyncio.to_thread(git_push, clawdy_service.copy_vault_path)
+        except Exception as e:
+            logger.warning("clawdy: convergence commit/push failed: %s", e)
+            raise HTTPException(500, f"Convergence git operation failed: {e}")
+    get_settings_store().set("clawdy_last_converge", datetime.now(timezone.utc).isoformat())
+
+    # Update changeset status
+    has_applied = any(c.status == "applied" for c in cs.changes)
+    cs.status = "applied" if has_applied else "rejected"
+    get_changeset_store().set(cs)
+
+    return {"id": cs.id, "status": cs.status}
 
 
 # Serve a file from the configured vault (images, PDFs, etc).

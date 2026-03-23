@@ -6,7 +6,9 @@ import {
   updateChangeContent,
   applyChangeset,
   rejectChangeset,
+  convergeClawdy,
 } from "../api/client";
+import type { SourceType } from "../types";
 import { formatError } from "../utils";
 import { DiffViewer } from "./DiffViewer";
 import { MarkdownPreview } from "./MarkdownPreview";
@@ -19,6 +21,7 @@ interface Props {
   initialChanges: ProposedChange[];
   onDone: () => void;
   readOnly?: boolean;
+  sourceType?: SourceType;
 }
 
 export function ChangesetReview({
@@ -26,12 +29,9 @@ export function ChangesetReview({
   initialChanges,
   onDone,
   readOnly = false,
+  sourceType,
 }: Props) {
-  const [changes, setChanges] = useState<ProposedChange[]>(
-    readOnly
-      ? initialChanges
-      : initialChanges.map((c) => ({ ...c, status: "approved" })),
-  );
+  const [changes, setChanges] = useState<ProposedChange[]>(initialChanges);
   const [viewModes, setViewModes] = useState<Record<string, ViewMode>>({});
   const [editBuffers, setEditBuffers] = useState<Record<string, string>>({});
   const [applying, setApplying] = useState(false);
@@ -42,11 +42,14 @@ export function ChangesetReview({
     applied: string[];
     failed: { id: string; error: string }[];
   } | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {},
   );
+  // Track which changes have been synced to server to avoid redundant calls
+  const syncedIds = useRef<Set<string>>(new Set());
 
   // If no initial changes provided, fetch from server
   useEffect(() => {
@@ -54,33 +57,11 @@ export function ChangesetReview({
       setLoadingChangeset(true);
       setFetchError(null);
       fetchChangeset(changesetId)
-        .then((cs) => {
-          if (readOnly) {
-            setChanges(cs.changes);
-          } else {
-            const approvedChanges = cs.changes.map((c) => ({
-              ...c,
-              status: "approved" as const,
-            }));
-            setChanges(approvedChanges);
-            approvedChanges.forEach((c) => {
-              updateChangeStatus(changesetId, c.id, "approved").catch((err) =>
-                setStatusError(formatError(err)),
-              );
-            });
-          }
-        })
+        .then((cs) => setChanges(cs.changes))
         .catch((err) => setFetchError(String(err)))
         .finally(() => setLoadingChangeset(false));
-    } else if (!readOnly) {
-      // Set all changes to approved by default on the server
-      initialChanges.forEach((c) => {
-        updateChangeStatus(changesetId, c.id, "approved").catch((err) =>
-          setStatusError(formatError(err)),
-        );
-      });
     }
-  }, [changesetId, initialChanges, readOnly]);
+  }, [changesetId, initialChanges]);
 
   const toggleChange = useCallback(
     async (changeId: string) => {
@@ -102,16 +83,11 @@ export function ChangesetReview({
   const setAllStatuses = useCallback(
     (status: "approved" | "rejected") => {
       if (readOnly) return;
-      setChanges((prev) =>
-        prev.map((c) => {
-          updateChangeStatus(changesetId, c.id, status).catch((err) =>
-            setStatusError(formatError(err)),
-          );
-          return { ...c, status };
-        }),
-      );
+      setChanges((prev) => prev.map((c) => ({ ...c, status })));
+      // Mark all as needing sync; actual sync happens on apply
+      syncedIds.current.clear();
     },
-    [changesetId, readOnly],
+    [readOnly],
   );
 
   const handleEditChange = useCallback(
@@ -157,8 +133,36 @@ export function ChangesetReview({
 
     setApplying(true);
     try {
+      // Sync statuses to server before applying (batched, 10 at a time)
+      const unsyncedChanges = changes.filter(
+        (c) =>
+          !syncedIds.current.has(c.id) &&
+          (c.status === "approved" || c.status === "rejected"),
+      );
+      for (let i = 0; i < unsyncedChanges.length; i += 10) {
+        const batch = unsyncedChanges.slice(i, i + 10);
+        await Promise.all(
+          batch.map((c) =>
+            updateChangeStatus(
+              changesetId,
+              c.id,
+              c.status as "approved" | "rejected",
+            ),
+          ),
+        );
+      }
+
       const res = await applyChangeset(changesetId, approvedIds);
       setResult(res);
+      if (sourceType === "clawdy") {
+        try {
+          await convergeClawdy(changesetId);
+        } catch (convergeErr) {
+          setStatusError(
+            `Applied to vault but copy-vault sync failed: ${formatError(convergeErr)}`,
+          );
+        }
+      }
     } catch (err) {
       setResult({
         applied: [],
@@ -167,14 +171,33 @@ export function ChangesetReview({
     } finally {
       setApplying(false);
     }
-  }, [changesetId, changes]);
+  }, [changesetId, changes, sourceType]);
 
   const handleReject = useCallback(async () => {
-    await rejectChangeset(changesetId);
+    try {
+      await rejectChangeset(changesetId);
+      if (sourceType === "clawdy") {
+        await convergeClawdy(changesetId);
+      }
+    } catch (err) {
+      setStatusError(formatError(err));
+      return;
+    }
     onDone();
-  }, [changesetId, onDone]);
+  }, [changesetId, onDone, sourceType]);
 
   const approvedCount = changes.filter((c) => c.status === "approved").length;
+
+  const setChangeStatus = useCallback(
+    (changeId: string, status: "approved" | "rejected" | "pending") => {
+      if (readOnly) return;
+      setChanges((prev) =>
+        prev.map((c) => (c.id === changeId ? { ...c, status } : c)),
+      );
+      syncedIds.current.delete(changeId);
+    },
+    [readOnly],
+  );
 
   if (loadingChangeset) {
     return (
@@ -276,26 +299,274 @@ export function ChangesetReview({
   }
 
   const isSingle = changes.length === 1;
+  const pendingChanges = changes.filter((c) => c.status === "pending");
+  const reviewedChanges = changes.filter(
+    (c) => c.status === "approved" || c.status === "rejected",
+  );
+
+  function renderRow(change: ProposedChange, isReviewed: boolean) {
+    const isExpanded = isSingle || expandedId === change.id;
+    const mode =
+      viewModes[change.id] ??
+      (change.tool_name === "create_note" ? "preview" : "diff");
+    const filePath = change.input.path as string;
+    const toolLabel =
+      change.tool_name === "create_note"
+        ? "NEW"
+        : change.tool_name === "delete_note"
+          ? "DEL"
+          : "MOD";
+    const toolBadgeClass =
+      change.tool_name === "create_note"
+        ? "bg-green/10 text-green"
+        : change.tool_name === "delete_note"
+          ? "bg-red/10 text-red"
+          : "bg-yellow/10 text-yellow";
+
+    return (
+      <div
+        key={change.id}
+        className={`overflow-hidden transition-all border-l-2 ${
+          isSingle
+            ? "flex flex-col flex-1 min-h-0 border-l-0"
+            : isExpanded
+              ? "border-accent bg-surface"
+              : isReviewed
+                ? "border-transparent opacity-70 hover:opacity-100 hover:border-muted/50"
+                : "border-transparent hover:border-accent/50"
+        }`}
+      >
+        {/* Row header */}
+        <div
+          className={`px-4 py-3 flex items-center justify-between ${
+            isSingle ? "" : "cursor-pointer"
+          }`}
+          onClick={
+            isSingle
+              ? undefined
+              : () => setExpandedId(expandedId === change.id ? null : change.id)
+          }
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {isReviewed && (
+              <span
+                className={`text-xs flex-shrink-0 ${change.status === "approved" ? "text-green" : "text-red"}`}
+              >
+                {change.status === "approved" ? "\u2713" : "\u2717"}
+              </span>
+            )}
+            <span
+              className={`text-sm font-mono truncate ${isReviewed ? "text-muted" : "text-foreground"}`}
+            >
+              {filePath}
+            </span>
+            <span
+              className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${toolBadgeClass}`}
+            >
+              {toolLabel}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+            {!readOnly && !isReviewed && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setChangeStatus(change.id, "approved");
+                  }}
+                  className="py-0.5 px-2 rounded flex items-center gap-1 border-none cursor-pointer transition-colors text-[10px] font-bold bg-transparent text-muted hover:bg-green/10 hover:text-green"
+                >
+                  &#10003; Approve
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setChangeStatus(change.id, "rejected");
+                  }}
+                  className="py-0.5 px-2 rounded flex items-center gap-1 border-none cursor-pointer transition-colors text-[10px] font-bold bg-transparent text-muted/60 hover:bg-red/10 hover:text-red"
+                >
+                  &#10005; Reject
+                </button>
+              </>
+            )}
+            {!readOnly && isReviewed && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setChangeStatus(change.id, "pending");
+                }}
+                className="py-0.5 px-2 rounded flex items-center gap-1 border-none cursor-pointer transition-colors text-[10px] font-bold bg-transparent text-muted hover:bg-accent/10 hover:text-accent"
+              >
+                &#8634; Undo
+              </button>
+            )}
+            {!readOnly && !isSingle && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedId(change.id);
+                  setViewModes((prev) => ({
+                    ...prev,
+                    [change.id]: "edit",
+                  }));
+                }}
+                className="py-0.5 px-2 rounded flex items-center gap-1 border-none cursor-pointer transition-colors text-[10px] font-bold bg-transparent text-muted hover:bg-accent/10 hover:text-accent"
+              >
+                &#9998; Edit
+              </button>
+            )}
+            {isSingle && (
+              <div className="flex border border-border rounded overflow-hidden">
+                {change.tool_name !== "create_note" && (
+                  <button
+                    onClick={() =>
+                      setViewModes((prev) => ({
+                        ...prev,
+                        [change.id]: "diff",
+                      }))
+                    }
+                    className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
+                  >
+                    Diff
+                  </button>
+                )}
+                <button
+                  onClick={() =>
+                    setViewModes((prev) => ({
+                      ...prev,
+                      [change.id]: "preview",
+                    }))
+                  }
+                  className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
+                >
+                  Preview
+                </button>
+                {!readOnly && (
+                  <button
+                    onClick={() =>
+                      setViewModes((prev) => ({
+                        ...prev,
+                        [change.id]: "edit",
+                      }))
+                    }
+                    className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "edit" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
+                  >
+                    Edit
+                  </button>
+                )}
+              </div>
+            )}
+            {!isSingle && (
+              <span
+                className={`text-xs text-muted transition-transform ${isExpanded ? "rotate-180" : ""}`}
+              >
+                &#9662;
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Expanded content */}
+        {isExpanded && (
+          <div
+            className={
+              isSingle ? "flex-1 min-h-0 overflow-y-auto" : "px-4 pb-3"
+            }
+          >
+            {!isSingle && (
+              <div className="flex gap-1 mb-2 items-center">
+                {change.tool_name !== "create_note" && (
+                  <button
+                    onClick={() =>
+                      setViewModes((prev) => ({
+                        ...prev,
+                        [change.id]: "diff",
+                      }))
+                    }
+                    className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
+                  >
+                    Diff
+                  </button>
+                )}
+                <button
+                  onClick={() =>
+                    setViewModes((prev) => ({
+                      ...prev,
+                      [change.id]: "preview",
+                    }))
+                  }
+                  className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
+                >
+                  Preview
+                </button>
+                {!readOnly && (
+                  <button
+                    onClick={() =>
+                      setViewModes((prev) => ({
+                        ...prev,
+                        [change.id]: "edit",
+                      }))
+                    }
+                    className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "edit" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
+                  >
+                    Edit
+                  </button>
+                )}
+                {mode === "edit" && savingIds.has(change.id) && (
+                  <span className="text-[10px] text-muted animate-pulse ml-2">
+                    Saving...
+                  </span>
+                )}
+              </div>
+            )}
+            {mode === "diff" && change.tool_name !== "create_note" ? (
+              <DiffViewer
+                diff={change.diff}
+                filePath={filePath}
+                isNew={false}
+                originalContent={change.original_content}
+                proposedContent={change.proposed_content}
+              />
+            ) : mode === "edit" && !readOnly ? (
+              <textarea
+                className="w-full flex-1 min-h-64 bg-bg border border-border rounded p-3 text-sm text-foreground font-mono resize-y outline-none focus:border-accent"
+                value={editBuffers[change.id] ?? change.proposed_content}
+                onChange={(e) => handleEditChange(change.id, e.target.value)}
+              />
+            ) : (
+              <MarkdownPreview content={change.proposed_content} />
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-surface border border-border rounded p-4 flex flex-col flex-1 min-h-0">
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-sm">
-          {isSingle ? "Review Change" : `Review Changes (${changes.length})`}
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          {isSingle ? "Review Change" : "Review Changes"}
+          {!isSingle && (
+            <span className="bg-elevated text-accent text-xs px-2 py-0.5 rounded-full">
+              {changes.length}
+            </span>
+          )}
         </h3>
         {!readOnly && !isSingle && (
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3 text-xs">
             <button
               onClick={() => setAllStatuses("approved")}
-              className="bg-elevated text-text border border-border py-1 px-3 rounded text-xs"
+              className="bg-transparent border-none text-green font-semibold flex items-center gap-1 cursor-pointer hover:brightness-125"
             >
-              Approve All
+              <span className="text-sm">&#10003;</span> Approve All
             </button>
+            <span className="text-border">|</span>
             <button
               onClick={() => setAllStatuses("rejected")}
-              className="bg-transparent text-text border border-border py-1 px-3 rounded text-xs"
+              className="bg-transparent border-none text-red font-semibold flex items-center gap-1 cursor-pointer hover:brightness-125"
             >
-              Reject All
+              <span className="text-sm">&#10005;</span> Reject All
             </button>
           </div>
         )}
@@ -307,111 +578,48 @@ export function ChangesetReview({
         </p>
       )}
 
-      <div className="flex flex-col gap-3 mb-4 flex-1 min-h-0">
-        {changes.map((change) => {
-          const mode =
-            viewModes[change.id] ??
-            (change.tool_name === "create_note" ? "preview" : "diff");
-          return (
-            <div
-              key={change.id}
-              className="relative flex flex-col flex-1 min-h-0"
-            >
-              <div className="flex items-center gap-2 mb-1">
-                {!readOnly && !isSingle ? (
-                  <button
-                    onClick={() => toggleChange(change.id)}
-                    className={`w-7 h-7 rounded-full border-2 bg-bg text-muted flex items-center justify-center text-sm ${
-                      change.status === "approved"
-                        ? "border-green text-green bg-green-bg"
-                        : change.status === "rejected"
-                          ? "border-red text-red bg-red-bg"
-                          : "border-border"
-                    }`}
-                  >
-                    {change.status === "approved" ? "\u2713" : "\u2717"}
-                  </button>
-                ) : null}
-                {!isSingle && (
-                  <span className="text-xs text-muted uppercase">
-                    {change.status}
+      {isSingle ? (
+        <div className="flex flex-col gap-3 mb-4 flex-1 min-h-0">
+          {changes.map((c) => renderRow(c, false))}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4 overflow-y-auto mb-4 flex-1 min-h-0">
+          {/* To Review section */}
+          {pendingChanges.length > 0 && (
+            <div className="flex flex-col gap-3">
+              {reviewedChanges.length > 0 && (
+                <h4 className="text-xs text-muted font-medium m-0 flex items-center gap-2">
+                  To Review
+                  <span className="bg-elevated text-muted text-[10px] px-1.5 py-0.5 rounded-full">
+                    {pendingChanges.length}
                   </span>
-                )}
-                <div
-                  className={`${isSingle ? "" : "ml-auto "}flex border border-border rounded overflow-hidden`}
-                >
-                  {change.tool_name !== "create_note" && (
-                    <button
-                      onClick={() =>
-                        setViewModes((prev) => ({
-                          ...prev,
-                          [change.id]: "diff",
-                        }))
-                      }
-                      className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
-                    >
-                      Diff
-                    </button>
-                  )}
-                  <button
-                    onClick={() =>
-                      setViewModes((prev) => ({
-                        ...prev,
-                        [change.id]: "preview",
-                      }))
-                    }
-                    className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
-                  >
-                    Preview
-                  </button>
-                  {!readOnly && (
-                    <button
-                      onClick={() =>
-                        setViewModes((prev) => ({
-                          ...prev,
-                          [change.id]: "edit",
-                        }))
-                      }
-                      className={`text-[11px] py-0.5 px-2.5 border-none ${mode === "edit" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
-                    >
-                      Edit
-                    </button>
-                  )}
-                </div>
-                {mode === "edit" && savingIds.has(change.id) && (
-                  <span className="text-[10px] text-muted animate-pulse ml-2">
-                    Saving...
-                  </span>
-                )}
-              </div>
-              {mode === "diff" && change.tool_name !== "create_note" ? (
-                <DiffViewer
-                  diff={change.diff}
-                  filePath={change.input.path as string}
-                  isNew={false}
-                  originalContent={change.original_content}
-                  proposedContent={change.proposed_content}
-                />
-              ) : mode === "edit" && !readOnly ? (
-                <textarea
-                  className="w-full flex-1 min-h-64 bg-bg border border-border rounded p-3 text-sm text-foreground font-mono resize-y outline-none focus:border-accent"
-                  value={editBuffers[change.id] ?? change.proposed_content}
-                  onChange={(e) => handleEditChange(change.id, e.target.value)}
-                />
-              ) : (
-                <MarkdownPreview content={change.proposed_content} />
+                </h4>
               )}
+              {pendingChanges.map((c) => renderRow(c, false))}
             </div>
-          );
-        })}
-      </div>
+          )}
+
+          {/* Reviewed section */}
+          {reviewedChanges.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h4 className="text-xs text-muted font-medium m-0 flex items-center gap-2">
+                Reviewed
+                <span className="bg-elevated text-muted text-[10px] px-1.5 py-0.5 rounded-full">
+                  {reviewedChanges.length}
+                </span>
+              </h4>
+              {reviewedChanges.map((c) => renderRow(c, true))}
+            </div>
+          )}
+        </div>
+      )}
 
       {!readOnly && (
         <div className="flex gap-3 pt-4 border-t border-border">
           <button
             onClick={handleApply}
             disabled={applying || approvedCount === 0}
-            className="bg-green text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-accent text-crust border-none py-2 px-5 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {applying
               ? "Applying..."
@@ -421,7 +629,7 @@ export function ChangesetReview({
           </button>
           <button
             onClick={handleReject}
-            className="bg-transparent text-red border border-red py-2 px-5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-transparent text-red border border-red/30 py-2 px-5 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:bg-red/5"
             disabled={applying}
           >
             Reject

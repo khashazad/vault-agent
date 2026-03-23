@@ -46,7 +46,7 @@ class RoutingInfo(BaseModel):
 
 class ProposedChange(BaseModel):
     id: str = Field(description="Unique change identifier")
-    tool_name: Literal["create_note", "update_note"] = Field(
+    tool_name: Literal["create_note", "update_note", "replace_note", "delete_note"] = Field(
         description="Which write operation to perform"
     )
     input: dict[str, Any] = Field(description="Tool input parameters")
@@ -64,6 +64,7 @@ class ProposedChange(BaseModel):
 class Changeset(BaseModel):
     id: str = Field(description="Unique changeset identifier")
     items: list[ContentItem] = Field(
+        default_factory=list,
         description="Content items that produced this changeset"
     )
     changes: list[ProposedChange] = Field(description="Proposed vault changes")

@@ -9,7 +9,11 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "format": "prettier --write 'src/**/*.{ts,tsx,css}'",
-    "format:check": "prettier --check 'src/**/*.{ts,tsx,css}'"
+    "format:check": "prettier --check 'src/**/*.{ts,tsx,css}'",
+    "prepare": "cd .. && husky"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx,css}": "prettier --write"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
@@ -32,7 +36,9 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "husky": "^9.1.7",
     "jsdom": "^28.1.0",
+    "lint-staged": "^16.4.0",
     "msw": "^2.12.10",
     "prettier": "^3.8.1",
     "typescript": "^5.6.0",

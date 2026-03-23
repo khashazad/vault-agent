@@ -7,6 +7,8 @@ import { ChangesetDetailPage } from "./pages/ChangesetDetailPage";
 import { MigrationPage } from "./pages/MigrationPage";
 import { ConnectVaultPage } from "./pages/ConnectVaultPage";
 import { TaxonomyPage } from "./pages/TaxonomyPage";
+import { ClawdyInboxPage } from "./pages/ClawdyInboxPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 export const router = createBrowserRouter([
   {
@@ -28,6 +30,8 @@ export const router = createBrowserRouter([
       { path: "changesets/:changesetId", element: <ChangesetDetailPage /> },
       { path: "migration", element: <MigrationPage /> },
       { path: "taxonomy", element: <TaxonomyPage /> },
+      { path: "clawdy", element: <ClawdyInboxPage /> },
+      { path: "settings", element: <SettingsPage /> },
     ],
   },
   { path: "*", element: <Navigate to="/connect" replace /> },

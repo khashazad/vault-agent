@@ -110,6 +110,27 @@ class TestZoteroSyncState:
         assert p1["changeset_id"] == "cs-keep"
 
 
+def test_changeset_store_filter_by_source_type(memory_changeset_store):
+    from tests.factories import make_changeset
+    store = memory_changeset_store
+
+    cs_web = make_changeset(source_type="web")
+    cs_clawdy = make_changeset(source_type="clawdy", items=[], routing=None)
+    store.set(cs_web)
+    store.set(cs_clawdy)
+
+    results, total = store.get_all_filtered(source_type="clawdy")
+    assert total == 1
+    assert results[0].id == cs_clawdy.id
+
+    results, total = store.get_all_filtered(source_type="web")
+    assert total == 1
+    assert results[0].id == cs_web.id
+
+    results, total = store.get_all_filtered()
+    assert total == 2
+
+
 class TestBatchJobStore:
     def test_set_and_get(self, memory_batch_job_store):
         memory_batch_job_store.set(
