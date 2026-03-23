@@ -1,6 +1,8 @@
 import type {
   Changeset,
   ChangesetListResponse,
+  ClawdyConfig,
+  ClawdyStatus,
   CostEstimate,
   MigrationJob,
   MigrationNote,
@@ -55,11 +57,13 @@ export function fetchChangesets(opts?: {
   status?: string;
   offset?: number;
   limit?: number;
+  source_type?: string;
 }): Promise<ChangesetListResponse> {
   const params = new URLSearchParams();
   if (opts?.status) params.set("status", opts.status);
   if (opts?.offset) params.set("offset", String(opts.offset));
   if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.source_type) params.set("source_type", opts.source_type);
   const qs = params.toString();
   return fetchJSON(`${BASE}/changesets${qs ? `?${qs}` : ""}`);
 }
@@ -388,5 +392,40 @@ export function applyTaxonomyCuration(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ operations }),
+  });
+}
+
+// --- Clawdy API ---
+
+export function fetchClawdyConfig(): Promise<ClawdyConfig> {
+  return fetchJSON(`${BASE}/clawdy/config`);
+}
+
+export function updateClawdyConfig(
+  config: Partial<ClawdyConfig>,
+): Promise<ClawdyConfig> {
+  return fetchJSON(`${BASE}/clawdy/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+}
+
+export function fetchClawdyStatus(): Promise<ClawdyStatus> {
+  return fetchJSON(`${BASE}/clawdy/status`);
+}
+
+export function triggerClawdySync(): Promise<{
+  status: string;
+  last_poll: string;
+}> {
+  return fetchJSON(`${BASE}/clawdy/trigger`, { method: "POST" });
+}
+
+export function convergeClawdy(
+  changesetId: string,
+): Promise<{ id: string; status: string }> {
+  return fetchJSON(`${BASE}/clawdy/converge/${changesetId}`, {
+    method: "POST",
   });
 }

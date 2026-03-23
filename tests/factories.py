@@ -81,4 +81,34 @@ def make_changeset(**overrides) -> Changeset:
         "routing": make_routing_info(),
     }
     defaults.update(overrides)
+    if defaults["items"] is None:
+        del defaults["items"]
     return Changeset(**defaults)
+
+
+def make_replace_change(**overrides) -> ProposedChange:
+    defaults = {
+        "id": str(uuid.uuid4()),
+        "tool_name": "replace_note",
+        "input": {"path": "Notes/Test.md", "content": "# Updated\n\nNew content."},
+        "original_content": "# Test\n\nOld content.",
+        "proposed_content": "# Updated\n\nNew content.",
+        "diff": "--- a/Notes/Test.md\n+++ b/Notes/Test.md\n@@ -1,3 +1,3 @@\n-# Test\n+# Updated\n \n-Old content.\n+New content.\n",
+        "status": "pending",
+    }
+    defaults.update(overrides)
+    return ProposedChange(**defaults)
+
+
+def make_delete_change(**overrides) -> ProposedChange:
+    defaults = {
+        "id": str(uuid.uuid4()),
+        "tool_name": "delete_note",
+        "input": {"path": "Notes/Obsolete.md"},
+        "original_content": "# Obsolete\n\nOld content.",
+        "proposed_content": "",
+        "diff": "--- a/Notes/Obsolete.md\n+++ b/Notes/Obsolete.md\n@@ -1,3 +0,0 @@\n-# Obsolete\n-\n-Old content.\n",
+        "status": "pending",
+    }
+    defaults.update(overrides)
+    return ProposedChange(**defaults)

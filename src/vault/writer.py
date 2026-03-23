@@ -104,3 +104,44 @@ def update_note(vault_path: str, inp: UpdateNoteInput) -> str:
 
     heading_msg = f' under "{inp.heading}"' if inp.heading else ""
     return f"Appended content to {inp.path}{heading_msg}"
+
+
+# Overwrite an existing note with new content.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     note_path: Relative path to the note within the vault.
+#     content: New file content.
+#
+# Returns:
+#     Confirmation message.
+#
+# Raises:
+#     FileNotFoundError: When the target note does not exist.
+#     ValueError: When the path escapes the vault directory.
+def replace_note(vault_path: str, note_path: str, content: str) -> str:
+    full_path = validate_path(vault_path, note_path)
+    if not full_path.exists():
+        raise FileNotFoundError(f"Note not found: {note_path}")
+    full_path.write_text(content, encoding="utf-8")
+    return f"Replaced note at {note_path}"
+
+
+# Delete an existing note from the vault.
+#
+# Args:
+#     vault_path: Absolute path to the Obsidian vault root.
+#     note_path: Relative path to the note within the vault.
+#
+# Returns:
+#     Confirmation message.
+#
+# Raises:
+#     FileNotFoundError: When the target note does not exist.
+#     ValueError: When the path escapes the vault directory.
+def delete_note(vault_path: str, note_path: str) -> str:
+    full_path = validate_path(vault_path, note_path)
+    if not full_path.exists():
+        raise FileNotFoundError(f"Note not found: {note_path}")
+    full_path.unlink()
+    return f"Deleted note at {note_path}"
