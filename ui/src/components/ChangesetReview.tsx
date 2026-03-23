@@ -142,7 +142,13 @@ export function ChangesetReview({
       for (let i = 0; i < unsyncedChanges.length; i += 10) {
         const batch = unsyncedChanges.slice(i, i + 10);
         await Promise.all(
-          batch.map((c) => updateChangeStatus(changesetId, c.id, c.status)),
+          batch.map((c) =>
+            updateChangeStatus(
+              changesetId,
+              c.id,
+              c.status as "approved" | "rejected",
+            ),
+          ),
         );
       }
 
