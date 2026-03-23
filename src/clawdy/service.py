@@ -68,6 +68,52 @@ def partition_diff(
     return (oc_mod, oc_cre, oc_del), (mn_mod, mn_cre, mn_del)
 
 
+# Sync user-originated changes from main vault to copy vault.
+#
+# For modified files, overwrites copy with main content.
+# For created (in copy not main), deletes from copy (user deleted from main).
+# For deleted (in main not copy), creates in copy from main.
+#
+# Args:
+#     main_vault: Path to the main vault.
+#     copy_vault: Path to the copy vault.
+#     modified: Modified file tuples (user-originated only).
+#     created: Created file tuples (user-originated only).
+#     deleted: Deleted file tuples (user-originated only).
+#
+# Returns:
+#     Number of files synced.
+def sync_main_to_copy(
+    main_vault: str,
+    copy_vault: str,
+    modified: list[FileChange],
+    created: list[FileCreate],
+    deleted: list[FileDelete],
+) -> int:
+    count = 0
+
+    for rel, _main_content, _copy_content in modified:
+        main_file = Path(main_vault, rel)
+        copy_file = Path(copy_vault, rel)
+        copy_file.write_text(main_file.read_text(encoding="utf-8"), encoding="utf-8")
+        count += 1
+
+    for rel, _copy_content in created:
+        copy_file = Path(copy_vault, rel)
+        if copy_file.exists():
+            copy_file.unlink()
+            count += 1
+
+    for rel, _main_content in deleted:
+        main_file = Path(main_vault, rel)
+        copy_file = Path(copy_vault, rel)
+        copy_file.parent.mkdir(parents=True, exist_ok=True)
+        copy_file.write_text(main_file.read_text(encoding="utf-8"), encoding="utf-8")
+        count += 1
+
+    return count
+
+
 # Diff all .md files between main vault and copy vault.
 #
 # Args:

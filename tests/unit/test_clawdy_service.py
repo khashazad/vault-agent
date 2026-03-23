@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
-from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults, ClawdyService, snapshot_vault, partition_diff
+from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults, ClawdyService, snapshot_vault, partition_diff, sync_main_to_copy
 
 
 def _write(vault: Path, rel: str, content: str):
@@ -207,6 +207,41 @@ class TestPartitionDiff:
         openclaw, main = partition_diff([], [], [], {"A.md"})
         assert openclaw == ([], [], [])
         assert main == ([], [], [])
+
+
+class TestSyncMainToCopy:
+    def test_modified_overwrites_copy(self, main_vault, copy_vault):
+        # A.md differs between vaults; sync should overwrite copy with main
+        modified = [("Notes/A.md", main_vault.joinpath("Notes/A.md").read_text(), "ignored")]
+        count = sync_main_to_copy(str(main_vault), str(copy_vault), modified, [], [])
+        assert count == 1
+        assert copy_vault.joinpath("Notes/A.md").read_text() == main_vault.joinpath("Notes/A.md").read_text()
+
+    def test_created_in_copy_deleted_from_main(self, main_vault, copy_vault):
+        # OnlyCopy.md exists in copy but not main → user deleted from main → delete from copy
+        created = [("Notes/OnlyCopy.md", "content")]
+        count = sync_main_to_copy(str(main_vault), str(copy_vault), [], created, [])
+        assert count == 1
+        assert not copy_vault.joinpath("Notes/OnlyCopy.md").exists()
+
+    def test_deleted_from_copy_created_in_main(self, main_vault, copy_vault):
+        # OnlyMain.md exists in main but not copy → user created in main → create in copy
+        deleted = [("Notes/OnlyMain.md", main_vault.joinpath("Notes/OnlyMain.md").read_text())]
+        count = sync_main_to_copy(str(main_vault), str(copy_vault), [], [], deleted)
+        assert count == 1
+        assert copy_vault.joinpath("Notes/OnlyMain.md").exists()
+        assert copy_vault.joinpath("Notes/OnlyMain.md").read_text() == main_vault.joinpath("Notes/OnlyMain.md").read_text()
+
+    def test_creates_parent_dirs(self, main_vault, copy_vault):
+        _write(main_vault, "Deep/Nested/Note.md", "# Deep note")
+        deleted = [("Deep/Nested/Note.md", "# Deep note")]
+        count = sync_main_to_copy(str(main_vault), str(copy_vault), [], [], deleted)
+        assert count == 1
+        assert copy_vault.joinpath("Deep/Nested/Note.md").exists()
+
+    def test_returns_zero_on_empty(self, main_vault, copy_vault):
+        count = sync_main_to_copy(str(main_vault), str(copy_vault), [], [], [])
+        assert count == 0
 
 
 class TestClawdyServiceInit:
