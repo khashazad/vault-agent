@@ -680,6 +680,8 @@ Replace the `poll` method:
 Run: `uv run pytest tests/unit/test_clawdy_service.py -v`
 Expected: All tests pass (existing + new bidirectional tests)
 
+**Note:** The existing `TestClawdyServicePoll` tests mock `create_clawdy_changeset` at module level. After the poll rewrite, they'll also need mocks for `snapshot_vault` and `partition_diff` (or be updated to use real vaults like the new tests). Fix any failures here before committing.
+
 - [ ] **Step 5: Commit**
 
 ```bash
