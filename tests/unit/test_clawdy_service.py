@@ -299,12 +299,18 @@ class TestClawdyServicePoll:
         cs_store.set.assert_not_called()
 
     @patch("src.clawdy.service.pull")
+    @patch("src.clawdy.service.snapshot_vault")
+    @patch("src.clawdy.service.diff_vaults")
+    @patch("src.clawdy.service.partition_diff")
     @patch("src.clawdy.service.create_clawdy_changeset")
-    def test_poll_creates_changeset_on_changes(self, mock_create, mock_pull):
+    def test_poll_creates_changeset_on_changes(self, mock_create, mock_partition, mock_diff, mock_snapshot, mock_pull):
         from tests.factories import make_changeset
         mock_cs = make_changeset(source_type="clawdy", items=[], routing=None)
         mock_create.return_value = mock_cs
         mock_pull.return_value = ""
+        mock_snapshot.return_value = {}
+        mock_diff.return_value = ([], [], [])
+        mock_partition.return_value = (([], [], []), ([], [], []))
 
         settings = MagicMock()
         settings.get.return_value = None
@@ -319,8 +325,7 @@ class TestClawdyServicePoll:
         cs_store.set.assert_called_once_with(mock_cs)
 
     @patch("src.clawdy.service.pull")
-    @patch("src.clawdy.service.create_clawdy_changeset")
-    def test_poll_skips_when_pending_changeset_exists(self, mock_create, mock_pull):
+    def test_poll_skips_when_pending_changeset_exists(self, mock_pull):
         from tests.factories import make_changeset
         mock_pull.return_value = ""
 
@@ -334,4 +339,105 @@ class TestClawdyServicePoll:
         svc.copy_vault_path = "/copy"
         svc.poll(main_vault="/main")
 
-        mock_create.assert_not_called()
+        mock_pull.assert_not_called()
+
+
+class TestClawdyServicePollBidirectional:
+    @patch("src.clawdy.service.git_push")
+    @patch("src.clawdy.service.git_commit")
+    @patch("src.clawdy.service.pull")
+    def test_auto_syncs_when_converge_exists(self, mock_pull, mock_commit, mock_push, main_vault, copy_vault):
+        mock_pull.return_value = ""
+
+        settings = MagicMock()
+        settings.get.side_effect = lambda k: {
+            "vault_path": str(main_vault),
+            "clawdy_last_converge": "2026-01-01T00:00:00+00:00",
+        }.get(k)
+
+        cs_store = MagicMock()
+        cs_store.get_all_filtered.return_value = ([], 0)
+
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = str(copy_vault)
+        svc.poll(main_vault=str(main_vault))
+
+        mock_commit.assert_called_once()
+        mock_push.assert_called_once()
+        assert svc.last_auto_sync is not None
+        assert svc.last_auto_sync > 0
+
+    @patch("src.clawdy.service.pull")
+    def test_no_auto_sync_without_converge(self, mock_pull, main_vault, copy_vault):
+        mock_pull.return_value = ""
+
+        settings = MagicMock()
+        settings.get.side_effect = lambda k: {
+            "vault_path": str(main_vault),
+            "clawdy_last_converge": None,
+        }.get(k)
+
+        cs_store = MagicMock()
+        cs_store.get_all_filtered.return_value = ([], 0)
+
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = str(copy_vault)
+        svc.poll(main_vault=str(main_vault))
+
+        assert svc.last_auto_sync is None
+        cs_store.set.assert_called_once()
+
+    @patch("src.clawdy.service.git_push")
+    @patch("src.clawdy.service.git_commit")
+    @patch("src.clawdy.service.pull")
+    def test_auto_sync_push_failure_still_creates_changeset(self, mock_pull, mock_commit, mock_push, main_vault, copy_vault):
+        mock_pull.return_value = ""
+        mock_push.side_effect = Exception("push rejected")
+
+        settings = MagicMock()
+        settings.get.side_effect = lambda k: {
+            "vault_path": str(main_vault),
+            "clawdy_last_converge": "2026-01-01T00:00:00+00:00",
+        }.get(k)
+
+        cs_store = MagicMock()
+        cs_store.get_all_filtered.return_value = ([], 0)
+
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = str(copy_vault)
+        svc.poll(main_vault=str(main_vault))
+
+        assert svc.last_error is not None
+        assert "push rejected" in svc.last_error
+
+    @patch("src.clawdy.service.git_push")
+    @patch("src.clawdy.service.git_commit")
+    @patch("src.clawdy.service.pull")
+    def test_no_commit_when_zero_synced(self, mock_pull, mock_commit, mock_push, tmp_path):
+        vault = tmp_path / "same"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        _write(vault, "Notes/A.md", "# Same content")
+
+        mock_pull.return_value = ""
+
+        settings = MagicMock()
+        settings.get.side_effect = lambda k: {
+            "vault_path": str(vault),
+            "clawdy_last_converge": "2026-01-01T00:00:00+00:00",
+        }.get(k)
+
+        cs_store = MagicMock()
+        cs_store.get_all_filtered.return_value = ([], 0)
+
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = str(vault)
+        svc.poll(main_vault=str(vault))
+
+        mock_commit.assert_not_called()
+        mock_push.assert_not_called()
+        assert svc.last_auto_sync == 0

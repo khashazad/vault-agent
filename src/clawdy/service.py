@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.agent.diff import generate_diff
-from src.clawdy.git import pull
+from src.clawdy.git import pull, commit as git_commit, push as git_push
 from src.db.changesets import ChangesetStore
 from src.db.settings import SettingsStore
 from src.models import Changeset, ProposedChange
@@ -266,6 +266,7 @@ class ClawdyService:
         self._task: asyncio.Task | None = None
         self.last_poll: str | None = None
         self.last_error: str | None = None
+        self.last_auto_sync: int | None = None
 
         self.copy_vault_path = self._settings.get("clawdy_copy_vault_path")
         interval_str = self._settings.get("clawdy_interval")
@@ -273,12 +274,19 @@ class ClawdyService:
         enabled_str = self._settings.get("clawdy_enabled")
         self.enabled = enabled_str == "true" if enabled_str else False
 
-    # Run a single poll cycle: pull, diff, create changeset.
+    # Run a single poll cycle: snapshot, pull, diff, partition, auto-sync, changeset.
+    # Reads main vault path from SettingsStore to always use current value.
     #
     # Args:
-    #     main_vault: Path to the main vault.
-    def poll(self, main_vault: str) -> None:
+    #     main_vault: Optional override; if None, reads from SettingsStore.
+    def poll(self, main_vault: str | None = None) -> None:
         if not self.enabled or not self.copy_vault_path:
+            return
+
+        if not main_vault:
+            main_vault = self._settings.get("vault_path")
+        if not main_vault:
+            logger.warning("clawdy: no vault_path configured, skipping poll")
             return
 
         # Check for pending clawdy changeset
@@ -289,6 +297,9 @@ class ClawdyService:
             logger.debug("clawdy: skipping poll, pending changeset exists")
             return
 
+        # Snapshot before pull
+        pre_snapshot = snapshot_vault(self.copy_vault_path)
+
         try:
             pull(self.copy_vault_path)
         except Exception as e:
@@ -296,23 +307,64 @@ class ClawdyService:
             logger.warning("clawdy: git pull failed: %s", e)
             return
 
+        # Snapshot after pull
+        post_snapshot = snapshot_vault(self.copy_vault_path)
+
+        # Compute which files changed during pull
+        pull_changed: set[str] = set()
+        all_paths = set(pre_snapshot.keys()) | set(post_snapshot.keys())
+        for p in all_paths:
+            if pre_snapshot.get(p) != post_snapshot.get(p):
+                pull_changed.add(p)
+
         try:
-            cs = create_clawdy_changeset(main_vault, self.copy_vault_path)
+            logger.info("clawdy: diffing main=%s copy=%s", main_vault, self.copy_vault_path)
+            modified, created, deleted = diff_vaults(main_vault, self.copy_vault_path)
+
+            openclaw_diffs, main_diffs = partition_diff(modified, created, deleted, pull_changed)
+
+            # Bidirectional auto-sync (only after first convergence)
+            last_converge = self._settings.get("clawdy_last_converge")
+            if last_converge:
+                mn_mod, mn_cre, mn_del = main_diffs
+                if mn_mod or mn_cre or mn_del:
+                    sync_count = sync_main_to_copy(
+                        main_vault, self.copy_vault_path, mn_mod, mn_cre, mn_del
+                    )
+                    self.last_auto_sync = sync_count
+                    if sync_count > 0:
+                        logger.info("clawdy: auto-synced %d files from main to copy", sync_count)
+                        try:
+                            git_commit(self.copy_vault_path, f"vault-agent: auto-sync {sync_count} user changes")
+                            git_push(self.copy_vault_path)
+                        except Exception as e:
+                            self.last_error = str(e)
+                            logger.warning("clawdy: auto-sync commit/push failed: %s", e)
+                else:
+                    self.last_auto_sync = 0
+            else:
+                self.last_auto_sync = None
+                # No convergence yet — all diffs go to changeset
+                openclaw_diffs = (modified, created, deleted)
+
+            cs = create_clawdy_changeset(main_vault, self.copy_vault_path, diffs=openclaw_diffs)
             if cs:
+                tools = {}
+                for c in cs.changes:
+                    tools[c.tool_name] = tools.get(c.tool_name, 0) + 1
+                logger.info("clawdy: created changeset %s with %d changes (%s)", cs.id, len(cs.changes), tools)
                 self._changeset_store.set(cs)
-                logger.info("clawdy: created changeset %s with %d changes", cs.id, len(cs.changes))
-            self.last_error = None
             self.last_poll = datetime.now(timezone.utc).isoformat()
+            # Only clear error if auto-sync didn't set one
+            if not last_converge or self.last_auto_sync == 0 or self.last_error is None:
+                self.last_error = None
         except Exception as e:
             self.last_error = str(e)
             logger.exception("clawdy: diff/changeset creation failed")
 
     # Start the background poll loop.
-    #
-    # Args:
-    #     main_vault: Path to the main vault.
-    async def start(self, main_vault: str) -> None:
-        self._task = asyncio.create_task(self._poll_loop(main_vault))
+    async def start(self) -> None:
+        self._task = asyncio.create_task(self._poll_loop())
 
     # Stop the background poll loop.
     def stop(self) -> None:
@@ -320,10 +372,10 @@ class ClawdyService:
             self._task.cancel()
             self._task = None
 
-    async def _poll_loop(self, main_vault: str) -> None:
+    async def _poll_loop(self) -> None:
         while True:
             try:
-                await asyncio.to_thread(self.poll, main_vault)
+                await asyncio.to_thread(self.poll)
             except Exception:
                 logger.exception("clawdy: unexpected error in poll loop")
             await asyncio.sleep(self.interval)
