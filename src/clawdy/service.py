@@ -37,6 +37,37 @@ def snapshot_vault(vault_path: str) -> dict[str, str]:
     return hashes
 
 
+# DiffSet groups the three diff lists into a single tuple.
+DiffSet = tuple[list[FileChange], list[FileCreate], list[FileDelete]]
+
+
+# Split vault diffs into OpenClaw-originated and main-vault-originated.
+#
+# Args:
+#     modified: Modified file tuples from diff_vaults.
+#     created: Created file tuples from diff_vaults.
+#     deleted: Deleted file tuples from diff_vaults.
+#     pull_changed: Set of relative paths that changed during git pull.
+#
+# Returns:
+#     (openclaw_diffs, main_diffs) where each is (modified, created, deleted).
+def partition_diff(
+    modified: list[FileChange],
+    created: list[FileCreate],
+    deleted: list[FileDelete],
+    pull_changed: set[str],
+) -> tuple[DiffSet, DiffSet]:
+    oc_mod = [m for m in modified if m[0] in pull_changed]
+    oc_cre = [c for c in created if c[0] in pull_changed]
+    oc_del = [d for d in deleted if d[0] in pull_changed]
+
+    mn_mod = [m for m in modified if m[0] not in pull_changed]
+    mn_cre = [c for c in created if c[0] not in pull_changed]
+    mn_del = [d for d in deleted if d[0] not in pull_changed]
+
+    return (oc_mod, oc_cre, oc_del), (mn_mod, mn_cre, mn_del)
+
+
 # Diff all .md files between main vault and copy vault.
 #
 # Args:

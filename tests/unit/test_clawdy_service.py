@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
-from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults, ClawdyService, snapshot_vault
+from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults, ClawdyService, snapshot_vault, partition_diff
 
 
 def _write(vault: Path, rel: str, content: str):
@@ -163,6 +163,50 @@ class TestSnapshotVault:
         (vault / ".obsidian").mkdir()
         result = snapshot_vault(str(vault))
         assert result == {}
+
+
+class TestPartitionDiff:
+    def test_separates_by_pull_changed(self):
+        modified = [("Notes/A.md", "old", "new"), ("Notes/B.md", "old", "new")]
+        created = [("Notes/C.md", "content")]
+        deleted = [("Notes/D.md", "content")]
+        pull_changed = {"Notes/A.md", "Notes/C.md"}
+
+        openclaw, main = partition_diff(modified, created, deleted, pull_changed)
+
+        assert openclaw[0] == [("Notes/A.md", "old", "new")]  # modified
+        assert openclaw[1] == [("Notes/C.md", "content")]      # created
+        assert openclaw[2] == []                                 # deleted
+
+        assert main[0] == [("Notes/B.md", "old", "new")]       # modified
+        assert main[1] == []                                     # created
+        assert main[2] == [("Notes/D.md", "content")]           # deleted
+
+    def test_empty_pull_changed_all_to_main(self):
+        modified = [("A.md", "old", "new")]
+        created = [("B.md", "content")]
+        deleted = [("C.md", "content")]
+
+        openclaw, main = partition_diff(modified, created, deleted, set())
+
+        assert openclaw == ([], [], [])
+        assert main == (modified, created, deleted)
+
+    def test_all_in_pull_changed_all_to_openclaw(self):
+        modified = [("A.md", "old", "new")]
+        created = [("B.md", "content")]
+        deleted = [("C.md", "content")]
+        pull_changed = {"A.md", "B.md", "C.md"}
+
+        openclaw, main = partition_diff(modified, created, deleted, pull_changed)
+
+        assert openclaw == (modified, created, deleted)
+        assert main == ([], [], [])
+
+    def test_empty_diffs(self):
+        openclaw, main = partition_diff([], [], [], {"A.md"})
+        assert openclaw == ([], [], [])
+        assert main == ([], [], [])
 
 
 class TestClawdyServiceInit:
