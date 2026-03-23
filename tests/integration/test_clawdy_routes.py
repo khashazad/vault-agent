@@ -128,10 +128,11 @@ class TestClawdyBidirectional:
         old_global = server_mod.clawdy_service
         server_mod.clawdy_service = mock_svc
 
-        with patch("src.server.git_commit"), patch("src.server.git_push"):
-            res = await client.post(f"/clawdy/converge/{cs.id}")
-
-        server_mod.clawdy_service = old_global
+        try:
+            with patch("src.server.git_commit"), patch("src.server.git_push"), patch("src.server.git_status", return_value="M Notes/A.md\n"):
+                res = await client.post(f"/clawdy/converge/{cs.id}")
+        finally:
+            server_mod.clawdy_service = old_global
 
         assert res.status_code == 200
         assert memory_settings_store.get("clawdy_last_converge") is not None
