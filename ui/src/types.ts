@@ -335,6 +335,8 @@ export interface ClawdyStatus {
   last_poll: string | null;
   last_error: string | null;
   pending_changeset_count: number;
+  last_auto_sync: number | null;
+  bidirectional_enabled: boolean;
 }
 
 export interface MigrationRegistry {

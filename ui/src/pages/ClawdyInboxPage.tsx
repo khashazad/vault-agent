@@ -117,6 +117,12 @@ export function ClawdyInboxPage() {
           <span className={status.enabled ? "text-green" : "text-muted"}>
             {status.enabled ? "Enabled" : "Disabled"}
           </span>
+          {status.bidirectional_enabled && (
+            <span className="text-green">Bidirectional</span>
+          )}
+          {status.last_auto_sync != null && status.last_auto_sync > 0 && (
+            <span>Auto-synced {status.last_auto_sync} files</span>
+          )}
           {status.last_poll && (
             <span>
               Last poll: {new Date(status.last_poll).toLocaleString()}
