@@ -153,7 +153,8 @@ React 19 + TypeScript 5.6 + Vite 6 + Tailwind CSS 4 + React Router 7. Catppuccin
   /changesets/:id  → ChangesetDetailPage (split-pane review + feedback)
   /migration       → MigrationPage (migration job dashboard)
   /taxonomy        → TaxonomyPage (vault taxonomy: folders/tags/links)
-  /clawdy         → ClawdyInboxPage (clawdy inbox: config, status, changeset list)
+  /clawdy         → ClawdyInboxPage (clawdy inbox: status, changeset list)
+  /settings       → SettingsPage (Obsidian-style settings with section sidebar)
 * → redirect to /connect
 ```
 
@@ -172,7 +173,8 @@ React 19 + TypeScript 5.6 + Vite 6 + Tailwind CSS 4 + React Router 7. Catppuccin
 - **`ChangesetDetailPage`** — Split-pane: diff viewer (left) + feedback annotations (right); draggable divider; cost display; regeneration workflow
 - **`MigrationPage`** — Renders `MigrationDashboard` component
 - **`TaxonomyPage`** — Three-tab taxonomy view (folders/tags/links); hierarchical tag tree; curation modal; vault stats sidebar
-- **`ClawdyInboxPage`** — Clawdy config/status bar; clawdy-filtered changeset list with pagination
+- **`ClawdyInboxPage`** — Clawdy status bar; clawdy-filtered changeset list with pagination
+- **`SettingsPage`** — Two-panel settings page (section sidebar + settings panel); Clawdy Inbox config (copy vault path, polling toggle, interval)
 
 ### Shared components
 
@@ -560,7 +562,8 @@ vault-agent/
 │       │   ├── ChangesetDetailPage.tsx
 │       │   ├── MigrationPage.tsx
 │       │   ├── TaxonomyPage.tsx
-│       │   └── ClawdyInboxPage.tsx
+│       │   ├── ClawdyInboxPage.tsx
+│       │   └── SettingsPage.tsx
 │       ├── components/
 │       │   ├── Layout.tsx
 │       │   ├── Sidebar.tsx
