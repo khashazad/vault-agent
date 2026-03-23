@@ -329,7 +329,7 @@ export function ChangesetDetailPage() {
                 }
                 className="text-accent underline bg-transparent border-none cursor-pointer p-0 text-xs"
               >
-                {detail.parent_changeset_id.slice(0, 8)}...
+                Previous version
               </button>
             </div>
           )}

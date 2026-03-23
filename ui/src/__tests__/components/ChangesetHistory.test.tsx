@@ -31,8 +31,8 @@ describe("ChangesetHistory", () => {
       expect(screen.getByText("Changeset History")).toBeDefined();
     });
     await waitFor(() => {
-      expect(screen.getByText(/cs-1/)).toBeDefined();
-      expect(screen.getByText(/cs-2/)).toBeDefined();
+      expect(screen.getByTestId("delete-cs-1")).toBeDefined();
+      expect(screen.getByTestId("delete-cs-2")).toBeDefined();
     });
   });
 
@@ -57,11 +57,11 @@ describe("ChangesetHistory", () => {
     render(<ChangesetHistory />);
 
     await waitFor(() => {
-      expect(screen.getByText(/cs-1/)).toBeDefined();
+      expect(screen.getByTestId("delete-cs-1")).toBeDefined();
     });
 
     // Click the first card
-    const card = screen.getByText(/cs-1/).closest("[role='button']");
+    const card = screen.getByTestId("delete-cs-1").closest("[role='button']");
     if (card) fireEvent.click(card);
 
     await waitFor(() => {
@@ -91,10 +91,10 @@ describe("ChangesetHistory", () => {
 
     render(<ChangesetHistory />);
     await waitFor(() => {
-      expect(screen.getByText(/cs-1/)).toBeDefined();
+      expect(screen.getByTestId("delete-cs-1")).toBeDefined();
     });
 
-    const card = screen.getByText(/cs-1/).closest("[role='button']");
+    const card = screen.getByTestId("delete-cs-1").closest("[role='button']");
     if (card) fireEvent.click(card);
 
     await waitFor(() => {
