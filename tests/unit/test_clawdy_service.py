@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
-from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults, ClawdyService
+from src.clawdy.service import diff_vaults, create_clawdy_changeset, converge_vaults, ClawdyService, snapshot_vault
 
 
 def _write(vault: Path, rel: str, content: str):
@@ -134,6 +134,35 @@ class TestConvergeVaults:
         converge_vaults(str(main_vault), str(copy_vault), changes_map)
         # Applied changes are already in sync — copy unchanged
         assert (copy_vault / "Notes/A.md").read_text() == original_copy_content
+
+
+class TestSnapshotVault:
+    def test_hashes_md_files(self, main_vault):
+        result = snapshot_vault(str(main_vault))
+        assert "Notes/A.md" in result
+        assert "Notes/B.md" in result
+        assert "Notes/OnlyMain.md" in result
+        assert len(result) == 3
+        # Hashes are 32-char hex strings
+        for v in result.values():
+            assert len(v) == 32
+
+    def test_ignores_non_md_files(self, tmp_path):
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        _write(vault, "note.md", "content")
+        (vault / "image.png").write_bytes(b"\x89PNG")
+        result = snapshot_vault(str(vault))
+        assert "note.md" in result
+        assert "image.png" not in result
+
+    def test_empty_vault(self, tmp_path):
+        vault = tmp_path / "empty"
+        vault.mkdir()
+        (vault / ".obsidian").mkdir()
+        result = snapshot_vault(str(vault))
+        assert result == {}
 
 
 class TestClawdyServiceInit:

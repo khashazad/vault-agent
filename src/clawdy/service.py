@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -19,6 +20,21 @@ FileChange = tuple[str, str, str]
 FileDelete = tuple[str, str]
 # Create tuple: (relative_path, copy_content)
 FileCreate = tuple[str, str]
+
+
+# Hash all .md files in a vault directory.
+#
+# Args:
+#     vault_path: Path to the vault.
+#
+# Returns:
+#     Dict mapping relative path to MD5 hex digest.
+def snapshot_vault(vault_path: str) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for full_path, rel in iter_markdown_files(vault_path):
+        content = full_path.read_bytes()
+        hashes[rel] = hashlib.md5(content).hexdigest()
+    return hashes
 
 
 # Diff all .md files between main vault and copy vault.
