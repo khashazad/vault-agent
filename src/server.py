@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         changeset_store=get_changeset_store(),
     )
     if clawdy_service.enabled and config.vault_path:
-        await clawdy_service.start(config.vault_path)
+        await clawdy_service.start()
         logger.info("clawdy: polling started (interval=%ds)", clawdy_service.interval)
     yield
     if clawdy_service:
@@ -1432,6 +1432,7 @@ async def put_clawdy_config(body: ClawdyConfigRequest):
         if not is_git_repo(body.copy_vault_path):
             raise HTTPException(400, "Path is not a git repository")
         ss.set("clawdy_copy_vault_path", body.copy_vault_path)
+        ss.delete("clawdy_last_converge")
         if clawdy_service:
             clawdy_service.copy_vault_path = body.copy_vault_path
 
@@ -1461,6 +1462,8 @@ async def get_clawdy_status():
         "last_poll": clawdy_service.last_poll if clawdy_service else None,
         "last_error": clawdy_service.last_error if clawdy_service else None,
         "pending_changeset_count": pending_count,
+        "last_auto_sync": clawdy_service.last_auto_sync if clawdy_service else None,
+        "bidirectional_enabled": get_settings_store().get("clawdy_last_converge") is not None,
     }
 
 
@@ -1508,6 +1511,7 @@ async def converge_clawdy(changeset_id: str, request: Request):
     try:
         git_commit(clawdy_service.copy_vault_path, message)
         git_push(clawdy_service.copy_vault_path)
+        get_settings_store().set("clawdy_last_converge", datetime.now(timezone.utc).isoformat())
     except Exception as e:
         logger.warning("clawdy: convergence commit/push failed: %s", e)
         raise HTTPException(500, f"Convergence git operation failed: {e}")

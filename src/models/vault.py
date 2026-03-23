@@ -144,3 +144,5 @@ class ClawdyStatusResponse(BaseModel):
     last_poll: str | None
     last_error: str | None
     pending_changeset_count: int
+    last_auto_sync: int | None
+    bidirectional_enabled: bool
