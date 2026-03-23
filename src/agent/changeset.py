@@ -53,6 +53,10 @@ def apply_changeset(
                 delete_note(vault_path, inp.path)
                 applied.append(change.id)
 
+            else:
+                failed.append({"id": change.id, "error": f"unknown tool_name: {change.tool_name}"})
+                continue
+
             change.status = "applied"
 
         except Exception as err:

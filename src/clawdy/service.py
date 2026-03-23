@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.agent.diff import generate_diff
-from src.clawdy.git import pull, commit as git_commit, push as git_push
+from src.clawdy.git import pull, commit as git_commit, push as git_push, reset_hard
 from src.db.changesets import ChangesetStore
 from src.db.settings import SettingsStore
 from src.models import Changeset, ProposedChange
@@ -342,6 +342,10 @@ class ClawdyService:
                             self.last_error = str(e)
                             auto_sync_errored = True
                             logger.warning("clawdy: auto-sync commit/push failed: %s", e)
+                            try:
+                                reset_hard(self.copy_vault_path)
+                            except Exception:
+                                logger.exception("clawdy: reset after failed auto-sync also failed")
                 else:
                     self.last_auto_sync = 0
             else:
@@ -372,6 +376,23 @@ class ClawdyService:
         if self._task:
             self._task.cancel()
             self._task = None
+
+    @property
+    def running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    # Start or stop the poll loop based on current config.
+    #
+    # Args:
+    #     vault_path: Main vault path (needed to decide if polling is viable).
+    async def reconcile(self, vault_path: str | None) -> None:
+        should_run = self.enabled and bool(vault_path) and bool(self.copy_vault_path)
+        if should_run and not self.running:
+            await self.start()
+            logger.info("clawdy: polling started (interval=%ds)", self.interval)
+        elif not should_run and self.running:
+            self.stop()
+            logger.info("clawdy: polling stopped")
 
     async def _poll_loop(self) -> None:
         while True:

@@ -70,7 +70,7 @@ from src.db import get_changeset_store, get_batch_job_store, get_migration_store
 from src.db.settings import SettingsStore
 from src.zotero.background import ZoteroPaperCacheSyncer
 from src.clawdy.service import ClawdyService, converge_vaults
-from src.clawdy.git import is_git_repo, commit as git_commit, push as git_push
+from src.clawdy.git import is_git_repo, commit as git_commit, push as git_push, status as git_status
 
 from src.logging_config import setup_logging
 
@@ -99,9 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings_store=get_settings_store(),
         changeset_store=get_changeset_store(),
     )
-    if clawdy_service.enabled and config.vault_path:
-        await clawdy_service.start()
-        logger.info("clawdy: polling started (interval=%ds)", clawdy_service.interval)
+    await clawdy_service.reconcile(config.vault_path)
     yield
     if clawdy_service:
         clawdy_service.stop()
@@ -355,6 +353,9 @@ async def vault_config_set(request: Request, body: VaultConfigRequest):
     if zotero_ok and paper_cache_syncer is None:
         paper_cache_syncer = ZoteroPaperCacheSyncer(config)
         paper_cache_syncer.start()
+
+    if clawdy_service:
+        await clawdy_service.reconcile(vault_path)
 
     return {
         "vault_path": vault_path,
@@ -1423,7 +1424,7 @@ async def get_clawdy_config():
 
 # Update clawdy sync configuration.
 @app.put("/clawdy/config", tags=["Clawdy"])
-async def put_clawdy_config(body: ClawdyConfigRequest):
+async def put_clawdy_config(body: ClawdyConfigRequest, request: Request):
     ss = get_settings_store()
 
     if body.copy_vault_path is not None:
@@ -1445,6 +1446,10 @@ async def put_clawdy_config(body: ClawdyConfigRequest):
         ss.set("clawdy_enabled", "true" if body.enabled else "false")
         if clawdy_service:
             clawdy_service.enabled = body.enabled
+
+    if clawdy_service:
+        config = _get_config(request)
+        await clawdy_service.reconcile(config.vault_path)
 
     return await get_clawdy_config()
 
@@ -1474,7 +1479,7 @@ async def trigger_clawdy_sync(request: Request):
     if not clawdy_service or not clawdy_service.copy_vault_path:
         raise HTTPException(400, "Clawdy not configured")
     config = _get_config(request)
-    clawdy_service.poll(config.vault_path)
+    await asyncio.to_thread(clawdy_service.poll, config.vault_path)
     return {"status": "ok", "last_poll": clawdy_service.last_poll}
 
 
@@ -1500,7 +1505,9 @@ async def converge_clawdy(changeset_id: str, request: Request):
         path = change.input.get("path", "")
         changes_map[path] = {"tool_name": change.tool_name, "status": change.status}
 
-    converge_vaults(config.vault_path, clawdy_service.copy_vault_path, changes_map)
+    await asyncio.to_thread(
+        converge_vaults, config.vault_path, clawdy_service.copy_vault_path, changes_map
+    )
 
     # Build commit message
     applied = sum(1 for c in cs.changes if c.status == "applied")
@@ -1508,13 +1515,15 @@ async def converge_clawdy(changeset_id: str, request: Request):
     paths = [c.input.get("path", "") for c in cs.changes]
     message = f"vault-agent: applied {applied}, rejected {rejected} changes\n\n" + "\n".join(f"- {p}" for p in paths)
 
-    try:
-        git_commit(clawdy_service.copy_vault_path, message)
-        git_push(clawdy_service.copy_vault_path)
-        get_settings_store().set("clawdy_last_converge", datetime.now(timezone.utc).isoformat())
-    except Exception as e:
-        logger.warning("clawdy: convergence commit/push failed: %s", e)
-        raise HTTPException(500, f"Convergence git operation failed: {e}")
+    repo_status = await asyncio.to_thread(git_status, clawdy_service.copy_vault_path)
+    if repo_status.strip():
+        try:
+            await asyncio.to_thread(git_commit, clawdy_service.copy_vault_path, message)
+            await asyncio.to_thread(git_push, clawdy_service.copy_vault_path)
+        except Exception as e:
+            logger.warning("clawdy: convergence commit/push failed: %s", e)
+            raise HTTPException(500, f"Convergence git operation failed: {e}")
+    get_settings_store().set("clawdy_last_converge", datetime.now(timezone.utc).isoformat())
 
     # Update changeset status
     has_applied = any(c.status == "applied" for c in cs.changes)

@@ -135,26 +135,28 @@ export function ChangesetReview({
     try {
       // Sync statuses to server before applying (batched, 10 at a time)
       const unsyncedChanges = changes.filter(
-        (c) => !syncedIds.current.has(c.id),
+        (c) =>
+          !syncedIds.current.has(c.id) &&
+          (c.status === "approved" || c.status === "rejected"),
       );
       for (let i = 0; i < unsyncedChanges.length; i += 10) {
         const batch = unsyncedChanges.slice(i, i + 10);
         await Promise.all(
-          batch.map((c) =>
-            updateChangeStatus(
-              changesetId,
-              c.id,
-              c.status as "approved" | "rejected",
-            ),
-          ),
+          batch.map((c) => updateChangeStatus(changesetId, c.id, c.status)),
         );
       }
 
       const res = await applyChangeset(changesetId, approvedIds);
-      if (sourceType === "clawdy") {
-        await convergeClawdy(changesetId);
-      }
       setResult(res);
+      if (sourceType === "clawdy") {
+        try {
+          await convergeClawdy(changesetId);
+        } catch (convergeErr) {
+          setStatusError(
+            `Applied to vault but copy-vault sync failed: ${formatError(convergeErr)}`,
+          );
+        }
+      }
     } catch (err) {
       setResult({
         applied: [],
@@ -166,9 +168,14 @@ export function ChangesetReview({
   }, [changesetId, changes, sourceType]);
 
   const handleReject = useCallback(async () => {
-    await rejectChangeset(changesetId);
-    if (sourceType === "clawdy") {
-      await convergeClawdy(changesetId);
+    try {
+      await rejectChangeset(changesetId);
+      if (sourceType === "clawdy") {
+        await convergeClawdy(changesetId);
+      }
+    } catch (err) {
+      setStatusError(formatError(err));
+      return;
     }
     onDone();
   }, [changesetId, onDone, sourceType]);

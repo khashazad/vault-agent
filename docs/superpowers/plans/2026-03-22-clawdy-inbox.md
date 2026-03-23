@@ -15,6 +15,7 @@
 ## File Map
 
 ### New files
+
 | File | Responsibility |
 |------|---------------|
 | `src/clawdy/__init__.py` | Module exports |
@@ -27,6 +28,7 @@
 | `tests/integration/test_clawdy_apply.py` | replace_note/delete_note through apply_changeset |
 
 ### Modified files
+
 | File | Changes |
 |------|---------|
 | `src/models/content.py` | Add `"clawdy"` to `SourceType` literal |

@@ -125,7 +125,7 @@ class TaxonomyCurationResponse(BaseModel):
 # Request body for updating clawdy sync configuration.
 class ClawdyConfigRequest(BaseModel):
     copy_vault_path: str | None = None
-    interval: int | None = None
+    interval: int | None = Field(default=None, gt=0)
     enabled: bool | None = None
 
 

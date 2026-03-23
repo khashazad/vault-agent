@@ -141,6 +141,7 @@ export function ChangesetDetailPage() {
   }, [changesetId, loadDetail]);
 
   function backToList() {
+    if (detailLoading) return;
     if (detail?.source_type === "clawdy") {
       navigate("/clawdy");
     } else {

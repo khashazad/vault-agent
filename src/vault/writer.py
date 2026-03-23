@@ -121,6 +121,8 @@ def update_note(vault_path: str, inp: UpdateNoteInput) -> str:
 #     ValueError: When the path escapes the vault directory.
 def replace_note(vault_path: str, note_path: str, content: str) -> str:
     full_path = validate_path(vault_path, note_path)
+    if full_path.is_dir():
+        raise ValueError(f"Target is a directory: {note_path}")
     if not full_path.exists():
         raise FileNotFoundError(f"Note not found: {note_path}")
     full_path.write_text(content, encoding="utf-8")
@@ -141,6 +143,8 @@ def replace_note(vault_path: str, note_path: str, content: str) -> str:
 #     ValueError: When the path escapes the vault directory.
 def delete_note(vault_path: str, note_path: str) -> str:
     full_path = validate_path(vault_path, note_path)
+    if full_path.is_dir():
+        raise ValueError(f"Target is a directory: {note_path}")
     if not full_path.exists():
         raise FileNotFoundError(f"Note not found: {note_path}")
     full_path.unlink()

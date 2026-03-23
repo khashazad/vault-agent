@@ -93,6 +93,9 @@ function ClawdySettings({
           </div>
         </div>
         <button
+          role="switch"
+          aria-checked={config.enabled}
+          aria-label="Enable polling"
           onClick={() => onUpdate({ enabled: !config.enabled })}
           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer border-none ${
             config.enabled ? "bg-green" : "bg-elevated"
@@ -115,6 +118,8 @@ function ClawdySettings({
           </div>
         </div>
         <select
+          id="poll-interval"
+          aria-label="Poll interval"
           value={config.interval}
           onChange={(e) => onUpdate({ interval: Number(e.target.value) })}
           className="text-xs bg-elevated border border-border rounded px-2 py-1.5 text-text cursor-pointer"
