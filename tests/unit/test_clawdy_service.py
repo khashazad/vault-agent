@@ -389,12 +389,18 @@ class TestClawdyServicePollBidirectional:
         assert svc.last_auto_sync is None
         cs_store.set.assert_called_once()
 
+    @patch("src.clawdy.service.snapshot_vault")
     @patch("src.clawdy.service.git_push")
     @patch("src.clawdy.service.git_commit")
     @patch("src.clawdy.service.pull")
-    def test_auto_sync_push_failure_still_creates_changeset(self, mock_pull, mock_commit, mock_push, main_vault, copy_vault):
+    def test_auto_sync_push_failure_still_creates_changeset(self, mock_pull, mock_commit, mock_push, mock_snapshot, main_vault, copy_vault):
         mock_pull.return_value = ""
         mock_push.side_effect = Exception("push rejected")
+        # Simulate A.md changed during pull (OpenClaw) so it creates a changeset
+        mock_snapshot.side_effect = [
+            {"Notes/A.md": "pre_hash", "Notes/B.md": "same"},
+            {"Notes/A.md": "post_hash", "Notes/B.md": "same"},
+        ]
 
         settings = MagicMock()
         settings.get.side_effect = lambda k: {
@@ -412,6 +418,8 @@ class TestClawdyServicePollBidirectional:
 
         assert svc.last_error is not None
         assert "push rejected" in svc.last_error
+        # Changeset should still be created despite push failure
+        cs_store.set.assert_called_once()
 
     @patch("src.clawdy.service.git_push")
     @patch("src.clawdy.service.git_commit")

@@ -324,6 +324,7 @@ class ClawdyService:
             openclaw_diffs, main_diffs = partition_diff(modified, created, deleted, pull_changed)
 
             # Bidirectional auto-sync (only after first convergence)
+            auto_sync_errored = False
             last_converge = self._settings.get("clawdy_last_converge")
             if last_converge:
                 mn_mod, mn_cre, mn_del = main_diffs
@@ -339,6 +340,7 @@ class ClawdyService:
                             git_push(self.copy_vault_path)
                         except Exception as e:
                             self.last_error = str(e)
+                            auto_sync_errored = True
                             logger.warning("clawdy: auto-sync commit/push failed: %s", e)
                 else:
                     self.last_auto_sync = 0
@@ -355,8 +357,7 @@ class ClawdyService:
                 logger.info("clawdy: created changeset %s with %d changes (%s)", cs.id, len(cs.changes), tools)
                 self._changeset_store.set(cs)
             self.last_poll = datetime.now(timezone.utc).isoformat()
-            # Only clear error if auto-sync didn't set one
-            if not last_converge or self.last_auto_sync == 0 or self.last_error is None:
+            if not auto_sync_errored:
                 self.last_error = None
         except Exception as e:
             self.last_error = str(e)
