@@ -97,6 +97,18 @@ class TestCreateClawdyChangeset:
         assert delete.proposed_content == ""
         assert delete.original_content == "# OnlyMain\n\nContent."
 
+    def test_uses_provided_diffs(self, main_vault, copy_vault):
+        # Provide only modified diffs — should not call diff_vaults
+        modified = [("Notes/A.md", "# A\n\nOriginal content.", "# A\n\nModified by OpenClaw.")]
+        cs = create_clawdy_changeset(str(main_vault), str(copy_vault), diffs=(modified, [], []))
+        assert cs is not None
+        assert len(cs.changes) == 1
+        assert cs.changes[0].tool_name == "replace_note"
+
+    def test_provided_empty_diffs_returns_none(self, main_vault, copy_vault):
+        cs = create_clawdy_changeset(str(main_vault), str(copy_vault), diffs=([], [], []))
+        assert cs is None
+
 
 class TestConvergeVaults:
     def test_rejected_replace_copies_main_to_copy(self, main_vault, copy_vault):

@@ -158,13 +158,17 @@ def diff_vaults(
 # Args:
 #     main_vault: Path to the main vault.
 #     copy_vault: Path to the copy vault.
+#     diffs: Optional pre-computed (modified, created, deleted) tuples. Skips diff_vaults when provided.
 #
 # Returns:
 #     Changeset with one ProposedChange per changed file, or None if no changes.
 def create_clawdy_changeset(
-    main_vault: str, copy_vault: str
+    main_vault: str, copy_vault: str, diffs: DiffSet | None = None
 ) -> Changeset | None:
-    modified, created, deleted = diff_vaults(main_vault, copy_vault)
+    if diffs is not None:
+        modified, created, deleted = diffs
+    else:
+        modified, created, deleted = diff_vaults(main_vault, copy_vault)
 
     if not modified and not created and not deleted:
         return None
