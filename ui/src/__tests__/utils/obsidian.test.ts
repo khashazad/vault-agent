@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { preprocessObsidian, extractFrontmatter } from "../../utils/obsidian";
+import {
+  preprocessObsidian,
+  extractFrontmatter,
+  normalizeLatexDelimiters,
+} from "../../utils/obsidian";
 
 describe("preprocessObsidian", () => {
   it("converts wikilinks to spans", () => {
@@ -78,6 +82,37 @@ describe("preprocessObsidian", () => {
     const result = preprocessObsidian("![[my folder/photo image.png]]");
     expect(result).toContain(
       'src="/vault/assets/my%20folder/photo%20image.png"',
+    );
+  });
+});
+
+describe("normalizeLatexDelimiters", () => {
+  it("converts inline \\(...\\) to $...$", () => {
+    expect(normalizeLatexDelimiters("The value \\(\\gamma\\) is key")).toBe(
+      "The value $\\gamma$ is key",
+    );
+  });
+
+  it("converts display \\[...\\] to $$...$$", () => {
+    expect(normalizeLatexDelimiters("\\[E = mc^2\\]")).toBe("$$E = mc^2$$");
+  });
+
+  it("handles multiline display math", () => {
+    const input = "\\[\nFL(p_t) = -\\alpha_t\n\\]";
+    expect(normalizeLatexDelimiters(input)).toBe(
+      "$$\nFL(p_t) = -\\alpha_t\n$$",
+    );
+  });
+
+  it("leaves $...$ and $$...$$ unchanged", () => {
+    const input = "Inline $x^2$ and display $$y^2$$";
+    expect(normalizeLatexDelimiters(input)).toBe(input);
+  });
+
+  it("handles multiple inline expressions", () => {
+    const input = "Both \\(\\alpha\\) and \\(\\beta\\) matter";
+    expect(normalizeLatexDelimiters(input)).toBe(
+      "Both $\\alpha$ and $\\beta$ matter",
     );
   });
 });

@@ -133,7 +133,10 @@ export function MarkdownPreview({ content }: Props) {
       <div className="markdown-preview">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeRaw, rehypeKatex]}
+          rehypePlugins={[
+            [rehypeRaw, { passThrough: ["math", "inlineMath"] }],
+            rehypeKatex,
+          ]}
           components={components}
         >
           {processed}
