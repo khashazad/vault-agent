@@ -387,8 +387,16 @@ export function ChangesetHistory() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex flex-col gap-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-muted truncate">
-                          {cs.id.slice(0, 8)}...
+                        <span className="text-xs text-muted">
+                          {new Date(cs.created_at).toLocaleDateString(
+                            undefined,
+                            {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            },
+                          )}
                         </span>
                         <StatusBadge status={cs.status} />
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface border border-border text-muted">
@@ -405,9 +413,6 @@ export function ChangesetHistory() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent">
                         {cs.change_count} change
                         {cs.change_count !== 1 ? "s" : ""}
-                      </span>
-                      <span className="text-xs text-muted">
-                        {new Date(cs.created_at).toLocaleDateString()}
                       </span>
                       <div className="relative">
                         <button
@@ -524,7 +529,7 @@ export function ChangesetHistory() {
                 onClick={() => openDetail(detail.parent_changeset_id!)}
                 className="text-accent underline bg-transparent border-none cursor-pointer p-0 text-xs"
               >
-                {detail.parent_changeset_id.slice(0, 8)}...
+                Previous version
               </button>
             </div>
           )}

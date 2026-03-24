@@ -114,12 +114,6 @@ export function ClawdyInboxPage() {
         </div>
       ) : status ? (
         <div className="flex items-center gap-4 flex-wrap text-xs text-muted">
-          <span className={status.enabled ? "text-green" : "text-muted"}>
-            {status.enabled ? "Enabled" : "Disabled"}
-          </span>
-          {status.bidirectional_enabled && (
-            <span className="text-green">Bidirectional</span>
-          )}
           {status.last_auto_sync != null && status.last_auto_sync > 0 && (
             <span>Auto-synced {status.last_auto_sync} files</span>
           )}
@@ -176,8 +170,13 @@ export function ClawdyInboxPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex flex-col gap-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono text-muted truncate">
-                        {cs.id.slice(0, 8)}...
+                      <span className="text-xs text-muted">
+                        {new Date(cs.created_at).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
                       </span>
                       <StatusBadge status={cs.status} />
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface border border-border text-muted">
@@ -194,9 +193,6 @@ export function ClawdyInboxPage() {
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent">
                       {cs.change_count} change
                       {cs.change_count !== 1 ? "s" : ""}
-                    </span>
-                    <span className="text-xs text-muted">
-                      {new Date(cs.created_at).toLocaleDateString()}
                     </span>
                   </div>
                 </div>

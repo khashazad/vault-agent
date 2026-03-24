@@ -8,8 +8,8 @@ test.beforeEach(async ({ page }) => {
 test("navigate to Changesets page and see changeset list", async ({ page }) => {
   await page.goto("/changesets");
   await expect(page.getByText("Changeset History")).toBeVisible();
-  await expect(page.getByText(/cshist01/)).toBeVisible();
-  await expect(page.getByText(/cshist02/)).toBeVisible();
+  await expect(page.getByTestId("delete-cshist01-abcd-1234")).toBeVisible();
+  await expect(page.getByTestId("delete-cshist02-efgh-5678")).toBeVisible();
 });
 
 test("status filter tabs are visible", async ({ page }) => {
@@ -22,16 +22,18 @@ test("status filter tabs are visible", async ({ page }) => {
 
 test("click changeset card to see detail", async ({ page }) => {
   await page.goto("/changesets");
-  await expect(page.getByText(/cshist01/)).toBeVisible();
+  await expect(page.getByTestId("delete-cshist01-abcd-1234")).toBeVisible();
 
   // Click first changeset card
-  await page.getByText(/cshist01/).click();
+  const card = page.getByTestId("delete-cshist01-abcd-1234").locator("xpath=ancestor::div[@role='button']");
+  await card.click();
   await expect(page.getByText("Changeset Detail")).toBeVisible();
 });
 
 test("back button returns to list from detail", async ({ page }) => {
   await page.goto("/changesets");
-  await page.getByText(/cshist01/).click();
+  const card = page.getByTestId("delete-cshist01-abcd-1234").locator("xpath=ancestor::div[@role='button']");
+  await card.click();
   await expect(page.getByText("Changeset Detail")).toBeVisible();
 
   // Click back
@@ -41,7 +43,7 @@ test("back button returns to list from detail", async ({ page }) => {
 
 test("delete button shows popover and sends DELETE request", async ({ page }) => {
   await page.goto("/changesets");
-  await expect(page.getByText(/cshist01/)).toBeVisible();
+  await expect(page.getByTestId("delete-cshist01-abcd-1234")).toBeVisible();
 
   await page.getByTestId("delete-cshist01-abcd-1234").click();
   await expect(page.getByTestId("delete-confirm-popover")).toBeVisible();
