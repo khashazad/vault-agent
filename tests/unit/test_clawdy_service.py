@@ -138,14 +138,22 @@ class TestConvergeVaults:
         main_content = (main_vault / "Notes/OnlyMain.md").read_text()
         assert copy_content == main_content
 
-    def test_applied_changes_no_op(self, main_vault, copy_vault):
-        original_copy_content = (copy_vault / "Notes/A.md").read_text()
+    def test_applied_replace_copies_main_to_copy(self, main_vault, copy_vault):
         changes_map = {
             "Notes/A.md": {"tool_name": "replace_note", "status": "applied"}
         }
         converge_vaults(str(main_vault), str(copy_vault), changes_map)
-        # Applied changes are already in sync — copy unchanged
-        assert (copy_vault / "Notes/A.md").read_text() == original_copy_content
+        assert (copy_vault / "Notes/A.md").read_text() == (
+            main_vault / "Notes/A.md"
+        ).read_text()
+
+    def test_applied_delete_removes_from_copy(self, main_vault, copy_vault):
+        _write(copy_vault, "Notes/DeleteMe.md", "# Delete me")
+        changes_map = {
+            "Notes/DeleteMe.md": {"tool_name": "delete_note", "status": "applied"}
+        }
+        converge_vaults(str(main_vault), str(copy_vault), changes_map)
+        assert not (copy_vault / "Notes/DeleteMe.md").exists()
 
 
 class TestSnapshotVault:
@@ -324,10 +332,30 @@ class TestClawdyServicePoll:
 
         cs_store.set.assert_called_once_with(mock_cs)
 
+    @patch("src.clawdy.service.create_clawdy_changeset")
+    @patch("src.clawdy.service.partition_diff")
+    @patch("src.clawdy.service.diff_vaults")
+    @patch("src.clawdy.service.snapshot_vault")
     @patch("src.clawdy.service.pull")
-    def test_poll_skips_when_pending_changeset_exists(self, mock_pull):
+    def test_poll_merges_when_pending_changeset_exists(
+        self,
+        mock_pull,
+        mock_snapshot,
+        mock_diff,
+        mock_partition,
+        mock_create,
+    ):
         from tests.factories import make_changeset
+
         mock_pull.return_value = ""
+        mock_snapshot.return_value = {}
+        mock_diff.return_value = ([("Notes/A.md", "main", "copy")], [], [])
+        mock_partition.return_value = (([("Notes/A.md", "main", "copy")], [], []), ([], [], []))
+        mock_create.return_value = make_changeset(
+            source_type="clawdy",
+            items=[],
+            routing=None,
+        )
 
         settings = MagicMock()
         settings.get.return_value = None
@@ -339,7 +367,50 @@ class TestClawdyServicePoll:
         svc.copy_vault_path = "/copy"
         svc.poll(main_vault="/main")
 
-        mock_pull.assert_not_called()
+        mock_pull.assert_called_once_with("/copy")
+        cs_store.merge_changes.assert_called_once()
+        cs_store.set.assert_not_called()
+
+    @patch("src.clawdy.service.create_clawdy_changeset")
+    @patch("src.clawdy.service.partition_diff")
+    @patch("src.clawdy.service.diff_vaults")
+    @patch("src.clawdy.service.snapshot_vault")
+    @patch("src.clawdy.service.sync_main_to_copy")
+    @patch("src.clawdy.service.pull")
+    def test_poll_clears_stale_pending_changeset_when_no_openclaw_diffs(
+        self,
+        mock_pull,
+        mock_sync_main_to_copy,
+        mock_snapshot,
+        mock_diff,
+        mock_partition,
+        mock_create,
+    ):
+        from tests.factories import make_changeset
+
+        mock_pull.return_value = ""
+        mock_sync_main_to_copy.return_value = 1
+        mock_snapshot.return_value = {}
+        mock_diff.return_value = ([("Notes/A.md", "main", "copy")], [], [])
+        mock_partition.return_value = (([], [], []), ([("Notes/A.md", "main", "copy")], [], []))
+        mock_create.return_value = None
+
+        settings = MagicMock()
+        settings.get.side_effect = lambda key: {
+            "clawdy_last_converge": "2026-01-01T00:00:00+00:00",
+        }.get(key)
+        cs_store = MagicMock()
+        cs_store.get_all_filtered.return_value = ([make_changeset()], 1)
+
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = "/copy"
+        svc.poll(main_vault="/main")
+
+        cs_store.merge_changes.assert_called_once_with(
+            cs_store.get_all_filtered.return_value[0][0].id,
+            [],
+        )
 
 
 class TestClawdyServicePollBidirectional:

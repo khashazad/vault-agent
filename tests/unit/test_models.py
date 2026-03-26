@@ -42,6 +42,12 @@ class TestChangesetMigration:
         assert len(cs.items) == 1
 
 
+class TestChangesetTimestamps:
+    def test_updated_at_defaults_to_none(self):
+        cs = make_changeset()
+        assert cs.updated_at is None
+
+
 class TestContentItem:
     def test_max_length_text(self):
         with pytest.raises(ValidationError):
@@ -104,6 +110,7 @@ class TestChangesetSummary:
             id="cs-1",
             status="pending",
             created_at="2024-01-01T00:00:00Z",
+            updated_at=None,
             source_type="web",
             change_count=2,
             routing=make_routing_info(),
@@ -117,6 +124,7 @@ class TestChangesetSummary:
             id="cs-1",
             status="revision_requested",
             created_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-02T00:00:00Z",
             source_type="zotero",
             change_count=1,
             routing=None,
@@ -125,6 +133,7 @@ class TestChangesetSummary:
         )
         assert summary.feedback == "Fix the heading"
         assert summary.parent_changeset_id == "cs-0"
+        assert summary.updated_at == "2024-01-02T00:00:00Z"
 
 
 class TestChangesetListResponse:

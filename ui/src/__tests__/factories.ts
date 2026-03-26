@@ -44,6 +44,7 @@ export function makeChangeset(overrides?: Partial<Changeset>): Changeset {
     reasoning: "Created a new note.",
     status: "pending",
     created_at: "2024-01-01T00:00:00Z",
+    updated_at: null,
     source_type: "web",
     routing: {
       action: "create",
@@ -67,6 +68,7 @@ export function makeChangesetSummary(
     id: "cs-test-1",
     status: "pending",
     created_at: "2024-01-01T00:00:00Z",
+    updated_at: null,
     source_type: "web",
     change_count: 1,
     routing: {

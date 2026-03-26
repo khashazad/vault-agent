@@ -1,7 +1,8 @@
 import os
 import sqlite3
+from datetime import datetime, timezone
 
-from src.models import Changeset
+from src.models import Changeset, ProposedChange
 
 
 # SQLite-backed persistent store for changesets using WAL journal mode.
@@ -31,6 +32,7 @@ class ChangesetStore:
         """)
         self._conn.commit()
         self._maybe_add_source_type_column()
+        self._maybe_add_updated_at_column()
 
     # Add source_type column to existing tables and backfill from JSON data.
     def _maybe_add_source_type_column(self) -> None:
@@ -51,17 +53,38 @@ class ChangesetStore:
             )
             self._conn.commit()
 
+    # Add updated_at column to existing tables and backfill from JSON or created_at.
+    def _maybe_add_updated_at_column(self) -> None:
+        cols = [
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(changesets)").fetchall()
+        ]
+        if "updated_at" not in cols:
+            self._conn.execute(
+                "ALTER TABLE changesets ADD COLUMN updated_at TEXT"
+            )
+            self._conn.execute(
+                "UPDATE changesets SET updated_at = COALESCE("
+                "json_extract(data, '$.updated_at'), created_at)"
+            )
+            self._conn.commit()
+
     # Upsert a changeset into the store.
     #
     # Args:
     #     changeset: Changeset to insert or update.
     def set(self, changeset: Changeset) -> None:
+        if changeset.updated_at is None:
+            changeset.updated_at = changeset.created_at
         self._conn.execute(
             """
-            INSERT INTO changesets (id, status, created_at, data, source_type)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO changesets (
+                id, status, created_at, updated_at, data, source_type
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 status = excluded.status,
+                updated_at = excluded.updated_at,
                 data   = excluded.data,
                 source_type = excluded.source_type
             """,
@@ -69,6 +92,7 @@ class ChangesetStore:
                 changeset.id,
                 changeset.status,
                 changeset.created_at,
+                changeset.updated_at,
                 changeset.model_dump_json(),
                 changeset.source_type,
             ),
@@ -126,6 +150,67 @@ class ChangesetStore:
             (*params, limit, offset),
         ).fetchall()
         return [Changeset.model_validate_json(r["data"]) for r in rows], total
+
+    # Merge new changes into an existing changeset by file path.
+    #
+    # Matches by `change.input["path"]`:
+    # - Path exists in current: update content/diff, reset status to pending, keep ID.
+    # - Path is new: append as new ProposedChange.
+    # - Path in current but not in new: remove it.
+    # Deletes the changeset if zero changes remain after merge.
+    #
+    # Args:
+    #     changeset_id: ID of the changeset to merge into.
+    #     new_changes: Updated list of ProposedChange instances.
+    #
+    # Returns:
+    #     Updated Changeset, or None if missing or deleted after merge.
+    def merge_changes(
+        self, changeset_id: str, new_changes: list[ProposedChange]
+    ) -> Changeset | None:
+        changeset = self.get(changeset_id)
+        if changeset is None:
+            return None
+
+        new_by_path = {
+            str(change.input.get("path", "")): change
+            for change in new_changes
+        }
+        existing_by_path = {
+            str(change.input.get("path", "")): change
+            for change in changeset.changes
+        }
+
+        merged_changes: list[ProposedChange] = []
+
+        for path, existing in existing_by_path.items():
+            if path not in new_by_path:
+                continue
+
+            incoming = new_by_path[path]
+            merged_changes.append(ProposedChange(
+                id=existing.id,
+                tool_name=incoming.tool_name,
+                input=incoming.input,
+                original_content=incoming.original_content,
+                proposed_content=incoming.proposed_content,
+                diff=incoming.diff,
+                status="pending",
+            ))
+
+        for path, incoming in new_by_path.items():
+            if path in existing_by_path:
+                continue
+            merged_changes.append(incoming)
+
+        if not merged_changes:
+            self.delete(changeset_id)
+            return None
+
+        changeset.changes = merged_changes
+        changeset.updated_at = datetime.now(timezone.utc).isoformat()
+        self.set(changeset)
+        return changeset
 
     # Retrieve all changesets ordered by created_at descending.
     #

@@ -217,10 +217,10 @@ def create_clawdy_changeset(
     )
 
 
-# Sync the copy vault to match the main vault for rejected changes.
+# Sync the copy vault to match the main vault after review decisions.
 #
-# For rejected changes, overwrites copy vault files with main vault content.
-# For applied changes, no action needed (main vault already updated).
+# Applied changes are mirrored from main to copy.
+# Rejected changes restore copy to match the unchanged main vault.
 #
 # Args:
 #     main_vault: Path to the main vault.
@@ -232,25 +232,48 @@ def converge_vaults(
     changes_map: dict[str, dict[str, str]],
 ) -> None:
     for rel_path, info in changes_map.items():
-        if info["status"] != "rejected":
-            continue
-
         main_file = Path(main_vault, rel_path)
         copy_file = Path(copy_vault, rel_path)
+        status = info["status"]
+        tool_name = info["tool_name"]
 
-        if info["tool_name"] == "replace_note":
-            # Rejected modification: restore main's version in copy
-            copy_file.write_text(main_file.read_text(encoding="utf-8"), encoding="utf-8")
+        if status == "applied":
+            if tool_name == "delete_note":
+                if copy_file.exists():
+                    copy_file.unlink()
+                continue
 
-        elif info["tool_name"] == "create_note":
-            # Rejected creation: delete from copy
+            if main_file.exists():
+                copy_file.parent.mkdir(parents=True, exist_ok=True)
+                copy_file.write_text(
+                    main_file.read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+            continue
+
+        if status != "rejected":
+            continue
+
+        if tool_name == "create_note":
+            # Rejected creation: delete from copy unless main now has a canonical version.
+            if main_file.exists():
+                copy_file.parent.mkdir(parents=True, exist_ok=True)
+                copy_file.write_text(
+                    main_file.read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+            elif copy_file.exists():
+                copy_file.unlink()
+        elif main_file.exists():
+            copy_file.parent.mkdir(parents=True, exist_ok=True)
+            copy_file.write_text(
+                main_file.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+        elif tool_name == "delete_note" and copy_file.exists():
+            # Fallback for unexpected state where the main file is already gone.
             if copy_file.exists():
                 copy_file.unlink()
-
-        elif info["tool_name"] == "delete_note":
-            # Rejected deletion: restore file in copy from main
-            copy_file.parent.mkdir(parents=True, exist_ok=True)
-            copy_file.write_text(main_file.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 # Background service that polls the copy vault and creates changesets.
@@ -289,13 +312,11 @@ class ClawdyService:
             logger.warning("clawdy: no vault_path configured, skipping poll")
             return
 
-        # Check for pending clawdy changeset
+        # Check for a pending clawdy changeset so new diffs can stack into it.
         pending, count = self._changeset_store.get_all_filtered(
             status="pending", source_type="clawdy", limit=1
         )
-        if count > 0:
-            logger.debug("clawdy: skipping poll, pending changeset exists")
-            return
+        pending_cs = pending[0] if count > 0 else None
 
         # Snapshot before pull
         pre_snapshot = snapshot_vault(self.copy_vault_path)
@@ -353,13 +374,31 @@ class ClawdyService:
                 # No convergence yet — all diffs go to changeset
                 openclaw_diffs = (modified, created, deleted)
 
-            cs = create_clawdy_changeset(main_vault, self.copy_vault_path, diffs=openclaw_diffs)
-            if cs:
+            cs = create_clawdy_changeset(
+                main_vault,
+                self.copy_vault_path,
+                diffs=openclaw_diffs,
+            )
+            if cs and pending_cs:
+                merged = self._changeset_store.merge_changes(pending_cs.id, cs.changes)
+                if merged:
+                    tools = {}
+                    for change in merged.changes:
+                        tools[change.tool_name] = tools.get(change.tool_name, 0) + 1
+                    logger.info(
+                        "clawdy: merged into changeset %s, now %d changes (%s)",
+                        merged.id,
+                        len(merged.changes),
+                        tools,
+                    )
+            elif cs:
                 tools = {}
                 for c in cs.changes:
                     tools[c.tool_name] = tools.get(c.tool_name, 0) + 1
                 logger.info("clawdy: created changeset %s with %d changes (%s)", cs.id, len(cs.changes), tools)
                 self._changeset_store.set(cs)
+            elif pending_cs:
+                self._changeset_store.merge_changes(pending_cs.id, [])
             self.last_poll = datetime.now(timezone.utc).isoformat()
             if not auto_sync_errored:
                 self.last_error = None

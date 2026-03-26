@@ -73,6 +73,10 @@ class Changeset(BaseModel):
         default="pending", description="Current changeset status"
     )
     created_at: str = Field(description="ISO 8601 creation timestamp")
+    updated_at: str | None = Field(
+        default=None,
+        description="ISO 8601 last-updated timestamp for stacked or edited changesets",
+    )
     source_type: SourceType = Field(
         default="web", description="Origin type of the content items"
     )
@@ -151,6 +155,7 @@ class ChangesetSummary(BaseModel):
     id: str
     status: str
     created_at: str
+    updated_at: str | None = None
     source_type: SourceType
     change_count: int
     routing: RoutingInfo | None

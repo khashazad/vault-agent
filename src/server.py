@@ -480,6 +480,7 @@ async def list_changesets(
             id=cs.id,
             status=cs.status,
             created_at=cs.created_at,
+            updated_at=cs.updated_at,
             source_type=cs.source_type,
             change_count=len(cs.changes),
             routing=cs.routing,
@@ -1483,13 +1484,11 @@ async def trigger_clawdy_sync(request: Request):
     return {"status": "ok", "last_poll": clawdy_service.last_poll}
 
 
-# Run convergence on a fully-resolved clawdy changeset.
+# Sync a fully-resolved changeset back to the configured copy vault.
 @app.post("/clawdy/converge/{changeset_id}", tags=["Clawdy"])
 async def converge_clawdy(changeset_id: str, request: Request):
     _require_vault(request)
     cs = _get_changeset_or_404(changeset_id)
-    if cs.source_type != "clawdy":
-        raise HTTPException(400, "Not a clawdy changeset")
 
     # Check all changes are in terminal state
     for change in cs.changes:
