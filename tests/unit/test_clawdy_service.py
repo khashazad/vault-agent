@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 
@@ -304,6 +305,27 @@ class TestClawdyServicePoll:
         svc.enabled = True
         svc.copy_vault_path = None
         svc.poll(main_vault="/main")
+        cs_store.set.assert_not_called()
+
+    @patch("src.clawdy.service.pull")
+    def test_poll_pull_failure_surfaces_git_stderr(self, mock_pull):
+        mock_pull.side_effect = subprocess.CalledProcessError(
+            128,
+            ["git", "pull"],
+            stderr="fatal: not a git repository",
+        )
+
+        settings = MagicMock()
+        settings.get.return_value = None
+        cs_store = MagicMock()
+        cs_store.get_all_filtered.return_value = ([], 0)
+
+        svc = ClawdyService(settings_store=settings, changeset_store=cs_store)
+        svc.enabled = True
+        svc.copy_vault_path = "/copy"
+        svc.poll(main_vault="/main")
+
+        assert svc.last_error == "fatal: not a git repository"
         cs_store.set.assert_not_called()
 
     @patch("src.clawdy.service.pull")

@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import subprocess
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,16 @@ FileChange = tuple[str, str, str]
 FileDelete = tuple[str, str]
 # Create tuple: (relative_path, copy_content)
 FileCreate = tuple[str, str]
+
+
+# Return the most useful message from a subprocess failure.
+def _format_process_error(err: Exception) -> str:
+    if isinstance(err, subprocess.CalledProcessError):
+        if err.stderr and err.stderr.strip():
+            return err.stderr.strip()
+        if err.stdout and err.stdout.strip():
+            return err.stdout.strip()
+    return str(err)
 
 
 # Hash all .md files in a vault directory.
@@ -324,8 +335,8 @@ class ClawdyService:
         try:
             pull(self.copy_vault_path)
         except Exception as e:
-            self.last_error = str(e)
-            logger.warning("clawdy: git pull failed: %s", e)
+            self.last_error = _format_process_error(e)
+            logger.warning("clawdy: git pull failed: %s", self.last_error)
             return
 
         # Snapshot after pull
@@ -360,9 +371,12 @@ class ClawdyService:
                             git_commit(self.copy_vault_path, f"vault-agent: auto-sync {sync_count} user changes")
                             git_push(self.copy_vault_path)
                         except Exception as e:
-                            self.last_error = str(e)
+                            self.last_error = _format_process_error(e)
                             auto_sync_errored = True
-                            logger.warning("clawdy: auto-sync commit/push failed: %s", e)
+                            logger.warning(
+                                "clawdy: auto-sync commit/push failed: %s",
+                                self.last_error,
+                            )
                             try:
                                 reset_hard(self.copy_vault_path)
                             except Exception:
@@ -403,7 +417,7 @@ class ClawdyService:
             if not auto_sync_errored:
                 self.last_error = None
         except Exception as e:
-            self.last_error = str(e)
+            self.last_error = _format_process_error(e)
             logger.exception("clawdy: diff/changeset creation failed")
 
     # Start the background poll loop.
