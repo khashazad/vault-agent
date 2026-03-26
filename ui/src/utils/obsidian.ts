@@ -5,9 +5,25 @@
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|svg|webp|bmp|avif)$/i;
 
+/** Convert \(...\) and \[...\] LaTeX delimiters to $...$ and $$...$$ for remark-math */
+export function normalizeLatexDelimiters(content: string): string {
+  let result = content;
+  // Display math: \[...\] → $$...$$
+  result = result.replace(
+    /\\\[([\s\S]+?)\\\]/g,
+    (_m, inner: string) => `$$${inner}$$`,
+  );
+  // Inline math: \(...\) → $...$
+  result = result.replace(
+    /\\\((.+?)\\\)/g,
+    (_m, inner: string) => `$${inner}$`,
+  );
+  return result;
+}
+
 /** Transform Obsidian syntax into renderable HTML spans */
 export function preprocessObsidian(content: string): string {
-  let result = content;
+  let result = normalizeLatexDelimiters(content);
 
   // Embeds: ![[Note]] or ![[Note|display]] — images become <img>, notes stay as spans
   result = result.replace(

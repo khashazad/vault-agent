@@ -429,6 +429,16 @@ Config in `tests/e2e/playwright.config.ts`. Uses `page.route()` for API mocking 
 - **frontend** job: `bun install` → `vitest`
 - **e2e** job (depends on frontend): build UI → install Playwright → run specs
 
+## Pre-PR Checklist
+
+Before creating or pushing a PR, run all three test suites and confirm they pass:
+
+```bash
+uv run pytest tests/ -v                            # Backend (unit + integration)
+cd ui && bun run test                              # Frontend (vitest)
+cd tests/e2e && bunx playwright test               # E2E (requires ui build)
+```
+
 ## Explicit Boundaries
 
 - Never use triple-quote docstrings (`#` comments only)
