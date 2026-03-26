@@ -233,27 +233,21 @@ export function ChangesetReview({
               <div className="flex border border-border rounded overflow-hidden">
                 {change.tool_name !== "create_note" && (
                   <button
-                    onClick={() =>
-                      setViewMode(change.id, "diff")
-                    }
+                    onClick={() => setViewMode(change.id, "diff")}
                     className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Diff
                   </button>
                 )}
                 <button
-                    onClick={() =>
-                      setViewMode(change.id, "preview")
-                    }
+                  onClick={() => setViewMode(change.id, "preview")}
                   className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                 >
                   Preview
                 </button>
                 {!readOnly && (
                   <button
-                    onClick={() =>
-                      setViewMode(change.id, "edit")
-                    }
+                    onClick={() => setViewMode(change.id, "edit")}
                     className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "edit" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Edit
@@ -282,27 +276,21 @@ export function ChangesetReview({
               <div className="flex gap-1 mb-2 items-center">
                 {change.tool_name !== "create_note" && (
                   <button
-                    onClick={() =>
-                      setViewMode(change.id, "diff")
-                    }
+                    onClick={() => setViewMode(change.id, "diff")}
                     className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Diff
                   </button>
                 )}
                 <button
-                    onClick={() =>
-                      setViewMode(change.id, "preview")
-                    }
+                  onClick={() => setViewMode(change.id, "preview")}
                   className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                 >
                   Preview
                 </button>
                 {!readOnly && (
                   <button
-                    onClick={() =>
-                      setViewMode(change.id, "edit")
-                    }
+                    onClick={() => setViewMode(change.id, "edit")}
                     className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "edit" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
                     Edit

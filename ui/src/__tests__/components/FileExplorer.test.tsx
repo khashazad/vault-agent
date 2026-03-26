@@ -27,7 +27,9 @@ describe("FileExplorer", () => {
   ];
 
   it("renders nested folders and files", () => {
-    render(<FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />,
+    );
 
     expect(screen.getByText("notes")).toBeInTheDocument();
     expect(screen.getByText("papers")).toBeInTheDocument();
@@ -36,7 +38,9 @@ describe("FileExplorer", () => {
   });
 
   it("shows change badges", () => {
-    render(<FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />,
+    );
 
     expect(screen.getByText("MOD")).toBeInTheDocument();
     expect(screen.getByText("NEW")).toBeInTheDocument();
@@ -45,7 +49,9 @@ describe("FileExplorer", () => {
 
   it("calls onSelect with the change id", () => {
     const onSelect = vi.fn();
-    render(<FileExplorer changes={changes} selectedId={null} onSelect={onSelect} />);
+    render(
+      <FileExplorer changes={changes} selectedId={null} onSelect={onSelect} />,
+    );
 
     fireEvent.click(screen.getByText("file1.md"));
 
@@ -53,19 +59,25 @@ describe("FileExplorer", () => {
   });
 
   it("highlights the selected row", () => {
-    render(<FileExplorer changes={changes} selectedId="c1" onSelect={vi.fn()} />);
+    render(
+      <FileExplorer changes={changes} selectedId="c1" onSelect={vi.fn()} />,
+    );
 
     expect(screen.getByTestId("file-row-c1")).toHaveClass("border-accent");
   });
 
   it("shows review counts in the header", () => {
-    render(<FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />,
+    );
 
     expect(screen.getByText(/1 to review \/ 2 reviewed/)).toBeInTheDocument();
   });
 
   it("collapses folders", () => {
-    render(<FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />,
+    );
 
     fireEvent.click(screen.getByText("papers"));
 
@@ -73,7 +85,9 @@ describe("FileExplorer", () => {
   });
 
   it("shows review icons on reviewed files", () => {
-    render(<FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <FileExplorer changes={changes} selectedId={null} onSelect={vi.fn()} />,
+    );
 
     expect(screen.getByTestId("file-row-c2").textContent).toContain("✓");
     expect(screen.getByTestId("file-row-c3").textContent).toContain("✗");

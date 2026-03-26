@@ -307,8 +307,8 @@ export function ChangesetDetailPage() {
     changesetActions.changes[0] ??
     null;
   const selectedMode = selectedChange
-    ? changesetActions.viewModes[selectedChange.id] ??
-      defaultViewMode(selectedChange)
+    ? (changesetActions.viewModes[selectedChange.id] ??
+      defaultViewMode(selectedChange))
     : "preview";
   const multiApprovedCount = changesetActions.changes.filter(
     (change) => change.status === "approved",
@@ -566,7 +566,9 @@ export function ChangesetDetailPage() {
                         />
                       ) : selectedMode === "edit" && isInteractive ? (
                         <div className="flex flex-col gap-2 h-full">
-                          {changesetActions.savingIds.has(selectedChange.id) && (
+                          {changesetActions.savingIds.has(
+                            selectedChange.id,
+                          ) && (
                             <span className="text-xs text-muted animate-pulse">
                               Saving...
                             </span>
@@ -586,7 +588,9 @@ export function ChangesetDetailPage() {
                           />
                         </div>
                       ) : (
-                        <MarkdownPreview content={selectedChange.proposed_content} />
+                        <MarkdownPreview
+                          content={selectedChange.proposed_content}
+                        />
                       )}
                     </div>
                   </div>
@@ -647,7 +651,8 @@ export function ChangesetDetailPage() {
                           <button
                             onClick={changesetActions.handleApply}
                             disabled={
-                              changesetActions.applying || multiApprovedCount === 0
+                              changesetActions.applying ||
+                              multiApprovedCount === 0
                             }
                             className="bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                           >
