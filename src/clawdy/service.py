@@ -352,19 +352,33 @@ class ClawdyService:
         try:
             logger.info("clawdy: diffing main=%s copy=%s", main_vault, self.copy_vault_path)
             modified, created, deleted = diff_vaults(main_vault, self.copy_vault_path)
-
             openclaw_diffs, main_diffs = partition_diff(modified, created, deleted, pull_changed)
 
             # Bidirectional auto-sync (only after first convergence)
             auto_sync_errored = False
             last_converge = self._settings.get("clawdy_last_converge")
+
             if last_converge:
                 mn_mod, mn_cre, mn_del = main_diffs
+
+                pending_paths: set[str] = set()
+                if pending_cs:
+                    for c in pending_cs.changes:
+                        p = c.input.get("path", "")
+                        if p:
+                            pending_paths.add(p)
+
+                if pending_paths:
+                    mn_mod = [m for m in mn_mod if m[0] not in pending_paths]
+                    mn_cre = [c for c in mn_cre if c[0] not in pending_paths]
+                    mn_del = [d for d in mn_del if d[0] not in pending_paths]
+
                 if mn_mod or mn_cre or mn_del:
                     sync_count = sync_main_to_copy(
                         main_vault, self.copy_vault_path, mn_mod, mn_cre, mn_del
                     )
                     self.last_auto_sync = sync_count
+
                     if sync_count > 0:
                         logger.info("clawdy: auto-synced %d files from main to copy", sync_count)
                         try:
@@ -393,8 +407,14 @@ class ClawdyService:
                 self.copy_vault_path,
                 diffs=openclaw_diffs,
             )
+
             if cs and pending_cs:
-                merged = self._changeset_store.merge_changes(pending_cs.id, cs.changes)
+                # Preserve existing changes for paths not in the new set.
+                # merge_changes drops paths absent from new_changes, so we
+                # re-include unchanged pending entries that still differ.
+                new_paths = {c.input.get("path", "") for c in cs.changes}
+                carry_forward = [c for c in pending_cs.changes if c.input.get("path", "") not in new_paths]
+                merged = self._changeset_store.merge_changes(pending_cs.id, carry_forward + cs.changes)
                 if merged:
                     tools = {}
                     for change in merged.changes:
@@ -412,7 +432,18 @@ class ClawdyService:
                 logger.info("clawdy: created changeset %s with %d changes (%s)", cs.id, len(cs.changes), tools)
                 self._changeset_store.set(cs)
             elif pending_cs:
-                self._changeset_store.merge_changes(pending_cs.id, [])
+                # Only merge empty (clean up stale entries) when all pending
+                # paths have actually been resolved. If diffs still exist for
+                # pending paths they were intentionally excluded from auto-sync
+                # and the changeset must be preserved.
+                _pending_still_differs = False
+                if last_converge:
+                    _all_diff_paths = {m[0] for m in modified} | {c[0] for c in created} | {d[0] for d in deleted}
+                    _cs_paths = {c.input.get("path", "") for c in pending_cs.changes}
+                    _pending_still_differs = bool(_cs_paths & _all_diff_paths)
+
+                if not _pending_still_differs:
+                    self._changeset_store.merge_changes(pending_cs.id, [])
             self.last_poll = datetime.now(timezone.utc).isoformat()
             if not auto_sync_errored:
                 self.last_error = None
