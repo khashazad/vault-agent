@@ -103,7 +103,9 @@ export function FileExplorer({ changes, selectedId, onSelect }: Props) {
   const tree = useMemo(() => buildTree(changes), [changes]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  const pendingCount = changes.filter((change) => change.status === "pending").length;
+  const pendingCount = changes.filter(
+    (change) => change.status === "pending",
+  ).length;
   const reviewedCount = changes.length - pendingCount;
 
   function toggleFolder(path: string) {
