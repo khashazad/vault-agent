@@ -1,20 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState } from "react";
 import type { ProposedChange } from "../types";
-import {
-  fetchChangeset,
-  updateChangeStatus,
-  updateChangeContent,
-  applyChangeset,
-  rejectChangeset,
-  convergeClawdy,
-} from "../api/client";
 import type { SourceType } from "../types";
-import { formatError } from "../utils";
 import { DiffViewer } from "./DiffViewer";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { Skeleton } from "./Skeleton";
-
-type ViewMode = "diff" | "preview" | "edit";
+import { useChangesetActions } from "../hooks/useChangesetActions";
 
 interface Props {
   changesetId: string;
@@ -31,201 +20,29 @@ export function ChangesetReview({
   readOnly = false,
   sourceType,
 }: Props) {
-  const [changes, setChanges] = useState<ProposedChange[]>(initialChanges);
-  const [viewModes, setViewModes] = useState<Record<string, ViewMode>>({});
-  const [editBuffers, setEditBuffers] = useState<Record<string, string>>({});
-  const [applying, setApplying] = useState(false);
-  const [loadingChangeset, setLoadingChangeset] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [statusError, setStatusError] = useState<string | null>(null);
-  const [result, setResult] = useState<{
-    applied: string[];
-    failed: { id: string; error: string }[];
-  } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
-  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>(
-    {},
-  );
-  // Track which changes have been synced to server to avoid redundant calls
-  const syncedIds = useRef<Set<string>>(new Set());
-
-  // If no initial changes provided, fetch from server
-  useEffect(() => {
-    if (initialChanges.length === 0 && changesetId) {
-      setLoadingChangeset(true);
-      setFetchError(null);
-      fetchChangeset(changesetId)
-        .then((cs) => setChanges(cs.changes))
-        .catch((err) => setFetchError(String(err)))
-        .finally(() => setLoadingChangeset(false));
-    }
-  }, [changesetId, initialChanges]);
-
-  const toggleChange = useCallback(
-    async (changeId: string) => {
-      if (readOnly) return;
-      setChanges((prev) =>
-        prev.map((c) => {
-          if (c.id !== changeId) return c;
-          const newStatus = c.status === "approved" ? "rejected" : "approved";
-          updateChangeStatus(changesetId, changeId, newStatus).catch((err) =>
-            setStatusError(formatError(err)),
-          );
-          return { ...c, status: newStatus };
-        }),
-      );
-    },
-    [changesetId, readOnly],
-  );
-
-  const setAllStatuses = useCallback(
-    (status: "approved" | "rejected") => {
-      if (readOnly) return;
-      setChanges((prev) => prev.map((c) => ({ ...c, status })));
-      // Mark all as needing sync; actual sync happens on apply
-      syncedIds.current.clear();
-    },
-    [readOnly],
-  );
-
-  const handleEditChange = useCallback(
-    (changeId: string, content: string) => {
-      setEditBuffers((prev) => ({ ...prev, [changeId]: content }));
-      setSavingIds((prev) => new Set(prev).add(changeId));
-
-      // Debounce the API call
-      if (debounceTimers.current[changeId]) {
-        clearTimeout(debounceTimers.current[changeId]);
-      }
-      debounceTimers.current[changeId] = setTimeout(async () => {
-        try {
-          await updateChangeContent(changesetId, changeId, content);
-          // Refetch to get updated diff
-          const cs = await fetchChangeset(changesetId);
-          setChanges((prev) =>
-            prev.map((c) => {
-              const updated = cs.changes.find((uc) => uc.id === c.id);
-              return updated ? { ...updated, status: c.status } : c;
-            }),
-          );
-        } catch (err) {
-          setStatusError(formatError(err));
-        } finally {
-          setSavingIds((prev) => {
-            const next = new Set(prev);
-            next.delete(changeId);
-            return next;
-          });
-        }
-      }, 500);
-    },
-    [changesetId],
-  );
-
-  const handleApply = useCallback(async () => {
-    const approvedIds = changes
-      .filter((c) => c.status === "approved")
-      .map((c) => c.id);
-
-    if (approvedIds.length === 0) return;
-
-    setApplying(true);
-    try {
-      // Sync statuses to server before applying (batched, 10 at a time)
-      const unsyncedChanges = changes.filter(
-        (c) =>
-          !syncedIds.current.has(c.id) &&
-          (c.status === "approved" || c.status === "rejected"),
-      );
-      for (let i = 0; i < unsyncedChanges.length; i += 10) {
-        const batch = unsyncedChanges.slice(i, i + 10);
-        await Promise.all(
-          batch.map((c) =>
-            updateChangeStatus(
-              changesetId,
-              c.id,
-              c.status as "approved" | "rejected",
-            ),
-          ),
-        );
-      }
-
-      const res = await applyChangeset(changesetId, approvedIds);
-      setResult(res);
-      if (sourceType === "clawdy") {
-        try {
-          await convergeClawdy(changesetId);
-        } catch (convergeErr) {
-          setStatusError(
-            `Applied to vault but copy-vault sync failed: ${formatError(convergeErr)}`,
-          );
-        }
-      }
-    } catch (err) {
-      setResult({
-        applied: [],
-        failed: [{ id: "all", error: String(err) }],
-      });
-    } finally {
-      setApplying(false);
-    }
-  }, [changesetId, changes, sourceType]);
-
-  const handleReject = useCallback(async () => {
-    try {
-      await rejectChangeset(changesetId);
-      if (sourceType === "clawdy") {
-        await convergeClawdy(changesetId);
-      }
-    } catch (err) {
-      setStatusError(formatError(err));
-      return;
-    }
-    onDone();
-  }, [changesetId, onDone, sourceType]);
+  const {
+    changes,
+    setChangeStatus,
+    setAllStatuses,
+    handleApply,
+    handleReject,
+    handleEditChange,
+    applying,
+    statusError,
+    result,
+    savingIds,
+    editBuffers,
+    viewModes,
+    setViewMode,
+  } = useChangesetActions({
+    changesetId,
+    initialChanges,
+    sourceType: sourceType ?? "web",
+    onDone,
+  });
 
   const approvedCount = changes.filter((c) => c.status === "approved").length;
-
-  const setChangeStatus = useCallback(
-    (changeId: string, status: "approved" | "rejected" | "pending") => {
-      if (readOnly) return;
-      setChanges((prev) =>
-        prev.map((c) => (c.id === changeId ? { ...c, status } : c)),
-      );
-      syncedIds.current.delete(changeId);
-    },
-    [readOnly],
-  );
-
-  if (loadingChangeset) {
-    return (
-      <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
-        <div className="flex gap-3">
-          <Skeleton h="h-4" w="w-24" />
-          <Skeleton h="h-4" w="w-32" />
-        </div>
-        {Array.from({ length: 8 }, (_, i) => (
-          <Skeleton key={i} h="h-3" w={i % 2 === 0 ? "w-full" : "w-3/4"} />
-        ))}
-      </div>
-    );
-  }
-
-  if (fetchError) {
-    return (
-      <div className="bg-surface border border-border rounded p-5 text-center">
-        <p className="text-red mb-3">Failed to load changeset: {fetchError}</p>
-        <button
-          onClick={onDone}
-          className="bg-accent text-crust border-none py-2 px-5 rounded text-sm"
-        >
-          Back
-        </button>
-      </div>
-    );
-  }
 
   if (changes.length === 0) {
     return (
@@ -405,10 +222,7 @@ export function ChangesetReview({
                 onClick={(e) => {
                   e.stopPropagation();
                   setExpandedId(change.id);
-                  setViewModes((prev) => ({
-                    ...prev,
-                    [change.id]: "edit",
-                  }));
+                  setViewMode(change.id, "edit");
                 }}
                 className="py-0.5 px-2 rounded flex items-center gap-1 border-none cursor-pointer transition-colors text-[10px] font-bold bg-transparent text-muted hover:bg-accent/10 hover:text-accent"
               >
@@ -420,10 +234,7 @@ export function ChangesetReview({
                 {change.tool_name !== "create_note" && (
                   <button
                     onClick={() =>
-                      setViewModes((prev) => ({
-                        ...prev,
-                        [change.id]: "diff",
-                      }))
+                      setViewMode(change.id, "diff")
                     }
                     className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
@@ -431,12 +242,9 @@ export function ChangesetReview({
                   </button>
                 )}
                 <button
-                  onClick={() =>
-                    setViewModes((prev) => ({
-                      ...prev,
-                      [change.id]: "preview",
-                    }))
-                  }
+                    onClick={() =>
+                      setViewMode(change.id, "preview")
+                    }
                   className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                 >
                   Preview
@@ -444,10 +252,7 @@ export function ChangesetReview({
                 {!readOnly && (
                   <button
                     onClick={() =>
-                      setViewModes((prev) => ({
-                        ...prev,
-                        [change.id]: "edit",
-                      }))
+                      setViewMode(change.id, "edit")
                     }
                     className={`text-[11px] py-0.5 px-2.5 border-none cursor-pointer ${mode === "edit" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
@@ -478,10 +283,7 @@ export function ChangesetReview({
                 {change.tool_name !== "create_note" && (
                   <button
                     onClick={() =>
-                      setViewModes((prev) => ({
-                        ...prev,
-                        [change.id]: "diff",
-                      }))
+                      setViewMode(change.id, "diff")
                     }
                     className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "diff" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >
@@ -489,12 +291,9 @@ export function ChangesetReview({
                   </button>
                 )}
                 <button
-                  onClick={() =>
-                    setViewModes((prev) => ({
-                      ...prev,
-                      [change.id]: "preview",
-                    }))
-                  }
+                    onClick={() =>
+                      setViewMode(change.id, "preview")
+                    }
                   className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "preview" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                 >
                   Preview
@@ -502,10 +301,7 @@ export function ChangesetReview({
                 {!readOnly && (
                   <button
                     onClick={() =>
-                      setViewModes((prev) => ({
-                        ...prev,
-                        [change.id]: "edit",
-                      }))
+                      setViewMode(change.id, "edit")
                     }
                     className={`text-[11px] py-0.5 px-2.5 border-none rounded cursor-pointer ${mode === "edit" ? "bg-accent text-crust" : "bg-elevated text-muted"}`}
                   >

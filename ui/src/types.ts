@@ -77,6 +77,7 @@ export interface Changeset {
     | "skipped"
     | "revision_requested";
   created_at: string;
+  updated_at: string | null;
   source_type: SourceType;
   routing: RoutingInfo | null;
   usage: TokenUsage | null;
@@ -161,6 +162,7 @@ export interface ChangesetSummary {
   id: string;
   status: Changeset["status"];
   created_at: string;
+  updated_at: string | null;
   source_type: SourceType;
   change_count: number;
   routing: RoutingInfo | null;

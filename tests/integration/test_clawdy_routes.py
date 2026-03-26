@@ -137,6 +137,47 @@ class TestClawdyBidirectional:
         assert res.status_code == 200
         assert memory_settings_store.get("clawdy_last_converge") is not None
 
+    async def test_converge_syncs_non_clawdy_applied_changes(self, client, memory_changeset_store, memory_settings_store, tmp_vault, tmp_path):
+        from tests.factories import make_changeset, make_proposed_change
+        from unittest.mock import MagicMock, patch
+        import src.server as server_mod
+
+        copy_vault = tmp_path / "copy"
+        copy_vault.mkdir()
+        (copy_vault / ".git").mkdir()
+        memory_settings_store.set("clawdy_copy_vault_path", str(copy_vault))
+
+        notes = tmp_vault / "Notes"
+        notes.mkdir(parents=True, exist_ok=True)
+        (notes / "A.md").write_text("main content")
+        copy_notes = copy_vault / "Notes"
+        copy_notes.mkdir(parents=True, exist_ok=True)
+        (copy_notes / "A.md").write_text("stale copy")
+
+        change = make_proposed_change(
+            tool_name="replace_note",
+            input={"path": "Notes/A.md", "content": "main content"},
+            original_content="stale copy",
+            proposed_content="main content",
+            status="applied",
+        )
+        cs = make_changeset(source_type="web", changes=[change])
+        memory_changeset_store.set(cs)
+
+        mock_svc = MagicMock()
+        mock_svc.copy_vault_path = str(copy_vault)
+        old_global = server_mod.clawdy_service
+        server_mod.clawdy_service = mock_svc
+
+        try:
+            with patch("src.server.git_commit"), patch("src.server.git_push"), patch("src.server.git_status", return_value="M Notes/A.md\n"):
+                res = await client.post(f"/clawdy/converge/{cs.id}")
+        finally:
+            server_mod.clawdy_service = old_global
+
+        assert res.status_code == 200
+        assert (copy_vault / "Notes/A.md").read_text() == "main content"
+
     async def test_status_includes_bidirectional_fields(self, client):
         res = await client.get("/clawdy/status")
         assert res.status_code == 200

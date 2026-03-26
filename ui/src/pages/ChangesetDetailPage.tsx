@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router";
-import type { Changeset, TokenUsage, PassageAnnotation } from "../types";
+import type {
+  Changeset,
+  PassageAnnotation,
+  ProposedChange,
+  TokenUsage,
+} from "../types";
 import {
   fetchChangeset,
   fetchChangesetCost,
@@ -12,12 +17,16 @@ import {
 import { formatError, formatTokens } from "../utils";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { ChangesetReview } from "../components/ChangesetReview";
+import { DiffViewer } from "../components/DiffViewer";
+import { FileExplorer } from "../components/FileExplorer";
+import { MarkdownPreview } from "../components/MarkdownPreview";
 import {
   AnnotationFeedback,
   formatAnnotations,
 } from "../components/AnnotationFeedback";
 import { StatusBadge } from "../components/StatusBadge";
 import { Skeleton } from "../components/Skeleton";
+import { useChangesetActions } from "../hooks/useChangesetActions";
 import { useClickOutside } from "../hooks/useClickOutside";
 
 function DeleteConfirmPopover({
@@ -99,6 +108,30 @@ function DetailSkeleton() {
   );
 }
 
+function changeBadgeLabel(toolName: string) {
+  if (toolName === "create_note") return "NEW";
+  if (toolName === "delete_note") return "DEL";
+  return "MOD";
+}
+
+function changeBadgeClass(toolName: string) {
+  if (toolName === "create_note") return "bg-green/15 text-green";
+  if (toolName === "delete_note") return "bg-red/15 text-red";
+  return "bg-yellow/15 text-yellow";
+}
+
+function formatChangeTimestamp(detail: Changeset) {
+  const created = new Date(detail.created_at).toLocaleString();
+  if (!detail.updated_at || detail.updated_at === detail.created_at) {
+    return created;
+  }
+  return `Created ${created}, updated ${new Date(detail.updated_at).toLocaleString()}`;
+}
+
+function defaultViewMode(change: ProposedChange) {
+  return change.tool_name === "create_note" ? "preview" : "diff";
+}
+
 export function ChangesetDetailPage() {
   const { changesetId } = useParams<{ changesetId: string }>();
   const navigate = useNavigate();
@@ -114,6 +147,8 @@ export function ChangesetDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [converging, setConverging] = useState(false);
   const [splitPercent, setSplitPercent] = useState(72);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const dragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -140,6 +175,19 @@ export function ChangesetDetailPage() {
     if (changesetId) loadDetail(changesetId);
   }, [changesetId, loadDetail]);
 
+  useEffect(() => {
+    if (!detail?.changes.length) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((current) => {
+      if (current && detail.changes.some((change) => change.id === current)) {
+        return current;
+      }
+      return detail.changes[0].id;
+    });
+  }, [detail]);
+
   function backToList() {
     if (detailLoading) return;
     if (detail?.source_type === "clawdy") {
@@ -148,6 +196,13 @@ export function ChangesetDetailPage() {
       navigate("/changesets");
     }
   }
+
+  const changesetActions = useChangesetActions({
+    changesetId: detail?.id ?? "",
+    initialChanges: detail?.changes ?? [],
+    sourceType: detail?.source_type ?? "web",
+    onDone: backToList,
+  });
 
   const handleConverge = useCallback(async () => {
     if (!changesetId) return;
@@ -246,6 +301,18 @@ export function ChangesetDetailPage() {
     allResolved &&
     detail?.status !== "applied" &&
     detail?.status !== "rejected";
+  const isMultiChange = (detail?.changes.length ?? 0) > 1;
+  const selectedChange =
+    changesetActions.changes.find((change) => change.id === selectedId) ??
+    changesetActions.changes[0] ??
+    null;
+  const selectedMode = selectedChange
+    ? changesetActions.viewModes[selectedChange.id] ??
+      defaultViewMode(selectedChange)
+    : "preview";
+  const multiApprovedCount = changesetActions.changes.filter(
+    (change) => change.status === "approved",
+  ).length;
 
   return (
     <div className="flex flex-col gap-4 flex-1 min-h-0 py-6 px-8">
@@ -270,7 +337,7 @@ export function ChangesetDetailPage() {
           <div className="bg-surface border border-border rounded p-3 flex flex-wrap items-center gap-3 text-sm">
             <StatusBadge status={detail.status} />
             <span className="text-xs text-muted">
-              {new Date(detail.created_at).toLocaleString()}
+              {formatChangeTimestamp(detail)}
             </span>
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface border border-border text-muted">
               {detail.source_type}
@@ -341,64 +408,348 @@ export function ChangesetDetailPage() {
             </div>
           )}
 
-          <div ref={containerRef} className="flex flex-1 min-h-0 w-full">
-            <div
-              className="flex flex-col gap-4 min-w-0 min-h-0"
-              style={{ width: isInteractive ? `${splitPercent}%` : "100%" }}
-            >
-              <ChangesetReview
-                changesetId={detail.id}
-                initialChanges={detail.changes}
-                onDone={backToList}
-                readOnly={!isInteractive}
-                sourceType={detail.source_type}
+          {isMultiChange ? (
+            <div className="flex flex-1 min-h-0 gap-4">
+              <FileExplorer
+                changes={changesetActions.changes}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
               />
 
-              {showRegenerate && (
-                <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
-                  <h4 className="text-sm font-medium m-0">Regenerate</h4>
-                  <p className="text-xs text-muted m-0">
-                    Re-run the agent with the feedback above to produce a new
-                    changeset.
-                  </p>
-                  <button
-                    onClick={handleRegenerate}
-                    disabled={regenerating}
-                    className="self-start bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              <div className="flex min-w-0 flex-1 flex-col gap-4">
+                {changesetActions.statusError && (
+                  <ErrorAlert message={changesetActions.statusError} />
+                )}
+
+                {changesetActions.result ? (
+                  <div className="bg-surface border border-border rounded-xl p-5 flex flex-col items-center gap-3">
+                    {changesetActions.result.applied.length > 0 && (
+                      <h3 className="text-sm font-semibold m-0">
+                        {changesetActions.result.applied.length} change
+                        {changesetActions.result.applied.length !== 1
+                          ? "s"
+                          : ""}{" "}
+                        written to vault
+                      </h3>
+                    )}
+                    {changesetActions.result.failed.length > 0 && (
+                      <div className="text-center text-red text-sm">
+                        {changesetActions.result.failed.map((failure) => (
+                          <p key={failure.id} className="m-0">
+                            {failure.error}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={backToList}
+                      className="bg-accent text-crust border-none py-2 px-5 rounded text-sm"
+                    >
+                      Back to Changesets
+                    </button>
+                  </div>
+                ) : selectedChange ? (
+                  <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-surface overflow-hidden">
+                    <div className="border-b border-border px-4 py-3 flex flex-wrap items-center gap-3">
+                      <span className="font-mono text-sm min-w-0 flex-1 truncate">
+                        {String(selectedChange.input.path)}
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${changeBadgeClass(selectedChange.tool_name)}`}
+                      >
+                        {changeBadgeLabel(selectedChange.tool_name)}
+                      </span>
+                      {isInteractive && (
+                        <>
+                          {selectedChange.status === "pending" ? (
+                            <>
+                              <button
+                                onClick={() =>
+                                  changesetActions.setChangeStatus(
+                                    selectedChange.id,
+                                    "approved",
+                                  )
+                                }
+                                className="text-xs bg-green/15 text-green border border-green/30 rounded px-3 py-1 cursor-pointer"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() =>
+                                  changesetActions.setChangeStatus(
+                                    selectedChange.id,
+                                    "rejected",
+                                  )
+                                }
+                                className="text-xs bg-red/15 text-red border border-red/30 rounded px-3 py-1 cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                changesetActions.setChangeStatus(
+                                  selectedChange.id,
+                                  "pending",
+                                )
+                              }
+                              className="text-xs bg-elevated text-muted border border-border rounded px-3 py-1 cursor-pointer"
+                            >
+                              Undo
+                            </button>
+                          )}
+                        </>
+                      )}
+                      <div className="flex border border-border rounded overflow-hidden">
+                        {selectedChange.tool_name !== "create_note" && (
+                          <button
+                            onClick={() =>
+                              changesetActions.setViewMode(
+                                selectedChange.id,
+                                "diff",
+                              )
+                            }
+                            className={`text-[11px] py-1 px-3 border-none cursor-pointer ${
+                              selectedMode === "diff"
+                                ? "bg-accent text-crust"
+                                : "bg-elevated text-muted"
+                            }`}
+                          >
+                            Diff
+                          </button>
+                        )}
+                        <button
+                          onClick={() =>
+                            changesetActions.setViewMode(
+                              selectedChange.id,
+                              "preview",
+                            )
+                          }
+                          className={`text-[11px] py-1 px-3 border-none cursor-pointer ${
+                            selectedMode === "preview"
+                              ? "bg-accent text-crust"
+                              : "bg-elevated text-muted"
+                          }`}
+                        >
+                          Preview
+                        </button>
+                        {isInteractive && (
+                          <button
+                            onClick={() =>
+                              changesetActions.setViewMode(
+                                selectedChange.id,
+                                "edit",
+                              )
+                            }
+                            className={`text-[11px] py-1 px-3 border-none cursor-pointer ${
+                              selectedMode === "edit"
+                                ? "bg-accent text-crust"
+                                : "bg-elevated text-muted"
+                            }`}
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-h-0 overflow-y-auto p-4">
+                      {selectedMode === "diff" &&
+                      selectedChange.tool_name !== "create_note" ? (
+                        <DiffViewer
+                          diff={selectedChange.diff}
+                          filePath={String(selectedChange.input.path)}
+                          isNew={false}
+                          originalContent={selectedChange.original_content}
+                          proposedContent={selectedChange.proposed_content}
+                        />
+                      ) : selectedMode === "edit" && isInteractive ? (
+                        <div className="flex flex-col gap-2 h-full">
+                          {changesetActions.savingIds.has(selectedChange.id) && (
+                            <span className="text-xs text-muted animate-pulse">
+                              Saving...
+                            </span>
+                          )}
+                          <textarea
+                            className="w-full min-h-[420px] bg-bg border border-border rounded p-3 text-sm text-foreground font-mono resize-y outline-none focus:border-accent"
+                            value={
+                              changesetActions.editBuffers[selectedChange.id] ??
+                              selectedChange.proposed_content
+                            }
+                            onChange={(event) =>
+                              changesetActions.handleEditChange(
+                                selectedChange.id,
+                                event.target.value,
+                              )
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <MarkdownPreview content={selectedChange.proposed_content} />
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-surface border border-border rounded-xl p-5 text-sm text-muted">
+                    No change selected.
+                  </div>
+                )}
+
+                {isInteractive && !changesetActions.result && (
+                  <div className="bg-surface border border-border rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setFeedbackOpen((open) => !open)}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-transparent border-none text-left cursor-pointer"
+                    >
+                      <span className="text-sm font-medium">
+                        Feedback & Actions
+                      </span>
+                      <span className="text-xs text-muted">
+                        {feedbackOpen ? "Hide" : "Show"}
+                      </span>
+                    </button>
+
+                    {feedbackOpen && (
+                      <div className="border-t border-border p-4 flex flex-col gap-4">
+                        <AnnotationFeedback
+                          annotations={annotations}
+                          onAdd={(annotation) =>
+                            setAnnotations((prev) => [...prev, annotation])
+                          }
+                          onRemove={(id) =>
+                            setAnnotations((prev) =>
+                              prev.filter((annotation) => annotation.id !== id),
+                            )
+                          }
+                          onSubmit={handleRequestChanges}
+                          submitting={submittingFeedback}
+                        />
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            onClick={() =>
+                              changesetActions.setAllStatuses("approved")
+                            }
+                            className="bg-transparent border border-green/30 text-green py-2 px-4 rounded text-sm cursor-pointer"
+                          >
+                            Approve All
+                          </button>
+                          <button
+                            onClick={() =>
+                              changesetActions.setAllStatuses("rejected")
+                            }
+                            className="bg-transparent border border-red/30 text-red py-2 px-4 rounded text-sm cursor-pointer"
+                          >
+                            Reject All
+                          </button>
+                          <button
+                            onClick={changesetActions.handleApply}
+                            disabled={
+                              changesetActions.applying || multiApprovedCount === 0
+                            }
+                            className="bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            {changesetActions.applying
+                              ? "Applying..."
+                              : `Apply ${multiApprovedCount} Change${
+                                  multiApprovedCount !== 1 ? "s" : ""
+                                }`}
+                          </button>
+                          <button
+                            onClick={changesetActions.handleReject}
+                            disabled={changesetActions.applying}
+                            className="bg-transparent text-red border border-red/30 py-2 px-5 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:bg-red/5"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div ref={containerRef} className="flex flex-1 min-h-0 w-full">
+              <div
+                className="flex flex-col gap-4 min-w-0 min-h-0"
+                style={{ width: isInteractive ? `${splitPercent}%` : "100%" }}
+              >
+                <ChangesetReview
+                  changesetId={detail.id}
+                  initialChanges={detail.changes}
+                  onDone={backToList}
+                  readOnly={!isInteractive}
+                  sourceType={detail.source_type}
+                />
+
+                {showRegenerate && (
+                  <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
+                    <h4 className="text-sm font-medium m-0">Regenerate</h4>
+                    <p className="text-xs text-muted m-0">
+                      Re-run the agent with the feedback above to produce a new
+                      changeset.
+                    </p>
+                    <button
+                      onClick={handleRegenerate}
+                      disabled={regenerating}
+                      className="self-start bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {regenerating ? "Regenerating..." : "Regenerate"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {isInteractive && (
+                <>
+                  <div
+                    onMouseDown={onDragStart}
+                    className="w-2 mx-3 self-stretch cursor-col-resize rounded-full bg-border hover:bg-accent transition-colors flex-shrink-0 relative flex flex-col items-center justify-center gap-0.5"
                   >
-                    {regenerating ? "Regenerating..." : "Regenerate"}
-                  </button>
-                </div>
+                    <span className="block w-1 h-1 rounded-full bg-muted/50" />
+                    <span className="block w-1 h-1 rounded-full bg-muted/50" />
+                    <span className="block w-1 h-1 rounded-full bg-muted/50" />
+                  </div>
+                  <div
+                    className="min-w-0 overflow-y-auto flex-shrink-0 pl-2"
+                    style={{ width: `${100 - splitPercent}%` }}
+                  >
+                    <AnnotationFeedback
+                      annotations={annotations}
+                      onAdd={(a) => setAnnotations((prev) => [...prev, a])}
+                      onRemove={(id) =>
+                        setAnnotations((prev) =>
+                          prev.filter((a) => a.id !== id),
+                        )
+                      }
+                      onSubmit={handleRequestChanges}
+                      submitting={submittingFeedback}
+                    />
+                  </div>
+                </>
               )}
             </div>
+          )}
 
-            {isInteractive && (
-              <>
-                <div
-                  onMouseDown={onDragStart}
-                  className="w-2 mx-3 self-stretch cursor-col-resize rounded-full bg-border hover:bg-accent transition-colors flex-shrink-0 relative flex flex-col items-center justify-center gap-0.5"
-                >
-                  <span className="block w-1 h-1 rounded-full bg-muted/50" />
-                  <span className="block w-1 h-1 rounded-full bg-muted/50" />
-                  <span className="block w-1 h-1 rounded-full bg-muted/50" />
-                </div>
-                <div
-                  className="min-w-0 overflow-y-auto flex-shrink-0 pl-2"
-                  style={{ width: `${100 - splitPercent}%` }}
-                >
-                  <AnnotationFeedback
-                    annotations={annotations}
-                    onAdd={(a) => setAnnotations((prev) => [...prev, a])}
-                    onRemove={(id) =>
-                      setAnnotations((prev) => prev.filter((a) => a.id !== id))
-                    }
-                    onSubmit={handleRequestChanges}
-                    submitting={submittingFeedback}
-                  />
-                </div>
-              </>
-            )}
-          </div>
+          {showRegenerate && isMultiChange && (
+            <div className="bg-surface border border-border rounded p-4 flex flex-col gap-3">
+              <h4 className="text-sm font-medium m-0">Regenerate</h4>
+              <p className="text-xs text-muted m-0">
+                Re-run the agent with the feedback above to produce a new
+                changeset.
+              </p>
+              <button
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className="self-start bg-accent text-crust border-none py-2 px-5 rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {regenerating ? "Regenerating..." : "Regenerate"}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-muted text-sm">Changeset not found.</div>
